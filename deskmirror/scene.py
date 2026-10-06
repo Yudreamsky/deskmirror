@@ -104,6 +104,8 @@ class Block:
     version: int = 1                  # 译文或排版空间变化时加一，界面据此重绘缓存
     ok_rect: Rect | None = None       # 最近一次确认过像素对应关系时的屏幕位置
     room_bottom: int = 0              # 排版时最多可以向下延伸到的内容坐标
+    extra_w: int = 0                  # 译文放不下时最多可以向右借用的空白宽度（相对原文块右边，跟着块一起移动）
+    extra_max: int = 0                # 一个英文词都放不下时最多能伸多宽：只看右边的字，不看底色（宁可盖住一点图案也不拆词）
     created: float = field(default_factory=time.perf_counter)
     job_id: int = 0
     dynamic: bool = False             # 在动态背景上（视频字幕、游戏画面）：深色底板白字，按笔画核对
@@ -140,6 +142,7 @@ class DrawItem:
     em: float = 0.0
     ref: np.ndarray | None = field(default=None, compare=False, repr=False)  # 识别时的原文灰度图（核对用）
     src: str = field(default="", compare=False, repr=False)                  # 原文（历史面板、调试通道用）
+    stretch: int = 0                  # 一个英文词都放不下时，底板最多能伸到的右边界（屏幕坐标；0 = 不伸）
 
 
 @dataclass(frozen=True)

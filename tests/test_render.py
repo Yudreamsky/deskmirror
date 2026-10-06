@@ -1,0 +1,137 @@
+"""译文排版：放不下时向右借用空白（中日文译成英文常需要），借来的地方用多少占多少；
+引擎只把右边纯色、没有别的字的地方算成可借的空白（合成画面，不启动采集、识别和翻译）。"""
+from __future__ import annotations
+
+import os
+import unittest
+
+import numpy as np
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+import deskmirror  # noqa: E402,F401  预加载 DLL
+from deskmirror.config import StyleConfig  # noqa: E402
+from deskmirror.scene import DrawItem  # noqa: E402
+from deskmirror.ui.render import Renderer  # noqa: E402
+
+from tests.test_engine import add_block, make_engine  # noqa: E402
+
+
+def _app():
+    from PySide6.QtWidgets import QApplication
+    return QApplication.instance() or QApplication([])
+
+
+def item(text: str, rect, room=None, n_lines: int = 1, bid: int = 1, stretch: int = 0) -> DrawItem:
+    h = rect[3] - rect[1]
+    return DrawItem(bid, 1, rect, room or rect, (rect,), text, (255, 255, 255), (0, 0, 0), h // n_lines, n_lines,
+                    h / n_lines * 0.9, stretch=stretch)
+
+
+class RenderTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        _app()
+
+    def test_short_heading_borrows_room_to_the_right(self) -> None:
+        rect = (100, 100, 232, 150)                 # “老灯塔”三个字那么宽
+        narrow = Renderer(StyleConfig()).get(item("The Old Lighthouse", rect))
+        self.assertTrue(narrow.truncated or narrow.font_px < round(50 * 0.9 * 0.74), "没地方借时只能缩小、截断")
+        r = Renderer(StyleConfig()).get(item("The Old Lighthouse", rect, (100, 100, 2100, 150)))
+        self.assertFalse(r.truncated)
+        self.assertEqual(r.font_px, round(50 * 0.9 * 0.74), "借到地方就不用缩小字号")
+        self.assertGreater(r.width, 232 - 100 + 4)
+        self.assertLess(r.width, 2000, "借来的地方用多少占多少")
+        self.assertEqual(r.height, 50 + 4, "向右借了就不用向下借")
+
+    def test_text_that_fits_keeps_its_box(self) -> None:
+        rect = (100, 100, 500, 150)
+        r = Renderer(StyleConfig()).get(item("老灯塔", rect, (100, 100, 900, 150)))
+        self.assertEqual(r.width, 400 + 4, "放得下就不借")
+
+    def test_dialog_prefers_borrowing_over_shrinking(self) -> None:
+        rect = (100, 100, 640, 232)                 # 两行日文对话那么大
+        text = "But today it's stormy and the road is closed. Let's look for the lighthouse's underground passage."
+        here = Renderer(StyleConfig()).get(item(text, rect, n_lines=2))
+        r = Renderer(StyleConfig()).get(item(text, rect, (100, 100, 4100, 232), n_lines=2))
+        self.assertGreater(r.font_px, here.font_px, "能向右借就少缩字号")
+        self.assertEqual(r.height, 132 + 4)
+
+    def test_word_not_split(self) -> None:
+        from deskmirror.ui.render import _breaks_word
+        self.assertTrue(_breaks_word("Captain Mina", [(0, 6), (6, 6)]))       # Captai / n Mina
+        self.assertFalse(_breaks_word("Captain Mina", [(0, 8), (8, 4)]))      # Captain / Mina
+        self.assertFalse(_breaks_word("船长米娜", [(0, 2), (2, 2)]), "中文本来就能在字之间换行")
+
+    def test_long_word_widens_plate_instead_of_splitting(self) -> None:
+        rect = (100, 100, 160, 134)                 # “装備”两个字那么宽，右边不是纯色空白
+        r = Renderer(StyleConfig()).get(item("Equipment", rect, (100, 100, 160, 200), stretch=700))
+        self.assertFalse(r.truncated)
+        self.assertGreater(r.width, 60 + 4, "底板放宽到放得下整个词")
+        self.assertLessEqual(r.width, 700 - 100 + 4, "不越过右边的字")
+
+    def test_long_word_never_runs_into_next_label(self) -> None:
+        rect = (100, 100, 160, 134)                 # 右边紧挨着下一个菜单项
+        r = Renderer(StyleConfig()).get(item("Equipment", rect, (100, 100, 160, 200), stretch=170))
+        self.assertLessEqual(r.width, 170 - 100 + 4)
+
+    def test_room_change_relayouts(self) -> None:
+        rnd = Renderer(StyleConfig())
+        rect = (100, 100, 232, 150)
+        a = rnd.get(item("The Old Lighthouse", rect))
+        b = rnd.get(item("The Old Lighthouse", rect, (100, 100, 700, 150)))
+        self.assertNotEqual(a.width, b.width, "可借的宽度变了要重新排版")
+
+
+class RoomRightTest(unittest.TestCase):
+    def page(self) -> np.ndarray:
+        frame = np.full((1200, 900), 255, np.uint8)
+        frame[100:140, 10:130] = 40                 # 原文（深色字）
+        frame[90:170, 300:500] = 150                # 右边有一张图
+        return frame
+
+    def test_borrows_plain_space_until_picture(self) -> None:
+        eng, m, win, _sc = make_engine(self.page())
+        b = add_block(eng, win, (10, 100, 130, 140), m.cur[100:140, 10:130].copy())
+        eng._update_room(win, b, m)
+        self.assertTrue(150 <= b.extra_w <= 170, b.extra_w)     # 到图片前面为止，留一点距离
+
+    def test_limited_by_block_on_the_right(self) -> None:
+        eng, m, win, _sc = make_engine(self.page())
+        add_block(eng, win, (230, 105, 290, 135), m.cur[105:135, 230:290].copy())
+        b = add_block(eng, win, (10, 100, 130, 140), m.cur[100:140, 10:130].copy())
+        eng._update_room(win, b, m)
+        self.assertEqual(b.extra_w, 230 - 20 - 130)              # 右边的块前面留半个行高
+
+    def test_new_block_takes_back_borrowed_space(self) -> None:
+        eng, m, win, _sc = make_engine(self.page())
+        a = add_block(eng, win, (10, 100, 130, 140), m.cur[100:140, 10:130].copy())
+        eng._update_room(win, a, m)
+        v = a.version
+        b = add_block(eng, win, (200, 104, 260, 136), m.cur[104:136, 200:260].copy())
+        eng._update_room(win, b, m)
+        self.assertEqual(a.extra_w, 200 - 20 - 130)
+        self.assertGreater(a.version, v, "左边那块要重新排版")
+
+    def test_specks_behind_translucent_panel_still_count_as_plain(self) -> None:
+        frame = self.page()
+        frame[110, 160] = frame[125, 200] = frame[131, 240] = 230    # 半透明面板后面透出来的星点
+        eng, m, win, _sc = make_engine(frame)
+        b = add_block(eng, win, (10, 100, 130, 140), m.cur[100:140, 10:130].copy())
+        eng._update_room(win, b, m)
+        self.assertTrue(150 <= b.extra_w <= 170, b.extra_w)
+        frame[:, 180:183] = 120                                      # 一条整列的边框线
+        eng, m, win, _sc = make_engine(frame)
+        b = add_block(eng, win, (10, 100, 130, 140), m.cur[100:140, 10:130].copy())
+        eng._update_room(win, b, m)
+        self.assertEqual(b.extra_w, 180 - 130 - 6)
+
+    def test_no_borrowing_on_busy_background(self) -> None:
+        eng, m, win, _sc = make_engine(self.page())
+        b = add_block(eng, win, (10, 100, 130, 140), m.cur[100:140, 10:130].copy())
+        b.dynamic = True
+        eng._update_room(win, b, m)
+        self.assertEqual(b.extra_w, 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

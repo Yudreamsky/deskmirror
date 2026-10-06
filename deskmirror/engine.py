@@ -1971,11 +1971,13 @@ class Engine(threading.Thread):
                     self._delete_block(old, "replaced")
             else:
                 b.replaces = [old.bid for old in replaced]
-        self._update_room(canvas, b)
+        self._update_room(canvas, b, m)
         self._trim_cache()
 
-    def _update_room(self, canvas: Canvas, b: Block) -> None:
-        """排版时向下延伸的上限：到下方最近的块为止，最多再延伸两个行高。"""
+    def _update_room(self, canvas: Canvas, b: Block, m: Mon | None = None) -> None:
+        """排版时向下延伸的上限：到下方最近的块为止，最多再延伸两个行高。
+        向右：译文在原文那么宽的地方放不下时（中日文译成英文常这样），可以借用右边的空白——到右边最近的块为止，
+        而且那片地方得一直是和底色一样的纯色（不盖住图片、边框、视频画面），最多借原宽度的两倍。"""
         limit = b.rect[3] + 2 * b.line_h
         for o in canvas.blocks.values():
             if o is b or not (o.rect[0] < b.rect[2] and b.rect[0] < o.rect[2]):
@@ -1986,6 +1988,45 @@ class Engine(threading.Thread):
                 o.room_bottom = max(o.rect[3], b.rect[1] - 2)
                 o.version += 1
         b.room_bottom = max(b.rect[3], limit)
+        gap = max(8, b.line_h // 2)
+        right = b.rect[2] + min(2 * (b.rect[2] - b.rect[0]), 900)
+        nearest = b.rect[2] + 900                                 # 右边最近的块（不看底色）
+        for o in canvas.blocks.values():
+            if o is b:
+                continue
+            if o.rect[0] >= b.rect[2] - 2 and o.rect[1] < b.room_bottom and b.rect[1] < o.rect[3]:
+                nearest = min(nearest, o.rect[0] - gap)
+            elif (o.extra_w or o.extra_max) and b.rect[0] >= o.rect[2] - 2 and b.rect[1] < o.room_bottom \
+                    and o.rect[1] < b.rect[3]:
+                # 新块占了左边那块原来能借的地方
+                og = max(8, o.line_h // 2)
+                room = max(0, b.rect[0] - og - o.rect[2])
+                if o.extra_w > room or o.extra_max > room:
+                    o.extra_w, o.extra_max = min(o.extra_w, room), min(o.extra_max, room)
+                    o.version += 1
+        right = min(right, nearest)
+        if b.dynamic or m is None:
+            b.extra_w = b.extra_max = 0
+            return
+        clip_room = b.canvas.screen_clip()[2] - 4 - b.screen_rect()[2]   # 不伸出所在画布的可见范围
+        b.extra_max = max(0, min(nearest - b.rect[2], clip_room))
+        b.extra_w = self._plain_right(m, b, right - b.rect[2]) if right > b.rect[2] else 0
+
+    def _plain_right(self, m: Mon, b: Block, most: int) -> int:
+        """原文块右边有多宽是和底色一样的纯色（逐列看块所在的那几行），不超出所在画布的可见范围。
+        只看块本身的行：下面可借的行常常跨过对话框、面板的边框，一并检查的话哪儿都借不到。"""
+        sr = b.screen_rect()
+        clip = b.canvas.screen_clip()
+        right = min(sr[2] + most, clip[2] - 4)
+        h, w = m.cur.shape
+        l, t, r, bb = m.local((sr[2], sr[1], right, sr[3]))
+        l, t, r, bb = max(0, l), max(0, t), min(w, r), min(h, bb)
+        if r - l < 4 or bb <= t:
+            return 0
+        # 一列里大部分像素都是底色才算空白：半透明面板后面透出来的零星星点、细浪线不算，边框、图片那种整列都不一样的才挡住
+        off = (np.abs(m.cur[t:bb, l:r].astype(np.int16) - int(round(_lum(b.lum_bg)))) > 28).mean(axis=0)
+        bad = np.flatnonzero(off > 0.15)
+        return max(0, int(bad[0]) - 6) if bad.size else r - l     # 碰到图案、边框就停，离它留一点
 
     def _delete_block(self, b: Block, why: str = "") -> None:
         if self._metrics_fh and b.bid in self.blocks:
@@ -2583,9 +2624,10 @@ class Engine(threading.Thread):
                         # 滚轮预测：内容正在动，按学到的曲线把译文提前放到“显示出来那一刻”的位置
                         sr = (sr[0] + ex, sr[1] + ey, sr[2] + ex, sr[3] + ey)
                     if b.state == "done" and b.translation:
-                        room = (sr[0], sr[1], sr[2], max(r[3], b.room_bottom) + oy + ey)
+                        room = (sr[0], sr[1], sr[2] + b.extra_w, max(r[3], b.room_bottom) + oy + ey)
                         items.append(DrawItem(b.bid, b.version, sr, room, clips, b.translation, b.bg, b.fg,
-                                              b.line_h, len(b.lines), b.em, b.ref, b.text))
+                                              b.line_h, len(b.lines), b.em, b.ref, b.text,
+                                              stretch=sr[2] + b.extra_max if b.extra_max else 0))
                     elif any(geom.overlaps(c, sr) for c in clips):
                         # 只报露出来的：被别的窗口整块挡住的不算“在翻译”（范围外的窗口永远不会翻译）
                         pending.append((sr, clips, b.state == "failed"))

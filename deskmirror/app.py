@@ -1093,6 +1093,8 @@ def main() -> int:
                             x, y = it.rect[0] + img.dx, it.rect[1] + img.dy
                             d["plate"] = [x, y, x + img.width, y + img.height]
                             d["truncated"] = img.truncated
+                            d["room"] = list(it.room)
+                            d["font_px"] = img.font_px
                         if req.get("refs") and it.ref is not None:
                             import base64
                             import cv2

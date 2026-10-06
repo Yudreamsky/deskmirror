@@ -3,8 +3,9 @@
 排版只取决于文字块本身（位置、行高、可向下延伸的空间），与魔镜位置无关：
 拖动或缩放魔镜只改变裁剪，不会重新排版；同一 (bid, version) 只排一次。
 
-放不下时依次：缩小字号（不小于原字号的 min_scale 且不小于 min_font_px）→ 向下占用
-下方空白（不超过相邻文字块）→ 仍放不下就截断并在末尾标“…”，鼠标停留时显示全文。
+放不下时依次：缩小字号（不小于原字号的 min_scale 且不小于 min_font_px）→ 向右借用右边的纯色空白
+（引擎算好的 room 右边，不超过右边的文字块；中日文译成英文常需要）→ 向下占用下方空白（不超过相邻文字块）
+→ 仍放不下就截断并在末尾标“…”，鼠标停留时显示全文。借来的地方用多少占多少，底板只比最长的一行宽一点。
 """
 from __future__ import annotations
 
@@ -48,6 +49,29 @@ def _wrap(text: str, font: QFont, width: float) -> list[tuple[int, int]]:
     return spans
 
 
+def _wordchar(c: str) -> bool:
+    """拉丁字母、数字这类靠空格分词的文字（中日文的字之间本来就能换行）。"""
+    return c.isalnum() and ord(c) < 0x2E80
+
+
+def _tail(text: str, spans: list[tuple[int, int]], px: int, font: QFont) -> float:
+    """最后一行占多高：汉字约 1.08 个字号；有 g、p、y 这类下伸字母时按字体实际高度，免得字脚被底板裁掉。"""
+    if spans:
+        a, n = spans[-1]
+        if any(c in "gjpqy,;()" for c in text[a:a + n]):
+            return QFontMetricsF(font).height()
+    return px * 1.08
+
+
+def _breaks_word(text: str, spans: list[tuple[int, int]]) -> bool:
+    """换行把一个英文词拆成了两半（比如 Captai / n）。"""
+    for a, n in spans[:-1]:
+        e = a + n
+        if 0 < e < len(text) and _wordchar(text[e - 1]) and _wordchar(text[e]):
+            return True
+    return False
+
+
 class Renderer:
     def __init__(self, style: StyleConfig) -> None:
         self.style = style
@@ -58,7 +82,8 @@ class Renderer:
         self._cache.clear()
 
     def get(self, item: DrawItem) -> Rendered:
-        sig = (item.rect[2] - item.rect[0], item.rect[3] - item.rect[1], item.room[3] - item.room[1])
+        sig = (item.rect[2] - item.rect[0], item.rect[3] - item.rect[1], item.room[2] - item.room[0],
+               item.room[3] - item.room[1])
         hit = self._cache.get(item.bid)
         if hit is not None and hit[0] == item.version and hit[1] == sig:
             return hit[2]
@@ -75,6 +100,7 @@ class Renderer:
         st = self.style
         w = max(8, item.rect[2] - item.rect[0])
         h = max(6, item.rect[3] - item.rect[1])
+        wide = max(w, item.room[2] - item.rect[0])          # 放不下时最多可以向右借到这么宽
         room_h = max(h, item.room[3] - item.room[1])
         n_orig = max(1, item.n_lines)
         base_px = max(9, min(160, round((item.em or item.line_h) * 0.74)))
@@ -83,36 +109,76 @@ class Renderer:
         font = QFont(st.font_family)
         font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
         text = " ".join(item.text.split())
-        chosen = None
-        for px in range(base_px, min_px - 1, -1):
-            font.setPixelSize(px)
-            spans = _wrap(text, font, w)
-            pitch = max(px * 1.18, min(orig_pitch, px * 1.7)) if n_orig > 1 else px * 1.25
-            # 汉字实际占高约 1.0~1.1 个字号；按 1.3 倍留量会让矮检测框（没有下伸字母的行）的译文被无谓缩小
-            need = (len(spans) - 1) * pitch + px * 1.08
-            if need <= h + 3:
-                chosen = (px, spans, pitch, h, False)
-                break
-        if chosen is None:
+
+        def fit_in_height(width: float, split_ok: bool):
             for px in range(base_px, min_px - 1, -1):
                 font.setPixelSize(px)
-                spans = _wrap(text, font, w)
+                spans = _wrap(text, font, width)
+                if not split_ok and _breaks_word(text, spans):
+                    continue
+                pitch = max(px * 1.18, min(orig_pitch, px * 1.7)) if n_orig > 1 else px * 1.25
+                # 汉字实际占高约 1.0~1.1 个字号；按 1.3 倍留量会让矮检测框（没有下伸字母的行）的译文被无谓缩小
+                need = (len(spans) - 1) * pitch + _tail(text, spans, px, font)
+                if need <= h + 3:
+                    return px, spans, pitch, h, False
+            return None
+
+        def fit_below(width: float, split_ok: bool):
+            for px in range(base_px, min_px - 1, -1):
+                font.setPixelSize(px)
+                spans = _wrap(text, font, width)
+                if not split_ok and _breaks_word(text, spans):
+                    continue
                 pitch = px * 1.18
-                need = (len(spans) - 1) * pitch + px * 1.15
+                need = (len(spans) - 1) * pitch + max(px * 1.15, _tail(text, spans, px, font))
                 if need <= room_h + 2:
-                    chosen = (px, spans, pitch, int(need + 0.999), False)
+                    return px, spans, pitch, int(need + 0.999), False
+            return None
+
+        chosen = None
+        for split_ok in (False, True):                      # 先找不用把英文单词拆开的排法
+            here = fit_in_height(w, split_ok)               # 原文那么大的地方，缩字号
+            right = fit_in_height(wide, split_ok) if wide > w else None    # 向右借空白（高度不变）
+            # 两种都行时谁的字大用谁：向右借能少缩字号就借，一样大就不借
+            chosen = right if right and (not here or right[0] > here[0]) else here
+            chosen = chosen or fit_below(wide, split_ok)    # 向下借（宽度也用借来的）
+            if chosen or split_ok:
+                break
+            # 有个词比能用的宽度还长（短标签译成英文常见）：底板放宽到正好放下这个词（不越过右边的字），
+            # 还不够就再缩一点字号（最小到原字号的六成），都不行才拆词
+            font.setPixelSize(min_px)
+            word = max((QFontMetricsF(font).horizontalAdvance(t) for t in text.split()), default=0.0)
+            if word + 4 > wide:
+                cap = max(wide, item.stretch - item.rect[0]) if item.stretch else wide
+                wider = max(wide, min(int(word + 0.999) + 4, cap))
+                chosen = fit_below(wider, False) if wider > wide else None
+                for px in range(min_px - 1, max(st.min_font_px, round(base_px * 0.6)) - 1, -1):
+                    if chosen:
+                        break
+                    font.setPixelSize(px)
+                    spans = _wrap(text, font, wider)
+                    need = (len(spans) - 1) * px * 1.18 + max(px * 1.15, _tail(text, spans, px, font))
+                    if not _breaks_word(text, spans) and need <= room_h + 2:
+                        chosen = (px, spans, px * 1.18, int(need + 0.999), False)
+                if chosen:
+                    wide = wider
                     break
         if chosen is None:
             px = min_px
             font.setPixelSize(px)
-            spans = _wrap(text, font, w)
+            spans = _wrap(text, font, wide)
             pitch = px * 1.18
             max_lines = max(1, int((room_h - px * 1.15) // pitch) + 1)
             chosen = (px, spans[:max_lines], pitch, room_h, len(spans) > max_lines)
         px, spans, pitch, used_h, truncated = chosen
         font.setPixelSize(px)
         fm = QFontMetricsF(font)
-        img_w, img_h = w + 2 * PAD, max(h, used_h) + 2 * PAD
+        plate_w = w
+        if wide > w:
+            # 借来的地方用多少占多少：底板只比最长的一行宽一点
+            longest = max((fm.horizontalAdvance(text[a:a + n].rstrip()) for a, n in spans), default=0.0)
+            plate_w = wide if truncated else max(w, min(wide, int(longest + 0.999) + 3))
+        img_w, img_h = plate_w + 2 * PAD, max(h, used_h) + 2 * PAD
         img = QImage(img_w, img_h, QImage.Format.Format_ARGB32_Premultiplied)
         img.fill(0)
         p = QPainter(img)
@@ -131,7 +197,7 @@ class Renderer:
         for i, (start, length) in enumerate(spans):
             line = text[start:start + length].rstrip()
             if truncated and i == len(spans) - 1:
-                line = fm.elidedText(line + "……", Qt.TextElideMode.ElideRight, w)
+                line = fm.elidedText(line + "……", Qt.TextElideMode.ElideRight, plate_w)
                 if not line.endswith("…"):
                     line = line[:-1] + "…"
             y = top + i * pitch + fm.ascent()
