@@ -560,6 +560,37 @@ class FirstSubtitleTest(unittest.TestCase):
         self.assertTrue(b.born_dynamic)
 
 
+class VerticalBlockTest(unittest.TestCase):
+    def test_vertical_columns_become_one_line_sized_by_column_width(self) -> None:
+        # 漫画气泡里的竖排两列：合成一段（译文横着排在两列占的地方），字号按列宽算（按框高算会大得离谱）
+        from deskmirror.ocr_worker import OcrBlockOut, OcrLineOut
+        page = text_page(3000, W, 6)
+        eng, m, win, sc = make_engine(page[0:H])
+        eng.visible = {1: [(0, 0, W, H)]}
+        eng.set_mirrors([(0, 0, W, H)])
+        m.bgra = np.dstack([m.cur] * 3 + [np.full_like(m.cur, 255)])
+        eng.win_canvas[1], eng.win_rects[1], eng.z_order = win, (0, 0, W, H), [1]
+        jobs = []
+
+        class Ocr:
+            def submit(self, job) -> None:
+                jobs.append(job)
+
+        eng.ocr, eng.ocr_state = Ocr(), "ready"
+        right, left = (460, 200, 512, 360), (404, 202, 456, 460)
+        rect = (404, 200, 512, 460)
+        ob = OcrBlockOut(rect, [OcrLineOut(right, "待って！", 0.9), OcrLineOut(left, "船が出ちゃう！", 0.98)],
+                         "待って！船が出ちゃう！", vertical=True)
+        eng._submit_ocr(m, (380, 180, 540, 480))
+        eng._accept_block(eng.jobs[jobs[-1].job_id], ob)
+        new = [b for b in eng.blocks.values() if b.text == "待って！船が出ちゃう！"]
+        self.assertEqual(len(new), 1)
+        b = new[0]
+        self.assertEqual(b.lines, [(b.rect, b.text)], "两列合成一行")
+        self.assertAlmostEqual(b.em, 52 * 0.95)
+        self.assertEqual(b.line_h, round(52 * 1.25))
+
+
 class ChatSwitchTest(unittest.TestCase):
     def test_chat_apps_follow_the_switch(self) -> None:
         # 聊天软件默认不翻（私人聊天不发出去）；打开“翻译聊天软件”就照常翻；密码管理器始终不翻

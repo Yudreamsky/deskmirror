@@ -47,6 +47,7 @@ class OcrBlockOut:
     lines: list[OcrLineOut]
     text: str
     weak: bool = False           # 置信度差一点的短词：只用来确认同一位置已有的块还在，不新建
+    vertical: bool = False       # 竖排（漫画气泡）：lines 是从右往左的各列
 
 
 def line_kind(text: str, score: float) -> str:
@@ -131,14 +132,71 @@ def _detect(engine, img: np.ndarray) -> list[Rect]:
 
 
 def _recognize(engine, img: np.ndarray, rects: list[Rect]) -> list[tuple[str, float]]:
+    h, w = img.shape[:2]
+    return _recognize_images(engine, [img[max(0, y0):min(h, y1), max(0, x0):min(w, x1)] for x0, y0, x1, y1 in rects])
+
+
+def _recognize_images(engine, crops: list[np.ndarray]) -> list[tuple[str, float]]:
     from rapidocr.ch_ppocr_rec import TextRecInput
 
-    crops = []
-    h, w = img.shape[:2]
-    for x0, y0, x1, y1 in rects:
-        crops.append(np.ascontiguousarray(img[max(0, y0):min(h, y1), max(0, x0):min(w, x1)]))
-    res = engine.text_rec(TextRecInput(img=crops))
+    res = engine.text_rec(TextRecInput(img=[np.ascontiguousarray(c) for c in crops]))
     return [(t or "", float(s)) for t, s in zip(res.txts or [], res.scores or [])]
+
+
+def _vertical_blocks(engine, img: np.ndarray, cols: list[Rect], ox: int, oy: int) -> list[OcrBlockOut]:
+    """竖排的各列：切成单字排成一行识别（竖线转成横的，认出来后换成长音或破折号），几列从右往左连成一段。"""
+    from .textutil import fix_ocr
+    from .vertical import bar_char, column_cells, fill_bars, group_columns, row_image, split_at_bars
+
+    groups = group_columns(cols)
+    cols_cells = []
+    for g in groups:
+        for r in g:
+            cols_cells.append(column_cells(img[r[1]:r[3], r[0]:r[2]]))
+    rows = [row_image(cells, bg) for cells, _bars, bg in cols_cells if cells]
+    res = iter(_recognize_images(engine, rows) if rows else [])
+    texts: list[tuple[str, float] | None] = []
+    retry: list[int] = []                               # 认出来的横线和竖线数对不上的列：在竖线处分段再认
+    for i, (cells, bars, _bg) in enumerate(cols_cells):
+        if not cells:
+            texts.append(None)
+            continue
+        t, sc = next(res)
+        if any(bars):
+            filled = fill_bars(t, sum(bars))
+            if filled is None:
+                retry.append(i)
+            else:
+                t = filled
+        texts.append((t, sc))
+    if retry:
+        parts = [split_at_bars(cols_cells[i][0], cols_cells[i][1]) for i in retry]
+        imgs = [row_image(run, cols_cells[i][2]) for i, runs in zip(retry, parts) for run in runs if run]
+        rr = iter(_recognize_images(engine, imgs) if imgs else [])
+        for i, runs in zip(retry, parts):
+            got = [next(rr) if run else ("", 1.0) for run in runs]
+            joined = "".join(t for t, _ in got)
+            texts[i] = (bar_char(joined).join(t for t, _ in got), min(s for _, s in got))
+    blocks: list[OcrBlockOut] = []
+    k = 0
+    for g in groups:
+        lines, kinds = [], []
+        for r in g:
+            got = texts[k]
+            k += 1
+            if got is None:
+                continue
+            text, score = fix_ocr(got[0]), got[1]
+            kind = line_kind(text, score)
+            if kind:
+                lines.append(OcrLineOut((r[0] + ox, r[1] + oy, r[2] + ox, r[3] + oy), text, score))
+                kinds.append(kind)
+        if lines:
+            rect = (min(ln.rect[0] for ln in lines), min(ln.rect[1] for ln in lines),
+                    max(ln.rect[2] for ln in lines), max(ln.rect[3] for ln in lines))
+            blocks.append(OcrBlockOut(rect, lines, "".join(ln.text for ln in lines),
+                                      weak="strong" not in kinds, vertical=True))
+    return blocks
 
 
 def _priority(rect: Rect, focus: Rect, ring_px: int) -> tuple[int, float]:
@@ -155,11 +213,16 @@ def _process(engine, job: OcrJob, out_q) -> None:
     from .layout import Line, candidate_paragraphs, join_lines, split_by_text
     from .textutil import fix_ocr
 
+    from .vertical import is_column, join_columns
+
     t0 = time.perf_counter()
     img = job.image
     ox, oy = job.origin
     rects = _detect(engine, img)
     t_det = time.perf_counter() - t0
+    # 细高的框是竖排的一列字（漫画气泡）：单独处理，横排的照旧分段识别
+    cols = join_columns([r for r in rects if is_column(r)])
+    rects = [r for r in rects if not is_column(r)]
     paras = candidate_paragraphs(rects)
     para_rects = []
     for idx in paras:
@@ -216,6 +279,12 @@ def _process(engine, job: OcrJob, out_q) -> None:
             flush()
             count = 0
     flush()
+    if cols:
+        vb = _vertical_blocks(engine, img, cols, ox, oy)
+        n_blocks += len(vb)
+        n_lines += len(cols)
+        if vb:
+            out_q.put(("blocks", job.job_id, vb))
     out_q.put(("done", job.job_id, {"det_s": t_det, "total_s": time.perf_counter() - t0, "lines": n_lines,
                                      "blocks": n_blocks, "size": img.shape[:2]}))
 

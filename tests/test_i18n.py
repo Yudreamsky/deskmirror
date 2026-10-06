@@ -26,6 +26,7 @@ ALLOWED = {
     "translator.py": {"Simplified Chinese (简体中文)", "Traditional Chinese (繁體中文)", "Japanese (日本語)"},  # 给模型看
     "ui/guide.py": {"港口指南", "今天这座桥封了。", "请走北边那条路。", "港口在 3 公里外。", "船每小时开一班。"},  # 示意图
     "ui/settings.py": {"，"},                                             # 解析名单时中文逗号也算分隔符
+    "vertical.py": {"一-_—ー－‐−~～|｜"},                                  # 竖排识别：可能是竖线（长音）认出来的字
 }
 
 

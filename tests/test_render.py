@@ -133,6 +133,27 @@ class RenderTest(unittest.TestCase):
         c = r.image.pixelColor(150, 20)
         self.assertEqual((c.red(), c.green(), c.blue()), (24, 24, 28))
 
+    def test_vertical_bubble_translation_reads_vertically(self) -> None:
+        # 竖排气泡的中文译文也竖着排：在“！”后面换列，标点换成竖排的写法；英文译文照旧横排
+        from unittest import mock
+
+        from deskmirror.ui.render import _vertical_columns
+        self.assertEqual(_vertical_columns("等等！船要开了！", 5), [list("等等！"), list("船要开了！")])
+        self.assertEqual(_vertical_columns("快跑——！", 6), [["快", "跑", chr(0xFE31), chr(0xFE31), "！"]])
+        self.assertEqual(_vertical_columns("我们终于到了那座老灯塔", 4), [list("我们终于"), list("到了那座"), list("老灯塔")])
+        rect = (0, 0, 81, 204)
+
+        def bubble(text: str) -> DrawItem:
+            return DrawItem(9, 1, rect, rect, (rect,), text, (255, 255, 255), (0, 0, 0), 65, 1, 52 * 0.95, src="x",
+                            vertical=True)
+
+        with mock.patch.object(Renderer, "_render_vertical", wraps=Renderer(StyleConfig())._render_vertical) as spy:
+            r = Renderer(StyleConfig()).get(bubble("等等！船要开了！"))
+            self.assertEqual(spy.call_count, 1)
+            self.assertEqual((r.width, r.height), (81 + 4, 204 + 4))
+            Renderer(StyleConfig()).get(bubble("Wait! The ship is leaving!"))
+            self.assertEqual(spy.call_count, 1, "英文不竖着排")
+
     def test_long_word_widens_plate_instead_of_splitting(self) -> None:
         rect = (100, 100, 160, 134)                 # “装備”两个字那么宽，右边不是纯色空白
         r = Renderer(StyleConfig()).get(item("Equipment", rect, (100, 100, 160, 200), stretch=700))

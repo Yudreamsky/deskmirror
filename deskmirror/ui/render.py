@@ -56,6 +56,41 @@ def _wrap(text: str, font: QFont, width: float) -> list[tuple[int, int]]:
     return spans
 
 
+# 竖着排时标点换成竖排的写法（不然“，”在字的左下、“——”和长音还是横着的）；按码点写，免得被当成要翻译的界面文字
+_VERT = {chr(a): chr(b) for a, b in (
+    (0xFF0C, 0xFE10), (0x3001, 0xFE11), (0x3002, 0xFE12), (0xFF1A, 0xFE13), (0xFF1B, 0xFE14), (0x2026, 0xFE19),
+    (0x2014, 0xFE31), (0x2015, 0xFE31), (0x30FC, 0xFF5C), (0xFF08, 0xFE35), (0xFF09, 0xFE36), (0x300C, 0xFE41),
+    (0x300D, 0xFE42), (0x300E, 0xFE43), (0x300F, 0xFE44), (0xFF5E, 0xFE34), (0x7E, 0xFE34), (0x2C, 0xFE10),
+    (0x2E, 0xFE12), (0x3A, 0xFE13), (0x3B, 0xFE14), (0x28, 0xFE35), (0x29, 0xFE36), (0x21, 0xFF01), (0x3F, 0xFF1F))}
+# 竖着排时尽量在这些标点后面换列：！？。，、；… 和半角的 ! ? . , ;
+_BREAK_AFTER = set(map(chr, (0xFF01, 0xFF1F, 0x3002, 0xFF0C, 0x3001, 0xFF1B, 0x2026, 0x21, 0x3F, 0x2E, 0x2C, 0x3B)))
+
+
+def _vertical_columns(text: str, per_col: int) -> list[list[str]]:
+    """竖着排：标点换成竖排的写法，按每列 per_col 个字分列，尽量在标点后面换列（一句放得进一整列就不从中间断开）。"""
+    phrases: list[list[str]] = [[]]
+    for c in text:
+        if c.isspace():
+            continue
+        phrases[-1].append(_VERT.get(c, c))
+        if c in _BREAK_AFTER:
+            phrases.append([])
+    cols: list[list[str]] = [[]]
+    for ph in phrases:
+        if not ph:
+            continue
+        if len(cols[-1]) + len(ph) <= per_col:
+            cols[-1] += ph
+        elif len(ph) <= per_col:
+            cols.append(list(ph))
+        else:
+            for c in ph:
+                if len(cols[-1]) >= per_col:
+                    cols.append([])
+                cols[-1].append(c)
+    return [c for c in cols if c]
+
+
 def _squashes(lo: float) -> list[float]:
     """从不压（1）到 lo 每次压 5%。"""
     n = max(0, int(round((1.0 - lo) / 0.05)))
@@ -81,11 +116,14 @@ def _tail(text: str, spans: list[tuple[int, int]], px: int, font: QFont) -> floa
     return px * 1.08
 
 
+_CLOSING = set(",.!?;:)]}'\"%")
+
+
 def _breaks_word(text: str, spans: list[tuple[int, int]]) -> bool:
-    """换行把一个英文词拆成了两半（比如 Captai / n）。"""
+    """换行把一个英文词拆成了两半（比如 Captai / n），或者把词后面的标点挤到了下一行开头（leaving / !）。"""
     for a, n in spans[:-1]:
         e = a + n
-        if 0 < e < len(text) and _wordchar(text[e - 1]) and _wordchar(text[e]):
+        if 0 < e < len(text) and _wordchar(text[e - 1]) and (_wordchar(text[e]) or text[e] in _CLOSING):
             return True
     return False
 
@@ -114,6 +152,45 @@ class Renderer:
             for bid in [b for b in self._cache if b not in live]:
                 del self._cache[bid]
 
+    def _render_vertical(self, item: DrawItem, text: str, w: int, h: int, base_px: int, lo_px: int) -> Rendered | None:
+        """竖排气泡的中日文译文也竖着排：从上往下、从右往左，尽量在标点后面换列，和原来的漫画一样。
+        放不下（最小到原字号的六成）返回 None，改成横排。"""
+        st = self.style
+        font = QFont(st.font_family)
+        font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
+        for px in range(base_px, lo_px - 1, -1):
+            step = px * 1.02                                 # 竖着排的字距（和漫画里一样紧）
+            per_col = int((h + 2) // step)
+            if per_col < 1:
+                continue
+            cols = _vertical_columns(text, per_col)
+            col_w = px * 1.3
+            need_w = len(cols) * col_w - (col_w - px)
+            if need_w > w + 2:
+                continue
+            font.setPixelSize(px)
+            fm = QFontMetricsF(font)
+            img = QImage(w + 2 * PAD, h + 2 * PAD, QImage.Format.Format_ARGB32_Premultiplied)
+            img.fill(0)
+            p = QPainter(img)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+            bg = QColor(*item.bg)
+            bg.setAlphaF(st.plate_opacity)
+            p.fillRect(QRectF(0, 0, img.width(), img.height()), bg)
+            p.setFont(font)
+            p.setPen(QColor(*item.fg))
+            right = PAD + (w + need_w) / 2 - px              # 最右一列的左边（几列在原文的地方左右居中）
+            for i, col in enumerate(cols):
+                x = right - i * col_w
+                y = PAD
+                for ch in col:
+                    p.drawText(QPointF(x + (px - fm.horizontalAdvance(ch)) / 2, y + (step - fm.height()) / 2 + fm.ascent()), ch)
+                    y += step
+            p.end()
+            return Rendered(img, -PAD, -PAD, img.width(), img.height(), False, px)
+        return None
+
     def _render(self, item: DrawItem) -> Rendered:
         st = self.style
         w = max(8, item.rect[2] - item.rect[0])
@@ -130,6 +207,10 @@ class Renderer:
         font = QFont(st.font_family)
         font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
         text = " ".join(item.text.split())
+        if item.vertical and text and _mostly_cjk(text):
+            r = self._render_vertical(item, text, w, h, base_px, floor_px)
+            if r is not None:
+                return r
         if not text:
             # 只要一块底板（字幕换句时垫在新句子下面，挡住还没译好的原文）
             img = QImage(w + 2 * PAD, h + 2 * PAD, QImage.Format.Format_ARGB32_Premultiplied)
@@ -232,7 +313,7 @@ class Renderer:
             longest = max((fm.horizontalAdvance(text[a:a + n].rstrip()) * sx for a, n in spans), default=0.0)
             plate_w = wide if truncated else max(w, min(wide, int(longest + 0.999) + 3))
         end = item.src.rstrip()[-1:]
-        if end and end in _CJK_END:
+        if end and end in _CJK_END and not item.vertical:
             # 识别框常常没把句末的全角标点框进去：底板往右多盖大半个字，免得旁边露出一个“。”
             plate_w = max(plate_w, w + round(item.line_h * 0.6))
         img_w, img_h = plate_w + 2 * PAD, max(h, used_h) + 2 * PAD

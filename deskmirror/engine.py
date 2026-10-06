@@ -48,14 +48,14 @@ def _bbox(rects: list[Rect]) -> Rect:
     return (min(r[0] for r in rects), min(r[1] for r in rects), max(r[2] for r in rects), max(r[3] for r in rects))
 
 
-def _first_blocked(off: np.ndarray, skip: int) -> int | None:
+def _first_blocked(off: np.ndarray, skip: int, soft: float = 0.15) -> int | None:
     """逐列（或逐行）的“不是底色的像素占比” → 第一列挡路的位置，没有就返回 None。
     识别框常常没把最后一个字（或 g、p、y 的字脚）框全：紧挨着的 skip 列里只露出一点笔画的不算，
-    但整列都不一样的（边框）照样挡住。"""
+    但整列都不一样的（边框）照样挡住。soft：一列里不是底色的超过这么多才挡路（默认容忍半透明面板透出的星点）。"""
     hard = np.flatnonzero(off[:skip] > 0.6)
     if hard.size:
         return int(hard[0])
-    bad = np.flatnonzero(off[skip:] > 0.15)
+    bad = np.flatnonzero(off[skip:] > soft)
     return int(bad[0]) + skip if bad.size else None
 
 
@@ -2004,6 +2004,8 @@ class Engine(threading.Thread):
         content = canvas.to_content(r_now)
         dx, dy = content[0] - r0[0], content[1] - r0[1]
         lines = [(geom.shift(ln.rect, dx, dy), ln.text) for ln in ob.lines]
+        if ob.vertical:
+            lines = [(content, text)]    # 竖排（漫画气泡）：几列合成一行，译文横着排在这几列占的地方
         key = textutil.cache_key(text)
         # 这次的结果只是把已有的块重新分了组（几行合成一段、一段拆成几行，或者只识别到其中一部分），
         # 而这些块的像素都没变：原样保留，不换块、不重新翻译。含有已有块没盖住的新行时才按新的分组替换
@@ -2084,8 +2086,14 @@ class Engine(threading.Thread):
         hs = sorted(lr[3] - lr[1] for lr, _ in lines)
         # 字号取各行“正文字高”的偏低中位数：带上标的行、没有上下伸字母的行都不会把字号带偏
         ems = sorted(font_em(Line(lr, t)) for lr, t in lines)
-        b = Block(canvas, content, lines, text, key, ref, bg, fg, hs[len(hs) // 2], ems[(len(ems) - 1) // 2],
+        line_h, em = hs[len(hs) // 2], ems[(len(ems) - 1) // 2]
+        if ob.vertical:
+            # 竖排一列的宽度就是一个字的大小：字号按列宽算（按框高算会大得离谱）
+            col_w = sorted(ln.rect[2] - ln.rect[0] for ln in ob.lines)[len(ob.lines) // 2]
+            line_h, em = round(col_w * 1.25), col_w * 0.95
+        b = Block(canvas, content, lines, text, key, ref, bg, fg, line_h, em,
                   job_id=st.job.job_id, lum_fg=fg, lum_bg=bg)
+        b.vertical = ob.vertical
         b.ok_rect = verified
         b.room_bottom = content[3]
         win = canvas.window()
@@ -2190,7 +2198,7 @@ class Engine(threading.Thread):
             return 0
         # 一列里大部分像素都是底色才算空白：半透明面板后面透出来的零星星点、细浪线不算，边框、图片那种整列都不一样的才挡住
         off = (np.abs(m.cur[t:bb, l:r].astype(np.int16) - int(round(_lum(b.lum_bg)))) > 28).mean(axis=0)
-        n = _first_blocked(off, max(2, b.line_h // 8))
+        n = _first_blocked(off, max(2, b.line_h // 8), 0.0 if b.vertical else 0.15)
         return max(0, n - 6) if n is not None else r - l     # 碰到图案、边框就停，离它留一点
 
     def _plain_below(self, m: Mon, b: Block, right: int, most: int) -> int:
@@ -2204,7 +2212,7 @@ class Engine(threading.Thread):
         if bb - t < 2 or r - l < 4:
             return 0
         off = (np.abs(m.cur[t:bb, l:r].astype(np.int16) - int(round(_lum(b.lum_bg)))) > 28).mean(axis=1)
-        n = _first_blocked(off, max(2, b.line_h // 8))
+        n = _first_blocked(off, max(2, b.line_h // 8), 0.0 if b.vertical else 0.15)
         n = max(0, n - 3) if n is not None else bb - t
         if n and self._volatile_frac(m, (sr[0], sr[3], right, sr[3] + n), 1.5, inner=True) > 0.3:
             return 0
@@ -2811,7 +2819,8 @@ class Engine(threading.Thread):
                         items.append(DrawItem(b.bid, b.version, sr, room, clips, b.translation, b.bg, b.fg,
                                               b.line_h, len(b.lines), b.em, b.ref, b.text,
                                               stretch=sr[2] + b.extra_max if b.extra_max else 0,
-                                              soft=sr[3] + b.plain_below if b.plain_below >= 0 else None))
+                                              soft=sr[3] + b.plain_below if b.plain_below >= 0 else None,
+                                              vertical=b.vertical))
                     elif any(geom.overlaps(c, sr) for c in clips):
                         # 只报露出来的：被别的窗口整块挡住的不算“在翻译”（范围外的窗口永远不会翻译）
                         pending.append((sr, clips, b.state == "failed"))

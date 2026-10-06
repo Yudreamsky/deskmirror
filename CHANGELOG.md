@@ -11,6 +11,7 @@
 - **日文识别更准**：片假名的长音“ー”被识别成“-”或“一”时自动改回（比如“セ-ブ”→“セーブ”），术语表对得上，游戏菜单不再漏翻。字号小的短词（三个字以内，比如“セーブ”）重新识别时置信度常常差一点：现在同一位置还是同样的字就算认出来了，译文不再时有时无；像素没变时就算没认出来，也要连着三次才撤下。
 - **字幕换句不再两头露原文**：新句子比旧译文宽时，以前在新译文出来之前（常常一秒多）两头会露出原文；现在字幕一换就单独识别那一条，约 0.2～0.5 秒内先用空底板挡住，旧译文留在上面，新译文一到就顶掉。
 - **视频字幕换句不再空一下**：以前有几种情况换句时译文会消失一秒左右：刚把魔镜挪到视频上时的第一句字幕、新句子的识别结果因为画面在变被丢掉、识别时少认了句末一个字。现在旧译文都会留到新译文出来；中文、日文、韩文字幕实测各换句 5 次以上都不再空。识别时标点后的空格时有时无，也不再当成新句子多翻译一次。
+- **漫画的竖排气泡能直接翻了**：以前横排的识别模型把竖排的字认成乱码（“待って！”认成“待号”）；现在把一列字切成单字排成一行再认，竖线写的长音、破折号单独补上，几列从右往左连成一句。中日文译文也竖着排在气泡里（在“！”“。”后面换列），英文照旧横排；底板不再盖住气泡的弧形边框。英文换行时不再把单词后面的“!”挤到下一行。
 - **调试用的录制**：通过调试通道按用户看到的样子录 60 帧视频（宣传片的实录素材用）。
 
 - **Translate chat apps switch**: chat apps are still skipped by default (private chats are not sent anywhere); when
@@ -45,6 +46,11 @@
   dropped because the picture kept moving, or a read that missed the final character. The old translation now stays
   until the new one is ready; Chinese, Japanese and Korean subtitles were tested over many line changes. A space after
   punctuation that OCR sometimes sees and sometimes doesn't no longer makes a line count as new and get translated again.
+- **Vertical text in manga speech bubbles is translated directly**: the horizontal OCR model used to garble vertical
+  columns; each column is now cut into characters and read as a row, long-vowel and dash strokes are filled in, and
+  columns are read right to left. Chinese and Japanese translations are laid out vertically in the bubble too (new
+  column after “！” or “。”), English stays horizontal, and the plate no longer covers the curved bubble outline.
+  English line breaks no longer push a trailing “!” onto the next line.
 - **Debug recording**: record 60 fps video of what the user sees through the debug channel (used for promo footage).
 
 ## 1.0.0（2026-10-06）

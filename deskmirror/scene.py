@@ -112,6 +112,7 @@ class Block:
     dynamic: bool = False             # 在动态背景上（视频字幕、游戏画面）：深色底板白字，按笔画核对
     born_dynamic: bool = False        # 一出现就在动态区域（字幕、游戏文字）：换句时旧译文保留到新译文顶掉
     counter: bool = False             # 计数器（倒计时、计数、血量：同一位置只有数字在变）：数字一变先留着旧译文，新数字的译文一出来就顶掉
+    vertical: bool = False            # 竖排（漫画气泡）：向右、向下借地方时更严，不盖住气泡的弧形边框
     lum_fg: tuple = (0, 0, 0)         # 识别时取样的文字色 / 底色（笔画核对用，不随显示样式改变）
     lum_bg: tuple = (255, 255, 255)
     held_until: float = 0.0           # 动态区域：原文换了但新译文还没好时，旧译文保留到这个时刻
@@ -147,6 +148,7 @@ class DrawItem:
     src: str = field(default="", compare=False, repr=False)                  # 原文（历史面板、调试通道用）
     stretch: int = 0                  # 一个英文词都放不下时，底板最多能伸到的右边界（屏幕坐标；0 = 不伸）
     soft: int | None = None           # 向下多占几行时最好不超过的下边界：再往下是边框、图片、在动的画面（屏幕坐标；None = 不限）
+    vertical: bool = False            # 原文是竖排（漫画气泡）：句末标点就在框里，底板不用往右多盖
 
 
 @dataclass(frozen=True)
