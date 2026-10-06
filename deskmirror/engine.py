@@ -2008,9 +2008,13 @@ class Engine(threading.Thread):
         if b.dynamic or m is None:
             b.extra_w = b.extra_max = 0
             return
-        clip_room = b.canvas.screen_clip()[2] - 4 - b.screen_rect()[2]   # 不伸出所在画布的可见范围
+        sr = b.screen_rect()
+        clip_room = b.canvas.screen_clip()[2] - 4 - sr[2]                 # 不伸出所在画布的可见范围
         b.extra_max = max(0, min(nearest - b.rect[2], clip_room))
-        b.extra_w = self._plain_right(m, b, right - b.rect[2]) if right > b.rect[2] else 0
+        if right <= b.rect[2] or self._volatile_frac(m, (sr[2], sr[1], sr[2] + right - b.rect[2], sr[3]), 1.5) > 0.3:
+            b.extra_w = 0      # 右边在动（视频、动画）：底板不能盖上去，哪怕颜色看着一样
+        else:
+            b.extra_w = self._plain_right(m, b, right - b.rect[2])
 
     def _plain_right(self, m: Mon, b: Block, most: int) -> int:
         """原文块右边有多宽是和底色一样的纯色（逐列看块所在的那几行），不超出所在画布的可见范围。

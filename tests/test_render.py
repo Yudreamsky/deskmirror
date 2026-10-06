@@ -56,6 +56,14 @@ class RenderTest(unittest.TestCase):
         self.assertGreater(r.font_px, here.font_px, "能向右借就少缩字号")
         self.assertEqual(r.height, 132 + 4)
 
+    def test_plate_covers_trailing_cjk_punctuation(self) -> None:
+        rect = (100, 100, 500, 140)
+        it = DrawItem(1, 1, rect, rect, (rect,), "Tickets are sold at the pier.", (255, 255, 255), (0, 0, 0), 40, 1, 36,
+                      src="门票在码头的售票亭购买。")
+        r = Renderer(StyleConfig()).get(it)
+        self.assertGreaterEqual(r.width, 400 + 4 + 24, "句末的“。”常在识别框外面，要盖住")
+        self.assertEqual(Renderer(StyleConfig()).get(item("Tickets", rect)).width, 400 + 4)
+
     def test_word_not_split(self) -> None:
         from deskmirror.ui.render import _breaks_word
         self.assertTrue(_breaks_word("Captain Mina", [(0, 6), (6, 6)]))       # Captai / n Mina
@@ -124,6 +132,18 @@ class RoomRightTest(unittest.TestCase):
         b = add_block(eng, win, (10, 100, 130, 140), m.cur[100:140, 10:130].copy())
         eng._update_room(win, b, m)
         self.assertEqual(b.extra_w, 180 - 130 - 6)
+
+    def test_no_borrowing_over_moving_picture(self) -> None:
+        import time
+
+        from deskmirror import engine as E
+        eng, m, win, _sc = make_engine(self.page())
+        now = time.perf_counter()
+        m.last_chg[:, 140 // E.TILE:] = now                        # 右边一直在变（视频画面），颜色却和底色一样
+        m.chg_start[:, 140 // E.TILE:] = now - 5
+        b = add_block(eng, win, (10, 100, 130, 140), m.cur[100:140, 10:130].copy())
+        eng._update_room(win, b, m)
+        self.assertEqual(b.extra_w, 0)
 
     def test_no_borrowing_on_busy_background(self) -> None:
         eng, m, win, _sc = make_engine(self.page())

@@ -190,6 +190,7 @@ def main() -> int:
                 QTimer.singleShot(int(float(autoquit) * 1000), self.quit_app)
             self.recorder = None                # 调试用的录制（record_start / record_stop）
             self._record_native: set[int] = set()   # 录制时暂时不对截屏隐身的窗口（record_native）
+            self._record_styles: dict = {}           # 录制时临时放大字号的窗口：hwnd → (窗口, 原来的样式表)
             self.guide: GuideDialog | None = None
             self.about: AboutDialog | None = None
             if cfg.first_run_tip:
@@ -1172,9 +1173,21 @@ def main() -> int:
                 if req.get("on", True):
                     winapi.include_in_capture(hwnd)
                     self._record_native.add(hwnd)
+                    if req.get("rect"):
+                        x0, y0, x1, y1 = (int(v) for v in req["rect"])
+                        w.setGeometry(x0, y0, x1 - x0, y1 - y0)      # 窗口内容区（不含标题栏）
+                    if req.get("font_pt"):
+                        # 录到视频里字太小看不清：只在录制时把这个窗口的字放大，停止录制时恢复原样
+                        self._record_styles.setdefault(hwnd, (w, w.styleSheet()))
+                        w.setStyleSheet(f"* {{ font-size: {float(req['font_pt'])}pt; }}")
                 else:
                     winapi.exclude_from_capture(hwnd)
                     self._record_native.discard(hwnd)
+                    if hwnd in self._record_styles:
+                        sw, style = self._record_styles.pop(hwnd)
+                        sw.setStyleSheet(style)
+                    if req.get("close"):
+                        w.hide()
                 return {"ok": True}
             if cmd == "record_stop":
                 if self.recorder is None:
@@ -1218,6 +1231,9 @@ def main() -> int:
             for hwnd in self._record_native:
                 winapi.exclude_from_capture(hwnd)
             self._record_native.clear()
+            for sw, style in self._record_styles.values():
+                sw.setStyleSheet(style)
+            self._record_styles.clear()
 
         def _composite(self, path: str, region: tuple) -> dict:
             """用户此刻看到的画面（截屏 + 译文 + 边框），测试看效果用。"""

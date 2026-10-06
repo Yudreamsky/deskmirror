@@ -18,6 +18,9 @@ from ..config import StyleConfig
 from ..scene import DrawItem
 
 PAD = 2
+# 句末的全角标点（。，、；：！？」』）】》…），按码点写，免得被当成要翻译的界面文字
+_CJK_END = "".join(map(chr, (0x3002, 0xFF0C, 0x3001, 0xFF1B, 0xFF1A, 0xFF01, 0xFF1F, 0x300D, 0x300F, 0xFF09,
+                             0x3011, 0x300B, 0x2026)))
 
 
 @dataclass
@@ -178,6 +181,10 @@ class Renderer:
             # 借来的地方用多少占多少：底板只比最长的一行宽一点
             longest = max((fm.horizontalAdvance(text[a:a + n].rstrip()) for a, n in spans), default=0.0)
             plate_w = wide if truncated else max(w, min(wide, int(longest + 0.999) + 3))
+        end = item.src.rstrip()[-1:]
+        if end and end in _CJK_END:
+            # 识别框常常没把句末的全角标点框进去：底板往右多盖大半个字，免得旁边露出一个“。”
+            plate_w = max(plate_w, w + round(item.line_h * 0.6))
         img_w, img_h = plate_w + 2 * PAD, max(h, used_h) + 2 * PAD
         img = QImage(img_w, img_h, QImage.Format.Format_ARGB32_Premultiplied)
         img.fill(0)
