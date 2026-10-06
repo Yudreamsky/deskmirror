@@ -1473,12 +1473,18 @@ class Engine(threading.Thread):
 
     def _start_hold(self, b: Block, sr: Rect) -> None:
         """动态区域（字幕、游戏文字）的旧译文先保留，等新句子的译文准备好直接顶掉；
-        字幕消失（下一次抓拍没有字）或最多保留 subtitle_hold_ms 后撤下。网页、文档不保留。"""
-        if b.born_dynamic and b.state == "done" and b.held_until == 0.0 and b.ok_rect is not None:
+        字幕消失（下一次抓拍没有字）或最多保留 subtitle_hold_ms 后撤下。网页、文档不保留。
+        计数器（倒计时这类只有数字在变的字）也一样：不然每跳一下，译文都要消失半秒、露出原文。"""
+        if (b.born_dynamic or b.counter) and b.state == "done" and b.held_until == 0.0 and b.ok_rect is not None:
             b.hold_start = time.perf_counter()
-            b.held_until = b.hold_start + self.cfg.track.subtitle_hold_ms / 1000
+            b.held_until = b.hold_start + self._hold_s(b)
             b.hold_rect = sr
             self._dirty = True
+
+    def _hold_s(self, b: Block) -> float:
+        # 计数器只等下一次识别（变了以后半秒左右就识别），不用像字幕那样留那么久
+        ms = self.cfg.track.subtitle_hold_ms
+        return (ms if b.born_dynamic else min(ms, 2000)) / 1000
 
     def _verify_sweep(self) -> None:
         """挑一些暂时没确认、但应该可见的块重新核对（遮挡解除、窗口移动后、滚回来的内容）。"""
@@ -1912,11 +1918,11 @@ class Engine(threading.Thread):
                     self._idx_valid = False
                 st.touched.add(old.bid)
                 return
-            if old.born_dynamic and old.state == "done" and key not in self.cache:
+            if (old.born_dynamic or old.counter) and old.state == "done" and key not in self.cache:
                 # 新句子还没译好：旧译文先留着，新译文一到就顶掉（见 _retire_replaced）
                 if old.held_until == 0.0:
                     old.hold_start = time.perf_counter()
-                    old.held_until = old.hold_start + self.cfg.track.subtitle_hold_ms / 1000
+                    old.held_until = old.hold_start + self._hold_s(old)
                     old.hold_rect = old.screen_rect()
                 replaced.append(old)
                 st.touched.add(old.bid)
@@ -1950,6 +1956,8 @@ class Engine(threading.Thread):
             if busy:
                 b.dynamic = True
                 b.bg, b.fg = (24, 24, 28), (245, 245, 245)
+        if number_tick:
+            b.counter = True       # 下次数字再变，像素对不上时先留着这块的译文（见 _start_hold）
         if not textutil.needs_translation(text, self.cfg.target_lang) or textutil.looks_like_code(text):
             b.state = "skip"
         elif (hit := self._cached(key, text)) is not None:

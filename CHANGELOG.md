@@ -4,6 +4,7 @@
 
 - **更快、更省**：DeepSeek 等 OpenAI 兼容服务默认会先“思考”再回答，翻译用不着；现在翻译时关掉思考（不认这个开关的服务自动跳过）。实测一句短文 1.5～2.4 秒 → 1.1 秒。
 - **英文译文更好看**：中日文译成英文放不下时，借用右边的纯色空白（不越过别的字，不盖图片、不盖视频画面）；英文单词不再从中间拆开；g、p、y 这类字母的下半截不再被裁掉；句末的全角“。”不再露在底板外面。
+- **倒计时不再一闪一闪**：游戏里的倒计时、计数这类只有数字在变的字，以前每跳一下译文都要消失半秒、露出原文；现在旧译文先留着，新数字的译文一出来就顶掉。
 - **调试用的录制**：通过调试通道按用户看到的样子录 60 帧视频（宣传片的实录素材用）。
 
 - **Faster and cheaper**: DeepSeek and other OpenAI-compatible services think before answering by default; thinking is
@@ -12,6 +13,9 @@
 - **Nicer English translations**: when the English translation of Chinese or Japanese text doesn't fit, it borrows
   plain space to its right (never over other text, pictures or video); English words are no longer split in the
   middle; descenders are no longer clipped; a trailing full-width "。" no longer peeks out.
+- **Countdowns no longer flicker**: for timers and counters where only the digits change, the translation used to
+  vanish for half a second on every tick, showing the original; the old translation now stays until the new one is
+  ready.
 - **Debug recording**: record 60 fps video of what the user sees through the debug channel (used for promo footage).
 
 ## 1.0.0（2026-10-06）

@@ -187,6 +187,24 @@ class NumberTickTest(unittest.TestCase):
         self.assertEqual(float(m.heat[20, 5]), 3.0)
 
 
+    def test_counter_keeps_old_translation_until_next_read(self) -> None:
+        # 倒计时每跳一下像素都会变：计数器先留着旧译文（等下一次识别套模板），不露出原文；普通文字照常撤下
+        page = text_page(3000, W, 6)
+        eng, m, win, sc = make_engine(page[0:H])
+        eng.visible = {1: [(0, 0, W, H)]}                                       # 窗口全露着：核对真的比像素
+        y0 = next(y for y in range(200, 600) if page[y:y + 22, 10:500].std() > 40 and page[y, 10:500].min() == 255)
+        rect = (10, y0, 500, y0 + 22)
+        held, plain = (add_block(eng, sc, rect, page[y0:y0 + 22, 10:500].copy()) for _ in range(2))
+        held.counter = True
+        for b in (held, plain):
+            b.state, b.translation = "done", "剩余 02:00"
+        m.cur[y0:y0 + 22, 10:500] = 255 - m.cur[y0:y0 + 22, 10:500]             # 像素全变了（比如数字跳了）
+        self.assertFalse(eng._verify(held))
+        self.assertFalse(eng._verify(plain))
+        self.assertGreater(held.held_until, time.perf_counter())
+        self.assertEqual(held.hold_rect, held.screen_rect())
+        self.assertEqual(plain.held_until, 0.0)
+
     def test_memory_hit_teaches_template(self) -> None:
         # 重启后：从记忆里取到的译文顺带学会模板，只差数字的另一段直接套用，不发请求
         import tempfile

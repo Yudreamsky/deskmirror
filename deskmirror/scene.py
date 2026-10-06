@@ -110,6 +110,7 @@ class Block:
     job_id: int = 0
     dynamic: bool = False             # 在动态背景上（视频字幕、游戏画面）：深色底板白字，按笔画核对
     born_dynamic: bool = False        # 一出现就在动态区域（字幕、游戏文字）：换句时旧译文保留到新译文顶掉
+    counter: bool = False             # 计数器（倒计时、计数、血量：同一位置只有数字在变）：数字一变先留着旧译文，新数字的译文一出来就顶掉
     lum_fg: tuple = (0, 0, 0)         # 识别时取样的文字色 / 底色（笔画核对用，不随显示样式改变）
     lum_bg: tuple = (255, 255, 255)
     held_until: float = 0.0           # 动态区域：原文换了但新译文还没好时，旧译文保留到这个时刻
