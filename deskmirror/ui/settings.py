@@ -158,6 +158,9 @@ class SettingsDialog(QDialog):
         f.addRow("", _note(tr("“整块屏幕”：魔镜所在屏幕上看得见的文字都在后台预先翻译，拖到哪里都能立刻看到译文，"
                               "但别的窗口里的文字也会发给翻译服务。另外两种只翻魔镜所在的窗口或镜框附近，"
                               "其余等魔镜移过去再翻，更省、也更不容易把无关内容发出去。")))
+        self.translate_chat = QCheckBox(tr("聊天软件也翻译（微信、QQ、钉钉、飞书、Telegram、WhatsApp 等；聊天内容会发给翻译服务）"))
+        self.translate_chat.setChecked(self.cfg.scope.translate_chat)
+        f.addRow("", self.translate_chat)
         self.ex_apps = QPlainTextEdit("\n".join(self.cfg.scope.exclude_apps))
         self.ex_apps.setMinimumHeight(110)
         f.addRow(tr("不翻译的程序\n（每行一个程序名）"), self.ex_apps)
@@ -168,7 +171,9 @@ class SettingsDialog(QDialog):
         reset.clicked.connect(self._reset_lists)
         f.addRow("", reset)
         f.addRow("", _note(tr("名单里的窗口在送去识别之前就被遮掉：不识别、不翻译，不会发给任何翻译服务。"
-                              "也可以右键托盘图标 →“不翻译魔镜下的这个程序”。")))
+                              "也可以右键托盘图标 →“不翻译魔镜下的这个程序”。"
+                              "名单里的聊天软件只在打开“聊天软件也翻译”时照常翻（托盘菜单、右键魔镜标签也能随时开关），"
+                              "密码管理器和网银、支付页面始终不翻。")))
         self.memory_on = QCheckBox(tr("记住译文：加密保存在本机，下次遇到相同的文字直接用（默认关闭）"))
         self.memory_on.setChecked(self.cfg.memory.enabled)
         mrow = QHBoxLayout()
@@ -327,6 +332,7 @@ class SettingsDialog(QDialog):
         c.scope.near_px = self.near_px.value()
         c.scope.exclude_apps = _lines(self.ex_apps)
         c.scope.exclude_titles = _lines(self.ex_titles)
+        c.scope.translate_chat = self.translate_chat.isChecked()
         c.memory.enabled = self.memory_on.isChecked()
         terms = []
         for r in range(self.gloss.rowCount()):

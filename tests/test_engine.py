@@ -432,6 +432,25 @@ class SubtitleCoverTest(unittest.TestCase):
         self.assertGreaterEqual(r[3], y0 + 22 + 10)
 
 
+class ChatSwitchTest(unittest.TestCase):
+    def test_chat_apps_follow_the_switch(self) -> None:
+        # 聊天软件默认不翻（私人聊天不发出去）；打开“翻译聊天软件”就照常翻；密码管理器始终不翻
+        from unittest import mock
+        page = text_page(3000, W, 6)
+        eng, m, win, sc = make_engine(page[0:H])
+        eng.win_pids = {11: 101, 12: 102, 13: 103}
+        eng._proc_names = {101: "wechat.exe", 102: "keepass.exe", 103: "chrome.exe"}
+        titles = {11: "微信", 12: "KeePass", 13: "WhatsApp Web - Google Chrome"}
+        with mock.patch.object(E.winapi, "window_title", side_effect=lambda h: titles[h]):
+            eng._refresh_privacy(time.perf_counter() + 1)
+            self.assertEqual(eng._excluded, {11, 12, 13})
+            self.assertEqual(eng._excluded_chat, {11, 13}, "因为是聊天软件才不翻的：标签上提示可以打开")
+            eng.cfg.scope.translate_chat = True
+            eng._refresh_privacy(time.perf_counter() + 2)
+            self.assertEqual(eng._excluded, {12}, "聊天软件照常翻，密码管理器仍不翻")
+            self.assertEqual(eng._excluded_chat, set())
+
+
 class PauseTest(unittest.TestCase):
     def test_paused_engine_does_not_capture_and_resume_rechecks(self) -> None:
         page = text_page(3000, W, 9)

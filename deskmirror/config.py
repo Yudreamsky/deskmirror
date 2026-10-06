@@ -119,9 +119,13 @@ class TrackConfig:
 
 # 默认不识别、不翻译的程序和窗口：聊天软件、密码管理器、网银和支付页面。屏幕上的这些内容不进识别，
 # 更不会发给翻译服务（用云端服务时尤其要紧）。用户可以在设置里增删。
-DEFAULT_EXCLUDE_APPS = [
+# 聊天软件：默认不翻（私人聊天不发出去）；和外国同事、朋友聊天时打开“翻译聊天软件”就照常翻
+CHAT_APPS = [
     "WeChat.exe", "Weixin.exe", "WeChatAppEx.exe", "WXWork.exe", "QQ.exe", "TIM.exe", "DingTalk.exe",
     "Feishu.exe", "Lark.exe", "Telegram.exe", "WhatsApp.exe", "Signal.exe", "LINE.exe", "Discord.exe",
+]
+CHAT_TITLES = ["WhatsApp"]           # 网页版
+DEFAULT_EXCLUDE_APPS = CHAT_APPS + [
     "KeePass.exe", "KeePassXC.exe", "1Password.exe", "Bitwarden.exe", "Dashlane.exe", "Enpass.exe",
 ]
 DEFAULT_EXCLUDE_TITLES = [
@@ -141,6 +145,7 @@ class ScopeConfig:
     near_px: int = 480                # near：镜框外多远以内也预译
     exclude_apps: list[str] = field(default_factory=lambda: list(DEFAULT_EXCLUDE_APPS))
     exclude_titles: list[str] = field(default_factory=lambda: list(DEFAULT_EXCLUDE_TITLES))
+    translate_chat: bool = False      # 名单里的聊天软件也照常翻（和外国同事聊天时打开）；密码管理器、网银仍不翻
 
 
 @dataclass

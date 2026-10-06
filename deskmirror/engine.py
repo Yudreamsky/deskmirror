@@ -26,7 +26,7 @@ import numpy as np
 
 from . import geom, pixels, textutil, winapi
 from .capture import open_capture
-from .config import AppConfig, ocr_lang_for
+from .config import CHAT_APPS, CHAT_TITLES, AppConfig, ocr_lang_for
 from .geom import Rect
 from .i18n import tr
 from .layout import Line, font_em
@@ -197,6 +197,7 @@ class Engine(threading.Thread):
         self.win_pids: dict[int, int] = {}
         self._proc_names: dict[int, str] = {}
         self._excluded: set[int] = set()                     # 排除名单里的窗口：不识别、不翻译
+        self._excluded_chat: set[int] = set()                # 其中因为是聊天软件才不翻的
         self._last_privacy = 0.0
         self._ok_pending: dict[int, Rect] = {}               # 这一帧移动前确认过、等同帧其他块佐证的块
         self._recount: dict[int, float] = {}                 # 数字刚变的计数器：bid → 什么时候单独重新识别它
@@ -567,15 +568,25 @@ class Engine(threading.Thread):
         sc = self.cfg.scope
         apps = {a.lower() for a in sc.exclude_apps}
         words = [w.lower() for w in sc.exclude_titles]
+        chat_apps, chat_words = {a.lower() for a in CHAT_APPS}, {w.lower() for w in CHAT_TITLES}
+        if sc.translate_chat:
+            # 打开了“翻译聊天软件”：名单里的聊天软件照常翻（密码管理器、网银仍不翻）
+            apps -= chat_apps
+            words = [w for w in words if w not in chat_words]
         if len(self._proc_names) > 1024:
             self._proc_names.clear()
         ex: set[int] = set()
+        chat: set[int] = set()
         for hwnd, pid in self.win_pids.items():
             name = self._proc_names.get(pid)
             if name is None:
                 name = self._proc_names[pid] = winapi.process_name(pid).lower()
-            if name in apps or (words and any(w in winapi.window_title(hwnd).lower() for w in words)):
+            title = winapi.window_title(hwnd).lower() if words else ""
+            if name in apps or (words and any(w in title for w in words)):
                 ex.add(hwnd)
+                if name in chat_apps or any(w in title for w in chat_words):
+                    chat.add(hwnd)       # 因为是聊天软件才不翻：标签上提示可以打开“翻译聊天软件”
+        self._excluded_chat = chat
         newly = ex - self._excluded
         released = self._excluded - ex
         changed = ex != self._excluded
@@ -2796,6 +2807,8 @@ class Engine(threading.Thread):
             "memory_count": self.memory.count() if self.memory is not None else None,
             "excluded_in_mirror": any(geom.overlaps(v, mr) for mr in self._mirrors
                                       for hwnd in self._excluded for v in self.visible.get(hwnd, ())),
+            "chat_in_mirror": any(geom.overlaps(v, mr) for mr in self._mirrors
+                                  for hwnd in self._excluded_chat for v in self.visible.get(hwnd, ())),
         }
         if self._geo_frame_t or extras:
             # 从“屏幕上内容动了的那一帧”到“新位置交给界面”的耗时

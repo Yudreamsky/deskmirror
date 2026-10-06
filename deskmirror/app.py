@@ -29,6 +29,15 @@ def _qimage_bgr(img):
     return arr[:, :w, :3].copy()
 
 
+def _host_of(url: str) -> str:
+    """翻译服务地址里的主机名（给用户看的提示用）。"""
+    from urllib.parse import urlparse
+    try:
+        return urlparse(url).hostname or url
+    except ValueError:
+        return url
+
+
 def _setup_logging() -> None:
     logdir = ROOT / "logs"
     logdir.mkdir(exist_ok=True)
@@ -222,6 +231,8 @@ def main() -> int:
                 scope_menu.addAction(act)
                 self.scope_actions[code] = act
             menu.addAction(tr("不翻译魔镜下的这个程序"), self.exclude_app_under_mirror)
+            self.act_chat = self._chat_action(menu)
+            menu.addAction(self.act_chat)
             menu.addAction(tr("历史记录…（最近的原文和译文）"), self.toggle_history)
             menu.addAction(tr("新手指南…"), self.open_guide)
             menu.addAction(tr("设置…"), self.open_settings)
@@ -347,9 +358,37 @@ def main() -> int:
             else:
                 menu.addAction(tr("取消跟随窗口"), lambda: self.unbind_mirror(f))
             menu.addAction(tr("新建一个魔镜"), self.add_mirror)
+            menu.addAction(self._chat_action(menu))
             if f is not self.frame:
                 menu.addAction(tr("关闭这个魔镜"), lambda: self.close_mirror(f))
             menu.exec(pos)
+
+        def _chat_action(self, parent) -> QAction:
+            act = QAction(tr("翻译聊天软件（和外国同事、朋友聊天时打开）"), parent)
+            act.setCheckable(True)
+            act.setChecked(self.cfg.scope.translate_chat)
+            act.toggled.connect(self.set_translate_chat)
+            return act
+
+        def set_translate_chat(self, on: bool) -> None:
+            """聊天软件默认不翻（私人聊天不发出去）；和外国同事聊天时打开，聊完关掉。密码管理器、网银始终不翻。"""
+            if on == self.cfg.scope.translate_chat:
+                return
+            self.cfg.scope.translate_chat = on
+            if self.act_chat.isChecked() != on:
+                self.act_chat.blockSignals(True)
+                self.act_chat.setChecked(on)
+                self.act_chat.blockSignals(False)
+            self._save()
+            if on:
+                local = self.cfg.llm.protocol == "ollama" and any(
+                    h in self.cfg.llm.base_url for h in ("127.0.0.1", "localhost", "[::1]"))
+                where = tr("用的是本机 Ollama，聊天内容不出本机。") if local else                     tr("聊天内容会发给翻译服务（{host}）。").format(host=_host_of(self.cfg.llm.base_url))
+                msg = tr("已打开：微信、QQ、钉钉、飞书、Telegram、WhatsApp 等聊天窗口也会翻译。{where}聊完可以在托盘菜单或右键魔镜标签里关掉。"
+                         ).format(where=where)
+            else:
+                msg = tr("已关闭：聊天软件的窗口不再识别、不再翻译。")
+            self.tray.showMessage(tr("桌面魔镜"), msg, QSystemTrayIcon.MessageIcon.Information, 6000)
 
         def bind_mirror(self, f: MirrorFrame) -> bool:
             """让魔镜跟随它中心下面的那个窗口：记下魔镜在窗口里的相对位置，窗口移动、缩放时按比例跟着走。"""
@@ -653,7 +692,9 @@ def main() -> int:
                 text, level = tr("就绪 · 已翻译 {n} 块").format(n=s.get("done", 0)), "ok"
             if s.get("slow") and level == "ok":
                 text, level = text + tr(" · 服务较慢"), "warn"
-            if s.get("excluded_in_mirror") and level in ("ok", "busy"):
+            if s.get("chat_in_mirror") and level in ("ok", "busy"):
+                text += tr(" · 聊天窗口默认不翻译（右键标签可打开）")
+            elif s.get("excluded_in_mirror") and level in ("ok", "busy"):
                 text += tr(" · 镜内有不翻译的窗口（排除名单）")
             return text, level
 
@@ -829,6 +870,9 @@ def main() -> int:
                         self.engine.inbox.put(("glossary", changed))
                     for c, act in self.scope_actions.items():
                         act.setChecked(c == self.cfg.scope.mode)
+                    self.act_chat.blockSignals(True)
+                    self.act_chat.setChecked(self.cfg.scope.translate_chat)
+                    self.act_chat.blockSignals(False)
                     self.state.renderer.set_style(self.cfg.style)
                     self.engine.update_llm(self.cfg)
                     if dlg.clear_memory_requested:
