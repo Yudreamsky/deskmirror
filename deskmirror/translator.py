@@ -167,6 +167,10 @@ def _http_error(resp: httpx.Response) -> ServiceError:
                         retryable=code >= 500)
 
 
+# 不认 "thinking" 参数的 OpenAI 兼容服务（按服务地址记住）：这次运行里不再带这个参数，免得每批都先报错再重发
+_NO_THINKING_PARAM: set[str] = set()
+
+
 def _clean(text: str) -> str:
     text = _THINK.sub("", text)
     if "<think>" in text:
@@ -224,29 +228,39 @@ def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: 
             if cfg.api_key:
                 headers["Authorization"] = f"Bearer {cfg.api_key}"
             payload = {"model": cfg.model, "messages": messages, "temperature": cfg.temperature, "stream": True}
-            with client.stream("POST", f"{base}/chat/completions", json=payload, headers=headers) as resp:
-                if resp.status_code != 200:
-                    resp.read()
-                    raise _http_error(resp)
-                for line in resp.iter_lines():
-                    if cancel.is_set():
-                        return
-                    if not line.startswith("data:"):
-                        continue
-                    data = line[5:].strip()
-                    if data == "[DONE]":
-                        break
-                    try:
-                        obj = json.loads(data)
-                    except ValueError:
-                        continue
-                    if obj.get("error"):
-                        raise ServiceError(tr("服务报错：{detail}").format(detail=str(obj["error"])[:120]))
-                    choices = obj.get("choices") or []
-                    if choices:
-                        piece = (choices[0].get("delta") or {}).get("content") or ""
-                        if piece:
-                            parser.feed_raw(piece)
+            if cfg.disable_thinking and base not in _NO_THINKING_PARAM:
+                # DeepSeek 等服务默认开“思考”：翻译用不着，关掉快得多、也省钱（思考的字数按输出计费）
+                payload["thinking"] = {"type": "disabled"}
+            for attempt in range(2):
+                with client.stream("POST", f"{base}/chat/completions", json=payload, headers=headers) as resp:
+                    if resp.status_code != 200:
+                        resp.read()
+                        if attempt == 0 and "thinking" in payload and resp.status_code in (400, 422):
+                            payload.pop("thinking")  # 可能是不认这个参数：去掉重发一次，成功就记住这个服务
+                            continue
+                        raise _http_error(resp)
+                    if attempt == 1:
+                        _NO_THINKING_PARAM.add(base)
+                    for line in resp.iter_lines():
+                        if cancel.is_set():
+                            return
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[5:].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            obj = json.loads(data)
+                        except ValueError:
+                            continue
+                        if obj.get("error"):
+                            raise ServiceError(tr("服务报错：{detail}").format(detail=str(obj["error"])[:120]))
+                        choices = obj.get("choices") or []
+                        if choices:
+                            piece = (choices[0].get("delta") or {}).get("content") or ""
+                            if piece:
+                                parser.feed_raw(piece)
+                    break
     except httpx.TimeoutException:
         raise ServiceError(tr("翻译服务响应超时")) from None
     except httpx.ConnectError:

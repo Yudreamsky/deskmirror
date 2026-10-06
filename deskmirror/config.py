@@ -69,7 +69,7 @@ class LlmConfig:
     concurrency: int = 1              # 同时在途的请求数
     max_batch_chars: int = 1000       # 一次请求最多合并多少字的文字块（实测 8~10 段吞吐已到顶）
     max_batch_items: int = 10         # 一次请求最多合并多少个文字块
-    disable_thinking: bool = True     # Ollama 的 think=false；gemma4 开思考一句要好几秒
+    disable_thinking: bool = True     # 关掉模型的“思考”：Ollama 传 think=false，OpenAI 兼容接口传 thinking=disabled（DeepSeek 默认开）
     num_ctx: int = 4096               # Ollama 每次必须一致，否则会重新加载模型
     keep_alive: str = "30m"
     consistency: bool = True          # 术语前后一致：附上本窗口里含同样词语的已有译文作参考（请求会长一些）
