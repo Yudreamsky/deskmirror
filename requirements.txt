@@ -1,0 +1,9 @@
+# 桌面魔镜的依赖（Windows）。安装：双击 setup.bat，或 .venv\Scripts\python.exe -m pip install -r requirements.txt
+# 括号里是开发时用的版本。
+PySide6-Essentials>=6.8         # 6.11.2
+rapidocr>=3.9                   # 3.9.2
+onnxruntime-directml>=1.20      # 1.24.4：用显卡识别（DirectML），没有合适的显卡时自动用 CPU
+opencv-python>=4.8              # 5.0
+numpy>=1.26                     # 2.5.3
+httpx>=0.27                     # 0.28.1
+mss>=10.0                       # 10.2.0

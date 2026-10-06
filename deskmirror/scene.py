@@ -1,0 +1,150 @@
+"""场景模型：画布树和文字块。
+
+画布树：桌面（根）→ 顶层窗口 → 滚动画布（可以嵌套）。每个画布有自己的“内容坐标”，
+offset 把内容坐标平移到父画布坐标；viewport 是它在父画布坐标里的可见范围。
+窗口移动只改窗口画布的 offset，局部滚动只改对应滚动画布的 offset，二者互不叠加。
+文字块挂在最深的画布上，屏幕位置 = 块的内容坐标 + 一路向上的 offset 之和；
+可见范围 = 一路向上的 viewport 求交，再与窗口未被遮挡的部分求交。
+"""
+from __future__ import annotations
+
+import itertools
+import time
+from dataclasses import dataclass, field
+
+import numpy as np
+
+from . import geom
+from .geom import Rect
+
+_ids = itertools.count(1)
+BIG: Rect = (-1_000_000, -1_000_000, 1_000_000, 1_000_000)
+
+
+@dataclass(eq=False)
+class Canvas:
+    kind: str                         # desktop | window | scroll
+    parent: Canvas | None
+    offset: list[int]
+    viewport: Rect | None             # 父画布坐标
+    hwnd: int = 0
+    axis: str = ""
+    cid: int = field(default_factory=lambda: next(_ids))
+    children: list[Canvas] = field(default_factory=list)
+    blocks: dict[int, Block] = field(default_factory=dict)
+    created: float = field(default_factory=time.perf_counter)
+    last_move: float = 0.0
+    last_scroll_ok: float = 0.0           # 窗口画布：最近一次在它里面识别出滚动的时间
+    alive: bool = True
+    motion: list = field(default_factory=list)   # 滚动画布：最近几帧的 (帧时间, 位移, 与上一处理帧的间隔)
+
+    def screen_offset(self) -> tuple[int, int]:
+        ox = oy = 0
+        c: Canvas | None = self
+        while c is not None:
+            ox += c.offset[0]
+            oy += c.offset[1]
+            c = c.parent
+        return ox, oy
+
+    def screen_clip(self) -> Rect:
+        clip = BIG
+        c: Canvas | None = self
+        while c is not None:
+            if c.viewport is not None:
+                px, py = c.parent.screen_offset() if c.parent is not None else (0, 0)
+                clip = geom.inter(clip, geom.shift(c.viewport, px, py))
+            c = c.parent
+        return clip
+
+    def window(self) -> Canvas | None:
+        c: Canvas | None = self
+        while c is not None and c.kind != "window":
+            c = c.parent
+        return c
+
+    def depth(self) -> int:
+        d, c = 0, self.parent
+        while c is not None:
+            d, c = d + 1, c.parent
+        return d
+
+    def descendants(self):
+        for ch in self.children:
+            yield ch
+            yield from ch.descendants()
+
+    def to_content(self, screen_rect: Rect) -> Rect:
+        ox, oy = self.screen_offset()
+        return geom.shift(screen_rect, -ox, -oy)
+
+    def to_screen(self, content_rect: Rect) -> Rect:
+        ox, oy = self.screen_offset()
+        return geom.shift(content_rect, ox, oy)
+
+
+@dataclass(eq=False)
+class Block:
+    canvas: Canvas
+    rect: Rect                        # 画布内容坐标
+    lines: list[tuple[Rect, str]]     # 画布内容坐标
+    text: str
+    key: str                          # 译文缓存键
+    ref: np.ndarray                   # 识别时这块区域的灰度图，用于核对对应关系
+    bg: tuple[int, int, int]
+    fg: tuple[int, int, int]
+    line_h: int
+    em: float = 0.0                   # 估计的原文字号（像素），排版用
+    bid: int = field(default_factory=lambda: next(_ids))
+    state: str = "pending"            # pending / translating / done / failed / skip
+    translation: str = ""
+    error: str = ""
+    attempts: int = 0
+    retry_at: float = 0.0
+    version: int = 1                  # 译文或排版空间变化时加一，界面据此重绘缓存
+    ok_rect: Rect | None = None       # 最近一次确认过像素对应关系时的屏幕位置
+    room_bottom: int = 0              # 排版时最多可以向下延伸到的内容坐标
+    created: float = field(default_factory=time.perf_counter)
+    job_id: int = 0
+    dynamic: bool = False             # 在动态背景上（视频字幕、游戏画面）：深色底板白字，按笔画核对
+    born_dynamic: bool = False        # 一出现就在动态区域（字幕、游戏文字）：换句时旧译文保留到新译文顶掉
+    lum_fg: tuple = (0, 0, 0)         # 识别时取样的文字色 / 底色（笔画核对用，不随显示样式改变）
+    lum_bg: tuple = (255, 255, 255)
+    held_until: float = 0.0           # 动态区域：原文换了但新译文还没好时，旧译文保留到这个时刻
+    hold_start: float = 0.0
+    hold_rect: Rect | None = None
+    replaces: list = field(default_factory=list)   # 这块译好后要顶掉的旧块
+    refind_at: float = 0.0            # 对不上时在附近重新找这段的下一次时间（找不到就逐步放慢）
+    refind_n: int = 0
+
+    def screen_rect(self) -> Rect:
+        return self.canvas.to_screen(self.rect)
+
+    def verified_here(self) -> bool:
+        return self.ok_rect is not None and self.ok_rect == self.screen_rect()
+
+
+@dataclass(frozen=True)
+class DrawItem:
+    """交给界面线程的一块译文；界面按 (bid, version) 缓存排版结果。"""
+    bid: int
+    version: int
+    rect: Rect                        # 原文块的屏幕位置
+    room: Rect                        # 可用于排版的最大范围（屏幕坐标）
+    clips: tuple[Rect, ...]           # 所属画布可见范围 ∩ 窗口未遮挡部分
+    text: str
+    bg: tuple[int, int, int]
+    fg: tuple[int, int, int]
+    line_h: int
+    n_lines: int
+    em: float = 0.0
+    ref: np.ndarray | None = field(default=None, compare=False, repr=False)  # 识别时的原文灰度图（核对用）
+    src: str = field(default="", compare=False, repr=False)                  # 原文（历史面板、调试通道用）
+
+
+@dataclass(frozen=True)
+class Snapshot:
+    items: tuple[DrawItem, ...]
+    pending: tuple[tuple[Rect, tuple[Rect, ...]], ...]   # 已识别、译文还没好（或失败）的块：显示等待提示用
+    status: dict
+    stamp: float
