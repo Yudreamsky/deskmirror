@@ -5,7 +5,7 @@ Windows 上的屏幕翻译工具：在桌面上放一块可以拖动的“镜子
 
 ![桌面魔镜：镜框里的英文换成了中文，镜框外照常](docs/screenshot.jpg)
 
-[English](#english)
+第一次用？看[新手指南](docs/QUICKSTART.md)（程序第一次启动时也会弹出同样的指南）。 · [English](#english)
 
 ## 特点
 
@@ -40,7 +40,7 @@ Windows 上的屏幕翻译工具：在桌面上放一块可以拖动的“镜子
 
 ## 使用
 
-详见[使用说明](docs/GUIDE.md)。常用操作：
+第一次启动会弹出新手指南（以后在托盘菜单里随时能再打开），详见[新手指南](docs/QUICKSTART.md)和[使用说明](docs/GUIDE.md)。常用操作：
 
 | 想做的事 | 怎么做 |
 |---|---|

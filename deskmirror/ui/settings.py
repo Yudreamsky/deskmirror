@@ -5,12 +5,12 @@ import copy
 import threading
 
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QGroupBox,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QSpinBox,
                                QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from .. import winapi
+from .about import AboutPage
 from ..config import (DEFAULT_EXCLUDE_APPS, DEFAULT_EXCLUDE_TITLES, LANGUAGES, OPENAI_PRESETS, SCOPE_MODES,
                       SOURCE_LANGS, AppConfig)
 from ..translator import list_models, test_connection
@@ -25,6 +25,7 @@ def _lines(edit: QPlainTextEdit) -> list[str]:
 
 
 class SettingsDialog(QDialog):
+    guide_requested = Signal()      # “关于”页上的“打开新手指南”
     def __init__(self, cfg: AppConfig, parent: QWidget | None = None) -> None:
         super().__init__(parent, Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
         self.setWindowTitle("桌面魔镜 · 设置")
@@ -295,39 +296,9 @@ class SettingsDialog(QDialog):
         return page
 
     def _about_tab(self) -> QWidget:
-        from .. import CONTACT_EMAIL, HOMEPAGE, __version__
-        page = QWidget()
-        lay = QVBoxLayout(page)
-        head = QLabel(f"<h3>桌面魔镜 DeskMirror</h3><p>版本 {__version__}</p>"
-                      "<p>屏幕翻译工具：在网页、PDF、软件界面、游戏和视频字幕上，把译文贴在原文的位置。</p>")
-        head.setWordWrap(True)
-        lay.addWidget(head)
-        row = QHBoxLayout()
-        mail = QLabel(f'作者邮箱：<a href="mailto:{CONTACT_EMAIL}">{CONTACT_EMAIL}</a>')
-        mail.setOpenExternalLinks(True)
-        mail.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
-        row.addWidget(mail)
-        self.copy_mail = QPushButton("复制邮箱")
-        self.copy_mail.clicked.connect(lambda: self._copy_email(CONTACT_EMAIL))
-        row.addWidget(self.copy_mail)
-        row.addStretch(1)
-        lay.addLayout(row)
-        if HOMEPAGE:
-            home = QLabel(f'项目主页：<a href="{HOMEPAGE}">{HOMEPAGE}</a>')
-            home.setOpenExternalLinks(True)
-            lay.addWidget(home)
-        credits = QLabel("用到的开源组件：Qt / PySide6（LGPL-3.0）、RapidOCR 与 PaddleOCR 识别模型（Apache-2.0）、"
-                         "ONNX Runtime（MIT）、OpenCV（Apache-2.0）、NumPy（BSD-3-Clause）、httpx（BSD-3-Clause）、"
-                         "mss（MIT）。感谢这些项目的作者。")
-        credits.setWordWrap(True)
-        credits.setStyleSheet("color: #888;")
-        lay.addWidget(credits)
-        lay.addStretch(1)
+        page = AboutPage()
+        page.guide_requested.connect(self.guide_requested.emit)
         return page
-
-    def _copy_email(self, email: str) -> None:
-        QGuiApplication.clipboard().setText(email)
-        self.copy_mail.setText("已复制")
 
     # ------------------------------------------------------------------ 动作
     def _apply_preset(self, idx: int) -> None:

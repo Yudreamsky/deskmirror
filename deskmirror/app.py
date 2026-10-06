@@ -67,6 +67,8 @@ def main() -> int:
     from .ui.mirror import MirrorFrame
     from .ui.overlay import Overlay, UiState
     from .ui.render import Renderer
+    from .ui.about import AboutDialog
+    from .ui.guide import GuideDialog
     from .ui.history import HistoryPanel
     from .ui.vision import VisionPanel
     from .ui.settings import SettingsDialog
@@ -170,12 +172,14 @@ def main() -> int:
                 self.scope_actions[code] = act
             menu.addAction("不翻译魔镜下的这个程序", self.exclude_app_under_mirror)
             menu.addAction("历史记录…（最近的原文和译文）", self.toggle_history)
+            menu.addAction("新手指南…", self.open_guide)
             menu.addAction("设置…", self.open_settings)
             self.act_debug = QAction("显示识别到的滚动区域（调试）", menu)
             self.act_debug.setCheckable(True)
             self.act_debug.toggled.connect(self._on_debug)
             menu.addAction(self.act_debug)
             menu.addSeparator()
+            menu.addAction("关于…", self.open_about)
             menu.addAction("退出", qapp.quit)
             self.tray.setContextMenu(menu)
             self.tray.activated.connect(self._on_tray)
@@ -207,13 +211,10 @@ def main() -> int:
             autoquit = os.environ.get("DESKMIRROR_AUTOQUIT")
             if autoquit:
                 QTimer.singleShot(int(float(autoquit) * 1000), qapp.quit)
+            self.guide: GuideDialog | None = None
+            self.about: AboutDialog | None = None
             if cfg.first_run_tip:
-                self.tray.showMessage("桌面魔镜已启动",
-                                      "拖标签移动、拖边框调整大小；按住 Ctrl+Alt 在镜内拖动也能移动。"
-                                      f"按住 {cfg.hotkeys.peek} 看原文，{cfg.hotkeys.refresh} 刷新镜内区域。"
-                                      "托盘图标右键可退出。", QSystemTrayIcon.MessageIcon.Information, 8000)
-                cfg.first_run_tip = False
-                self._save_timer.start()
+                QTimer.singleShot(1200, self.open_guide)     # 第一次启动：新手指南（看完或关掉就不再自动打开）
 
         # -------------------------------------------------------------- 多个魔镜、跟随窗口
         def _new_frame(self, rect: tuple) -> MirrorFrame:
@@ -468,6 +469,37 @@ def main() -> int:
             box.button(QMessageBox.StandardButton.No).setText("不发")
             return box.exec() == QMessageBox.StandardButton.Yes
 
+        def open_guide(self) -> None:
+            """新手指南：选翻译服务、讲清楚怎么用。第 2 步、第 4 步的选择立即生效。"""
+            if self.guide is not None and self.guide.isVisible():
+                self.guide.raise_()
+                self.guide.activateWindow()
+                return
+            g = self.guide = GuideDialog(self.cfg)
+            g.apply_llm.connect(self._guide_llm)
+            g.apply_scope.connect(self.set_scope)
+            g.guide_done.connect(self._guide_done)
+            g.show()
+            g.raise_()
+
+        def open_about(self) -> None:
+            if self.about is None:
+                self.about = AboutDialog()
+                self.about.page.guide_requested.connect(self.open_guide)
+            self.about.show()
+            self.about.raise_()
+            self.about.activateWindow()
+
+        def _guide_llm(self, llm) -> None:
+            self.cfg.llm = llm
+            self.engine.update_llm(self.cfg)
+            self._save_timer.start()
+
+        def _guide_done(self) -> None:
+            if self.cfg.first_run_tip:
+                self.cfg.first_run_tip = False
+                self._save_timer.start()
+
         def toggle_pause(self) -> None:
             """暂停：魔镜框还在，不截屏、不识别、不翻译（不花翻译费用），也不画译文；继续时重新核对画面。"""
             paused = self.state.paused = not self.state.paused
@@ -707,6 +739,7 @@ def main() -> int:
                 self._settings.raise_()
                 return
             dlg = SettingsDialog(self.cfg)
+            dlg.guide_requested.connect(self.open_guide)
             self._settings = dlg
 
             def done(result: int) -> None:
@@ -913,6 +946,14 @@ def main() -> int:
             if cmd == "cache_get":
                 from .textutil import cache_key
                 return {"items": {s: self.engine.cache.get(cache_key(s)) for s in req.get("src", [])}}
+            if cmd == "about":
+                self.open_about()
+                return {"ok": True, "visible": self.about.isVisible()}
+            if cmd == "guide":
+                self.open_guide()
+                if "page" in req and self.guide is not None:
+                    self.guide.pages.setCurrentIndex(int(req["page"]))
+                return {"ok": True}
             if cmd == "look":
                 self.look(region=tuple(req["region"]) if req.get("region") else None)
                 return {"ok": True}
@@ -1045,6 +1086,11 @@ def main() -> int:
                 f.close()
             self.tip.close()
             self.history.close()
+            if self.guide is not None:
+                self.guide.blockSignals(True)      # 退出程序时关掉的不算看过，下次还会弹出
+                self.guide.close()
+            if self.about is not None:
+                self.about.close()
             self._cancel_look()
             self.vision_panel.close()
             self.tray.hide()
