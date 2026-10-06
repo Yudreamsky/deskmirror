@@ -24,6 +24,16 @@ class PromptTest(unittest.TestCase):
         self.assertIn("Indonesian (Bahasa Indonesia)", translator.system_prompt("id", "en"))
 
 
+class CacheKeyTest(unittest.TestCase):
+    def test_spaces_around_punctuation_do_not_make_a_new_sentence(self) -> None:
+        # 识别时标点后的空格时有时无：算同一句，不为它多翻译一次
+        k = textutil.cache_key
+        self.assertEqual(k("와, 여기서 보는 풍경 좀 봐!"), k("와,여기서 보는 풍경 좀 봐 !"))
+        self.assertEqual(k("Wow, look at the view!"), k("Wow,look at the view !"))
+        self.assertEqual(k("要起风暴了，回去吧。"), k("要起风暴了, 回去吧 。"))
+        self.assertNotEqual(k("we finally made it"), k("wefinally made it"), "词之间的空格照样算数")
+
+
 class OcrFixTest(unittest.TestCase):
     def test_katakana_long_vowel_read_as_dash(self) -> None:
         # 识别模型常把片假名的长音认成减号、汉字“一”：改回长音，术语表才对得上（セーブ → 存档）

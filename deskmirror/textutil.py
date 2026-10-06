@@ -22,8 +22,13 @@ def fix_ocr(text: str) -> str:
     return _LONG_VOWEL.sub("ー", text)
 
 
+# 标点前后的空格：识别时常常时有时无（“와, 여기서”/“와,여기서”），算同一句，不为它多翻译一次
+_PUNCT_SPACE = re.compile(r"\s*([,.!?:;\u3001\u3002])\s*")
+
+
 def cache_key(text: str) -> str:
-    return _SPACES.sub(" ", unicodedata.normalize("NFKC", text)).strip()
+    t = _SPACES.sub(" ", unicodedata.normalize("NFKC", text)).strip()
+    return _PUNCT_SPACE.sub(r"\1", t)
 
 
 # 印尼文里很常见、英文里几乎不出现的词：拉丁字母的文字靠它们分辨是不是印尼文
