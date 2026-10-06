@@ -40,6 +40,7 @@ from .wheelmodel import EPISODE_GAP, CurveModel, Episode, learn, load_models, sa
 log = logging.getLogger(__name__)
 TILE = pixels.TILE
 VOLATILE_S = 1.5   # 连续变化超过这么久才算动态背景（视频、游戏画面）；窗口改大小的重绘一般 1 秒内结束
+COUNTER_WAIT_S = 0.12   # 计数器的数字变了以后等多久再识别（数字有过渡动画时等它画完）
 
 
 def _bbox(rects: list[Rect]) -> Rect:
@@ -186,6 +187,7 @@ class Engine(threading.Thread):
         self._excluded: set[int] = set()                     # 排除名单里的窗口：不识别、不翻译
         self._last_privacy = 0.0
         self._ok_pending: dict[int, Rect] = {}               # 这一帧移动前确认过、等同帧其他块佐证的块
+        self._recount: dict[int, float] = {}                 # 数字刚变的计数器：bid → 什么时候单独重新识别它
         self.metrics: dict = collections.defaultdict(float)
         self.metrics_log = os.environ.get("DESKMIRROR_METRICS")
         self._metrics_fh = None
@@ -1350,9 +1352,12 @@ class Engine(threading.Thread):
         """
         covered = 0
         all_ok = True
+        now = time.perf_counter()
         for b in self._blocks_in(r):
             if b.ok_rect is None:
                 all_ok = False
+                if b.counter and b.held_until > now:
+                    self._recount.setdefault(b.bid, now + COUNTER_WAIT_S)   # 留着旧译文时数字又变了：再识别一次
                 continue
             if self._verify(b):
                 covered += geom.area(geom.inter(b.screen_rect(), r))
@@ -1360,6 +1365,9 @@ class Engine(threading.Thread):
                 b.ok_rect = None
                 all_ok = False
                 self._dirty = True
+                if b.counter:
+                    # 计数器：不等这一片静止（游戏画面一直在动，等不到），稍等一下就单独识别这一小块
+                    self._recount.setdefault(b.bid, now + COUNTER_WAIT_S)
         if not (all_ok and covered >= 0.8 * geom.area(r) and geom.area(r) <= 24 * TILE * TILE):
             self._mark_needs(m, r, track_volatile=track_volatile)
 
@@ -1524,6 +1532,8 @@ class Engine(threading.Thread):
         if self.ocr is None or self.ocr_state != "ready" or self.ocr_busy is not None:
             return
         now = time.perf_counter()
+        if self._recount and self._recount_one(now):
+            return
         stable = self.cfg.track.stable_ms / 1000
         best = None
         for m in self.mons:
@@ -1591,6 +1601,7 @@ class Engine(threading.Thread):
                 win = self._window_at(*geom.center(comp))
                 if win.viewport is not None:
                     rect = geom.inter(rect, win.viewport)  # 不要带进旁边窗口或桌面的半截文字
+                rect = self._whole_blocks(m, rect, win if win.kind == "window" else None)
             else:
                 rect = self._ocr_region(m, comp)
             if any(geom.overlaps(rect, r) for r in self._moving_clips(time.perf_counter())):
@@ -1601,6 +1612,52 @@ class Engine(threading.Thread):
             covered = geom.inter(rect, comp)
             if not geom.empty(covered):
                 self._clear_needs(m, covered, outward=True)
+
+    def _recount_one(self, now: float) -> bool:
+        """数字刚变的计数器（倒计时、计数、血量）：单独识别它那一小块，排在别的识别前面。提交了就返回 True。
+        游戏画面一直在动，等整片静止要等好几秒，这期间只能留着旧数字或者露出原文。"""
+        for bid, due in list(self._recount.items()):
+            b = self.blocks.get(bid)
+            if b is None or b.ok_rect is not None or now - due > 2.0:
+                del self._recount[bid]    # 块没了、又对上了，或者一直在滚动等太久：不用了
+                continue
+            if now < due:
+                continue
+            sr = b.screen_rect()
+            m = self._monitor_for(sr)
+            if m is None or not m.ready:
+                del self._recount[bid]
+                continue
+            # 数字变长（9 → 10）可能往左也可能往右长：左右各多留一个半行高
+            px, py = max(8, b.line_h * 3 // 2), max(6, b.line_h // 2)
+            rect = geom.inter((sr[0] - px, sr[1] - py, sr[2] + px, sr[3] + py), m.rect)
+            win = b.canvas.window()
+            if win is not None and win.viewport is not None:
+                rect = geom.inter(rect, win.viewport)
+            rect = self._whole_blocks(m, rect, win)
+            if geom.empty(rect) or any(geom.overlaps(rect, r) for r in self._moving_clips(now)):
+                continue      # 正在滚动：停下再识别
+            del self._recount[bid]
+            self.metrics["counter_reads"] += 1
+            self._submit_ocr(m, rect, False, sr)
+            return True
+        return False
+
+    def _whole_blocks(self, m: Mon, rect: Rect, win: Canvas | None) -> Rect:
+        """把碰到的已知文字块（同一个窗口里的）整块框进识别区域：从一行字中间切开的话，切下的半行会被当成新的一块，
+        顶掉原来的整行（倒计时只识别到数字，前面的“残り”就露出原文了）。"""
+        for _ in range(3):
+            grown = rect
+            for b in self._blocks_in(rect):
+                if b.canvas.window() is win:
+                    grown = _bbox([grown, geom.expand(b.screen_rect(), 8)])
+            grown = geom.inter(grown, m.rect)
+            if win is not None and win.viewport is not None:
+                grown = geom.inter(grown, win.viewport)
+            if grown == rect:
+                break
+            rect = grown
+        return rect
 
     def _split_by_window(self, m: Mon, comp: Rect, mask: np.ndarray) -> list[Rect]:
         """按窗口（从上到下）切开一块待识别区域：每个窗口露在其中、确实有待识别格子（mask）的部分，
@@ -1887,6 +1944,7 @@ class Engine(threading.Thread):
             return
         replaced: list[Block] = []
         number_tick = False      # 同一位置只是数字变了（计时器、计数、血量）
+        was_counter = False
         tmpl = number_template(text)
         # 与已有块去重：同位置同文字沿用原块（保留译文），文字变了就替换。
         for old in list(canvas.blocks.values()):
@@ -1901,6 +1959,8 @@ class Engine(threading.Thread):
                 ot = number_template(old.text)
                 if ot is not None and textutil.cache_key(ot[0]) == textutil.cache_key(tmpl[0]):
                     number_tick = True
+            if same_place and old.counter and (old.key == key or tmpl is not None):
+                was_counter = True   # 同一个计数器重新识别（框挪了几像素、数字又变了）：新块接着当计数器
             if old.key != key and same_place and old.ok_rect is not None and self._verify(old):
                 # 像素和上次识别时完全一样，只是这次 OCR 结果差了一两个字：沿用旧块和旧译文，
                 # 不为“同样的内容”再发一次翻译请求。
@@ -1956,8 +2016,8 @@ class Engine(threading.Thread):
             if busy:
                 b.dynamic = True
                 b.bg, b.fg = (24, 24, 28), (245, 245, 245)
-        if number_tick:
-            b.counter = True       # 下次数字再变，像素对不上时先留着这块的译文（见 _start_hold）
+        if number_tick or was_counter:
+            b.counter = True       # 下次数字再变，像素对不上时先留着这块的译文（见 _start_hold），并且马上单独重新识别
         if not textutil.needs_translation(text, self.cfg.target_lang) or textutil.looks_like_code(text):
             b.state = "skip"
         elif (hit := self._cached(key, text)) is not None:
@@ -2019,10 +2079,12 @@ class Engine(threading.Thread):
         sr = b.screen_rect()
         clip_room = b.canvas.screen_clip()[2] - 4 - sr[2]                 # 不伸出所在画布的可见范围
         b.extra_max = max(0, min(nearest - b.rect[2], clip_room))
-        if right <= b.rect[2] or self._volatile_frac(m, (sr[2], sr[1], sr[2] + right - b.rect[2], sr[3]), 1.5) > 0.3:
-            b.extra_w = 0      # 右边在动（视频、动画）：底板不能盖上去，哪怕颜色看着一样
-        else:
-            b.extra_w = self._plain_right(m, b, right - b.rect[2])
+        w = self._plain_right(m, b, right - b.rect[2]) if right > b.rect[2] else 0
+        # 右边在动（视频、动画）：底板不能盖上去，哪怕颜色看着一样。只看真要借的那片，而且只看整格都在原文右边的格子：
+        # 原文自己在变（倒计时每秒跳一下）不算，面板外面的动画也不算——不然同一个倒计时一会儿借得到、一会儿借不到，译文忽大忽小
+        if w and self._volatile_frac(m, (sr[2] + TILE - 1, sr[1], sr[2] + w, sr[3]), 1.5) > 0.3:
+            w = 0
+        b.extra_w = w
 
     def _plain_right(self, m: Mon, b: Block, most: int) -> int:
         """原文块右边有多宽是和底色一样的纯色（逐列看块所在的那几行），不超出所在画布的可见范围。

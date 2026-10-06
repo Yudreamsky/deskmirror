@@ -145,6 +145,22 @@ class RoomRightTest(unittest.TestCase):
         eng._update_room(win, b, m)
         self.assertEqual(b.extra_w, 0)
 
+    def test_counter_still_borrows_while_its_digits_change(self) -> None:
+        # 倒计时：原文自己每秒都在变，面板外面还有动画；原文右边那片是静止的纯色，照样能借（不然译文忽大忽小）
+        import time
+
+        from deskmirror import engine as E
+        eng, m, win, _sc = make_engine(self.page())
+        now = time.perf_counter()
+        rows, own = slice(100 // E.TILE, 140 // E.TILE + 1), slice(0, 130 // E.TILE + 1)
+        m.last_chg[rows, own] = now                                 # 原文所在的格子（含最右边那格）一直在变
+        m.chg_start[rows, own] = now - 5
+        m.last_chg[:, 304 // E.TILE:] = now                         # 图片那边也在动（游戏背景的动画）
+        m.chg_start[:, 304 // E.TILE:] = now - 5
+        b = add_block(eng, win, (10, 100, 130, 140), m.cur[100:140, 10:130].copy())
+        eng._update_room(win, b, m)
+        self.assertTrue(150 <= b.extra_w <= 170, b.extra_w)
+
     def test_no_borrowing_on_busy_background(self) -> None:
         eng, m, win, _sc = make_engine(self.page())
         b = add_block(eng, win, (10, 100, 130, 140), m.cur[100:140, 10:130].copy())

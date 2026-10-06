@@ -205,6 +205,48 @@ class NumberTickTest(unittest.TestCase):
         self.assertEqual(held.hold_rect, held.screen_rect())
         self.assertEqual(plain.held_until, 0.0)
 
+    def test_counter_change_is_read_again_right_away(self) -> None:
+        # 游戏画面一直在动、等不到静止：计数器的数字一变，稍等一下就单独识别它那一小块，排在别的识别前面
+        page = text_page(3000, W, 6)
+        eng, m, win, sc = make_engine(page[0:H])
+        eng.visible = {1: [(0, 0, W, H)]}
+        m.bgra = np.dstack([m.cur] * 3 + [np.full_like(m.cur, 255)])
+        eng.set_mirrors([(0, 0, W, H)])
+        jobs = []
+
+        class Ocr:
+            def submit(self, job) -> None:
+                jobs.append(job)
+
+        eng.ocr, eng.ocr_state = Ocr(), "ready"
+        y0 = next(y for y in range(200, 600) if page[y:y + 22, 10:500].std() > 40 and page[y, 10:500].min() == 255)
+        rect = (10, y0, 500, y0 + 22)
+        b = add_block(eng, sc, rect, page[y0:y0 + 22, 10:500].copy())
+        b.counter, b.state, b.translation = True, "done", "剩余 02:00"
+        m.cur[y0:y0 + 22, 10:500] = 255 - m.cur[y0:y0 + 22, 10:500]             # 数字跳了
+        eng._content_changed(m, rect)
+        self.assertIn(b.bid, eng._recount)
+        eng._schedule_ocr()
+        self.assertEqual(jobs, [], "先等数字画完")
+        m.needs[:] = time.perf_counter() - 5                                     # 别处还有一大片早就等着识别
+        eng._recount[b.bid] = time.perf_counter() - 0.01
+        eng._schedule_ocr()
+        self.assertEqual(len(jobs), 1)
+        r = eng.jobs[jobs[0].job_id].rect
+        self.assertTrue(E.geom.contains(r, rect), r)
+        self.assertLess(E.geom.area(r), 3 * E.geom.area(rect), "只识别这一小块")
+        self.assertEqual(eng._recount, {})
+
+    def test_snapshot_never_cuts_known_text(self) -> None:
+        # 动态区域的抓拍只框变了的那几格：碰到的已知文字块要整块框进去，不然切下的半行（只剩数字）会顶掉整行
+        page = text_page(3000, W, 6)
+        eng, m, win, sc = make_engine(page[0:H])
+        b = add_block(eng, sc, (10, 300, 500, 322), page[300:322, 10:500].copy())
+        far = add_block(eng, sc, (10, 600, 500, 622), page[600:622, 10:500].copy())
+        r = eng._whole_blocks(m, (400, 290, 560, 330), win)
+        self.assertTrue(E.geom.contains(r, b.screen_rect()), r)
+        self.assertFalse(E.geom.overlaps(r, far.screen_rect()))
+
     def test_memory_hit_teaches_template(self) -> None:
         # 重启后：从记忆里取到的译文顺带学会模板，只差数字的另一段直接套用，不发请求
         import tempfile
