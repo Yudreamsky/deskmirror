@@ -12,6 +12,14 @@ _HANGUL = re.compile(r"[가-힯ᄀ-ᇿ]")
 _LATIN = re.compile(r"[A-Za-zÀ-ɏ]")
 _LETTER = re.compile(r"[^\W\d_]", re.UNICODE)
 _SPACES = re.compile(r"\s+")
+# 识别模型常把片假名的长音“ー”认成减号、破折号或汉字“一”（セーブ → セ-ブ）：夹在片假名中间、或在片假名词尾的改回来
+_KATA = "ァ-ヺー"
+_LONG_VOWEL = re.compile(rf"(?<=[{_KATA}])[-‐-―−－一](?=[{_KATA}]|\s|$)")
+
+
+def fix_ocr(text: str) -> str:
+    """识别结果的小修正：片假名中间被认成“-”“一”的长音改回“ー”（不然术语表对不上，模型也常原样返回）。"""
+    return _LONG_VOWEL.sub("ー", text)
 
 
 def cache_key(text: str) -> str:

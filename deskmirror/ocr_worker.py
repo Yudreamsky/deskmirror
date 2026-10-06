@@ -140,6 +140,7 @@ def _priority(rect: Rect, focus: Rect, ring_px: int) -> tuple[int, float]:
 
 def _process(engine, job: OcrJob, out_q) -> None:
     from .layout import Line, candidate_paragraphs, join_lines, split_by_text
+    from .textutil import fix_ocr
 
     t0 = time.perf_counter()
     img = job.image
@@ -173,6 +174,7 @@ def _process(engine, job: OcrJob, out_q) -> None:
             lines = []
             for i in paras[k]:
                 text, score = texts[pos]
+                text = fix_ocr(text)
                 pos += 1
                 letters = sum(1 for c in text if c.isalnum())
                 # 很短的结果多半是图标、图片纹理被认成了字：要求更高的置信度

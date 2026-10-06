@@ -24,6 +24,18 @@ class PromptTest(unittest.TestCase):
         self.assertIn("Indonesian (Bahasa Indonesia)", translator.system_prompt("id", "en"))
 
 
+class OcrFixTest(unittest.TestCase):
+    def test_katakana_long_vowel_read_as_dash(self) -> None:
+        # 识别模型常把片假名的长音认成减号、汉字“一”：改回长音，术语表才对得上（セーブ → 存档）
+        f = textutil.fix_ocr
+        self.assertEqual(f("セ-ブ"), "セーブ")
+        self.assertEqual(f("セ" + chr(0x4E00) + "ブ"), "セーブ")
+        self.assertEqual(f("コーヒ-"), "コーヒー")
+        self.assertEqual(f("メニュー" + chr(0x4E00) + "覧"), "メニュー" + chr(0x4E00) + "覧", "后面是汉字：是“一”")
+        for t in ("A-B 2-3", "残り 02:06", "卢门-港", "セーブ"):
+            self.assertEqual(f(t), t)
+
+
 class IndonesianTest(unittest.TestCase):
     def test_detect(self) -> None:
         self.assertTrue(textutil.looks_indonesian(ID_TEXT))
