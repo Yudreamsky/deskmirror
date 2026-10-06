@@ -86,7 +86,7 @@ class Renderer:
 
     def get(self, item: DrawItem) -> Rendered:
         sig = (item.rect[2] - item.rect[0], item.rect[3] - item.rect[1], item.room[2] - item.room[0],
-               item.room[3] - item.room[1])
+               item.room[3] - item.room[1], None if item.soft is None else item.soft - item.rect[1])
         hit = self._cache.get(item.bid)
         if hit is not None and hit[0] == item.version and hit[1] == sig:
             return hit[2]
@@ -105,16 +105,19 @@ class Renderer:
         h = max(6, item.rect[3] - item.rect[1])
         wide = max(w, item.room[2] - item.rect[0])          # 放不下时最多可以向右借到这么宽
         room_h = max(h, item.room[3] - item.room[1])
+        # 下面同色、静止的空白有多高：再往下是面板边框、图片、在动的画面
+        soft_h = room_h if item.soft is None else min(room_h, max(h, item.soft - item.rect[1]))
         n_orig = max(1, item.n_lines)
         base_px = max(9, min(160, round((item.em or item.line_h) * 0.74)))
         min_px = min(base_px, max(st.min_font_px, round(base_px * st.min_scale)))
+        floor_px = min(min_px, max(st.min_font_px, round(base_px * 0.6)))
         orig_pitch = (h - item.line_h) / (n_orig - 1) if n_orig > 1 else item.line_h * 1.25
         font = QFont(st.font_family)
         font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
         text = " ".join(item.text.split())
 
-        def fit_in_height(width: float, split_ok: bool):
-            for px in range(base_px, min_px - 1, -1):
+        def fit_in_height(width: float, split_ok: bool, lo: int = min_px):
+            for px in range(base_px, lo - 1, -1):
                 font.setPixelSize(px)
                 spans = _wrap(text, font, width)
                 if not split_ok and _breaks_word(text, spans):
@@ -126,7 +129,7 @@ class Renderer:
                     return px, spans, pitch, h, False
             return None
 
-        def fit_below(width: float, split_ok: bool):
+        def fit_below(width: float, split_ok: bool, limit_h: int = room_h):
             for px in range(base_px, min_px - 1, -1):
                 font.setPixelSize(px)
                 spans = _wrap(text, font, width)
@@ -134,7 +137,7 @@ class Renderer:
                     continue
                 pitch = px * 1.18
                 need = (len(spans) - 1) * pitch + max(px * 1.15, _tail(text, spans, px, font))
-                if need <= room_h + 2:
+                if need <= limit_h + 2:
                     return px, spans, pitch, int(need + 0.999), False
             return None
 
@@ -144,7 +147,11 @@ class Renderer:
             right = fit_in_height(wide, split_ok) if wide > w else None    # 向右借空白（高度不变）
             # 两种都行时谁的字大用谁：向右借能少缩字号就借，一样大就不借
             chosen = right if right and (not here or right[0] > here[0]) else here
-            chosen = chosen or fit_below(wide, split_ok)    # 向下借（宽度也用借来的）
+            chosen = chosen or fit_below(wide, split_ok, soft_h)   # 向下借空白（宽度也用借来的）
+            if not chosen and soft_h < room_h:
+                # 下面是面板边框、图片、在动的画面：宁可再缩小一点放进原来的高度（最小到原字号的六成），
+                # 还放不下才盖过去。不然游戏里的倒计时、按钮会伸出面板，而且字号差一点就在一行和两行之间来回跳
+                chosen = fit_in_height(wide, split_ok, floor_px) or fit_below(wide, split_ok)
             if chosen or split_ok:
                 break
             # 有个词比能用的宽度还长（短标签译成英文常见）：底板放宽到正好放下这个词（不越过右边的字），

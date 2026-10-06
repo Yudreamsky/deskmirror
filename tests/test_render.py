@@ -70,6 +70,24 @@ class RenderTest(unittest.TestCase):
         self.assertFalse(_breaks_word("Captain Mina", [(0, 8), (8, 4)]))      # Captain / Mina
         self.assertFalse(_breaks_word("船长米娜", [(0, 2), (2, 2)]), "中文本来就能在字之间换行")
 
+    def test_label_in_panel_shrinks_instead_of_spilling_below(self) -> None:
+        # 游戏面板里的倒计时：一行放不下时，下面是面板边框（不是空白）就再缩小一点排成一行，不伸出面板；
+        # 下面是空白（比如网页标题下面）才照旧向下排成两行
+        from PySide6.QtGui import QFont, QFontMetricsF
+        text, base = "Time left 02:06", round(45 * 0.9 * 0.74)
+        f = QFont(StyleConfig().font_family)
+        f.setPixelSize(round(base * 0.68))               # 比最小比例（75%）小、比六成大的字号正好放得下
+        rect = (100, 100, 100 + int(QFontMetricsF(f).horizontalAdvance(text)) + 2, 145)
+        room = (rect[0], rect[1], rect[2], 145 + 90)
+        spill = Renderer(StyleConfig()).get(item(text, rect, room))
+        self.assertGreater(spill.height, 45 + 4, "下面是空白：照旧向下排")
+        it = DrawItem(1, 1, rect, room, (rect,), text, (255, 255, 255), (0, 0, 0), 45, 1, 45 * 0.9, soft=145 + 3)
+        r = Renderer(StyleConfig()).get(it)
+        self.assertEqual(r.height, 45 + 4, "下面是边框：不伸出去")
+        self.assertFalse(r.truncated)
+        self.assertLess(r.font_px, round(base * 0.75))
+        self.assertGreaterEqual(r.font_px, round(base * 0.6))
+
     def test_long_word_widens_plate_instead_of_splitting(self) -> None:
         rect = (100, 100, 160, 134)                 # “装備”两个字那么宽，右边不是纯色空白
         r = Renderer(StyleConfig()).get(item("Equipment", rect, (100, 100, 160, 200), stretch=700))
@@ -160,6 +178,51 @@ class RoomRightTest(unittest.TestCase):
         b = add_block(eng, win, (10, 100, 130, 140), m.cur[100:140, 10:130].copy())
         eng._update_room(win, b, m)
         self.assertTrue(150 <= b.extra_w <= 170, b.extra_w)
+
+    def test_cut_off_glyph_does_not_block_borrowing(self) -> None:
+        # 识别框没把最后一个字框全：紧挨着的几列只露出一点笔画，照样能借右边的空白；整列的边框照样挡住
+        frame = self.page()
+        frame[110:125, 130:133] = 40                                 # 最后一个字露在框外的一截
+        eng, m, win, _sc = make_engine(frame)
+        b = add_block(eng, win, (10, 100, 130, 140), m.cur[100:140, 10:130].copy())
+        eng._update_room(win, b, m)
+        self.assertTrue(150 <= b.extra_w <= 170, b.extra_w)
+        frame[96:144, 131:133] = 120                                 # 紧贴着的一条竖边框
+        eng, m, win, _sc = make_engine(frame)
+        b = add_block(eng, win, (10, 100, 130, 140), m.cur[100:140, 10:130].copy())
+        eng._update_room(win, b, m)
+        self.assertEqual(b.extra_w, 0)
+
+    def test_animation_beside_narrow_gap_does_not_block(self) -> None:
+        # 原文右边只剩一小条空白，再往右是面板边框和在动的游戏画面：那一小条照样能借（只看整格都在那一小条里的格子）
+        import time
+
+        from deskmirror import engine as E
+        frame = self.page()
+        frame[90:150, 150:153] = 120                                 # 面板右边框
+        eng, m, win, _sc = make_engine(frame)
+        now = time.perf_counter()
+        m.last_chg[:, 144 // E.TILE:] = now                         # 边框外面一直在动（含跨着边框的那一格）
+        m.chg_start[:, 144 // E.TILE:] = now - 5
+        b = add_block(eng, win, (10, 100, 130, 140), m.cur[100:140, 10:130].copy())
+        eng._update_room(win, b, m)
+        self.assertEqual(b.extra_w, 150 - 130 - 6)
+
+    def test_room_below_is_only_plain_space(self) -> None:
+        # 向下借地方只算同色的空白：面板边框以下不算（倒计时、按钮的译文不伸出面板）
+        frame = self.page()
+        eng, m, win, _sc = make_engine(frame)
+        b = add_block(eng, win, (10, 100, 130, 140), m.cur[100:140, 10:130].copy())
+        eng._update_room(win, b, m)
+        self.assertEqual(b.plain_below, b.room_bottom - b.rect[3], "下面是空白：能借多少借多少")
+        frame[160:163, 0:400] = 120                                  # 原文下面 20 像素处一条横边框
+        eng, m, win, _sc = make_engine(frame)
+        b = add_block(eng, win, (10, 100, 130, 140), m.cur[100:140, 10:130].copy())
+        eng._update_room(win, b, m)
+        self.assertEqual(b.plain_below, 160 - 140 - 3)
+        b.dynamic = True
+        eng._update_room(win, b, m)
+        self.assertEqual(b.plain_below, -1, "字幕这类深色底板的字照旧向下排")
 
     def test_no_borrowing_on_busy_background(self) -> None:
         eng, m, win, _sc = make_engine(self.page())

@@ -47,6 +47,17 @@ def _bbox(rects: list[Rect]) -> Rect:
     return (min(r[0] for r in rects), min(r[1] for r in rects), max(r[2] for r in rects), max(r[3] for r in rects))
 
 
+def _first_blocked(off: np.ndarray, skip: int) -> int | None:
+    """逐列（或逐行）的“不是底色的像素占比” → 第一列挡路的位置，没有就返回 None。
+    识别框常常没把最后一个字（或 g、p、y 的字脚）框全：紧挨着的 skip 列里只露出一点笔画的不算，
+    但整列都不一样的（边框）照样挡住。"""
+    hard = np.flatnonzero(off[:skip] > 0.6)
+    if hard.size:
+        return int(hard[0])
+    bad = np.flatnonzero(off[skip:] > 0.15)
+    return int(bad[0]) + skip if bad.size else None
+
+
 def _lum(c) -> float:
     return 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
 
@@ -1316,10 +1327,15 @@ class Engine(threading.Thread):
     def _volatile_mask(self, m: Mon, now: float) -> np.ndarray:
         return (now - m.last_chg < 0.6) & (now - m.chg_start >= VOLATILE_S)
 
-    def _volatile_frac(self, m: Mon, r: Rect, recent: float = 0.6) -> float:
+    def _volatile_frac(self, m: Mon, r: Rect, recent: float = 0.6, inner: bool = False) -> float:
+        """区域里一直在变的格子占多少。inner：只看整格都在区域里的格子（窄条旁边的动画、原文自己的变化不算进来）。"""
         l, t, rr, b = m.local(r)
-        tl, tt = max(0, l // TILE), max(0, t // TILE)
-        tr, tb = min(m.needs.shape[1], -(-rr // TILE)), min(m.needs.shape[0], -(-b // TILE))
+        if inner:
+            tl, tt, tr, tb = max(0, -(-l // TILE)), max(0, -(-t // TILE)), rr // TILE, b // TILE
+            tr, tb = min(m.needs.shape[1], tr), min(m.needs.shape[0], tb)
+        else:
+            tl, tt = max(0, l // TILE), max(0, t // TILE)
+            tr, tb = min(m.needs.shape[1], -(-rr // TILE)), min(m.needs.shape[0], -(-b // TILE))
         if tr <= tl or tb <= tt:
             return 0.0
         now = time.perf_counter()
@@ -2075,16 +2091,18 @@ class Engine(threading.Thread):
         right = min(right, nearest)
         if b.dynamic or m is None:
             b.extra_w = b.extra_max = 0
+            b.plain_below = -1     # 字幕这类深色底板的字：下面本来就是画面，照旧向下排
             return
         sr = b.screen_rect()
         clip_room = b.canvas.screen_clip()[2] - 4 - sr[2]                 # 不伸出所在画布的可见范围
         b.extra_max = max(0, min(nearest - b.rect[2], clip_room))
         w = self._plain_right(m, b, right - b.rect[2]) if right > b.rect[2] else 0
-        # 右边在动（视频、动画）：底板不能盖上去，哪怕颜色看着一样。只看真要借的那片，而且只看整格都在原文右边的格子：
+        # 右边在动（视频、动画）：底板不能盖上去，哪怕颜色看着一样。只看真要借的那片里整格都在的格子：
         # 原文自己在变（倒计时每秒跳一下）不算，面板外面的动画也不算——不然同一个倒计时一会儿借得到、一会儿借不到，译文忽大忽小
-        if w and self._volatile_frac(m, (sr[2] + TILE - 1, sr[1], sr[2] + w, sr[3]), 1.5) > 0.3:
+        if w and self._volatile_frac(m, (sr[2], sr[1], sr[2] + w, sr[3]), 1.5, inner=True) > 0.3:
             w = 0
         b.extra_w = w
+        b.plain_below = self._plain_below(m, b, sr[2] + w, b.room_bottom - b.rect[3])
 
     def _plain_right(self, m: Mon, b: Block, most: int) -> int:
         """原文块右边有多宽是和底色一样的纯色（逐列看块所在的那几行），不超出所在画布的可见范围。
@@ -2099,8 +2117,25 @@ class Engine(threading.Thread):
             return 0
         # 一列里大部分像素都是底色才算空白：半透明面板后面透出来的零星星点、细浪线不算，边框、图片那种整列都不一样的才挡住
         off = (np.abs(m.cur[t:bb, l:r].astype(np.int16) - int(round(_lum(b.lum_bg)))) > 28).mean(axis=0)
-        bad = np.flatnonzero(off > 0.15)
-        return max(0, int(bad[0]) - 6) if bad.size else r - l     # 碰到图案、边框就停，离它留一点
+        n = _first_blocked(off, max(2, b.line_h // 8))
+        return max(0, n - 6) if n is not None else r - l     # 碰到图案、边框就停，离它留一点
+
+    def _plain_below(self, m: Mon, b: Block, right: int, most: int) -> int:
+        """原文块下面有多高是和底色一样、而且不在动的空白（逐行看块占的那几列，连同向右借的宽度）。
+        译文要向下多占几行时先只用这片：不盖住面板边框、图片和在动的画面。"""
+        sr = b.screen_rect()
+        bottom = min(sr[3] + most, b.canvas.screen_clip()[3] - 2)
+        h, w = m.cur.shape
+        l, t, r, bb = m.local((sr[0], sr[3], right, bottom))
+        l, t, r, bb = max(0, l), max(0, t), min(w, r), min(h, bb)
+        if bb - t < 2 or r - l < 4:
+            return 0
+        off = (np.abs(m.cur[t:bb, l:r].astype(np.int16) - int(round(_lum(b.lum_bg)))) > 28).mean(axis=1)
+        n = _first_blocked(off, max(2, b.line_h // 8))
+        n = max(0, n - 3) if n is not None else bb - t
+        if n and self._volatile_frac(m, (sr[0], sr[3], right, sr[3] + n), 1.5, inner=True) > 0.3:
+            return 0
+        return n
 
     def _delete_block(self, b: Block, why: str = "") -> None:
         if self._metrics_fh and b.bid in self.blocks:
@@ -2701,7 +2736,8 @@ class Engine(threading.Thread):
                         room = (sr[0], sr[1], sr[2] + b.extra_w, max(r[3], b.room_bottom) + oy + ey)
                         items.append(DrawItem(b.bid, b.version, sr, room, clips, b.translation, b.bg, b.fg,
                                               b.line_h, len(b.lines), b.em, b.ref, b.text,
-                                              stretch=sr[2] + b.extra_max if b.extra_max else 0))
+                                              stretch=sr[2] + b.extra_max if b.extra_max else 0,
+                                              soft=sr[3] + b.plain_below if b.plain_below >= 0 else None))
                     elif any(geom.overlaps(c, sr) for c in clips):
                         # 只报露出来的：被别的窗口整块挡住的不算“在翻译”（范围外的窗口永远不会翻译）
                         pending.append((sr, clips, b.state == "failed"))

@@ -106,6 +106,7 @@ class Block:
     room_bottom: int = 0              # 排版时最多可以向下延伸到的内容坐标
     extra_w: int = 0                  # 译文放不下时最多可以向右借用的空白宽度（相对原文块右边，跟着块一起移动）
     extra_max: int = 0                # 一个英文词都放不下时最多能伸多宽：只看右边的字，不看底色（宁可盖住一点图案也不拆词）
+    plain_below: int = -1             # 原文块下面有多高是同色、静止的空白：译文向下多占几行时先只用这片（-1 = 不限）
     created: float = field(default_factory=time.perf_counter)
     job_id: int = 0
     dynamic: bool = False             # 在动态背景上（视频字幕、游戏画面）：深色底板白字，按笔画核对
@@ -144,6 +145,7 @@ class DrawItem:
     ref: np.ndarray | None = field(default=None, compare=False, repr=False)  # 识别时的原文灰度图（核对用）
     src: str = field(default="", compare=False, repr=False)                  # 原文（历史面板、调试通道用）
     stretch: int = 0                  # 一个英文词都放不下时，底板最多能伸到的右边界（屏幕坐标；0 = 不伸）
+    soft: int | None = None           # 向下多占几行时最好不超过的下边界：再往下是边框、图片、在动的画面（屏幕坐标；None = 不限）
 
 
 @dataclass(frozen=True)
