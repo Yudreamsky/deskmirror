@@ -99,6 +99,31 @@ class AboutTest(unittest.TestCase):
         self.assertEqual(asked, [1])
         d.close()
 
+    def test_reward(self) -> None:
+        _app()
+        from PySide6.QtWidgets import QLabel, QPushButton
+
+        from deskmirror.ui import about as A
+        self.assertTrue(A.REWARD_IMAGE.exists(), "赞赏码图片要跟着程序一起发布")
+        d = A.AboutDialog()
+        next(b for b in d.findChildren(QPushButton) if b.text() == "打赏作者…").click()
+        r = d.page.reward_dialog
+        self.assertIsNotNone(r)
+        self.assertFalse(r.code.pixmap().isNull())
+        texts = " ".join(lbl.text() for lbl in r.findChildren(QLabel))
+        self.assertIn("完全自愿", texts)
+        self.assertEqual("Ko-fi" in texts, bool(A.KOFI_URL), "没填 Ko-fi 地址就不显示那一行")
+        orig = A.KOFI_URL
+        A.KOFI_URL = "https://ko-fi.com/example"
+        try:
+            k = A.RewardDialog()
+            self.assertIn("https://ko-fi.com/example", " ".join(lbl.text() for lbl in k.findChildren(QLabel)))
+            k.close()
+        finally:
+            A.KOFI_URL = orig
+        r.close()
+        d.close()
+
 
 if __name__ == "__main__":
     unittest.main()

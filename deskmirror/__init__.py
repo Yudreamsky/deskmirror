@@ -9,6 +9,7 @@ from pathlib import Path
 __version__ = "0.1.0"
 CONTACT_EMAIL = "a885187@gmail.com"   # 作者邮箱（设置 → 关于）
 HOMEPAGE = "https://github.com/Yudreamsky/deskmirror"   # 项目主页（设置 → 关于）
+KOFI_URL = ""   # 海外打赏的 Ko-fi 主页（关于 → 打赏作者）；空着就不显示
 
 ROOT = Path(__file__).resolve().parent.parent
 # 可选：单独放在这里的 DirectML 版 onnxruntime（和环境里的 CPU 版互不影响）；只在用显卡识别时插到搜索路径最前面。
