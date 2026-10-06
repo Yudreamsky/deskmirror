@@ -41,6 +41,7 @@ log = logging.getLogger(__name__)
 TILE = pixels.TILE
 VOLATILE_S = 1.5   # 连续变化超过这么久才算动态背景（视频、游戏画面）；窗口改大小的重绘一般 1 秒内结束
 COUNTER_WAIT_S = 0.12   # 计数器的数字变了以后等多久再识别（数字有过渡动画时等它画完）
+SUBTITLE_WAIT_S = 0.15  # 字幕、游戏对话换句后等多久单独识别那一条（有的播放器字幕淡入）
 
 
 def _bbox(rects: list[Rect]) -> Rect:
@@ -1372,8 +1373,8 @@ class Engine(threading.Thread):
         for b in self._blocks_in(r):
             if b.ok_rect is None:
                 all_ok = False
-                if b.counter and b.held_until > now:
-                    self._recount.setdefault(b.bid, now + COUNTER_WAIT_S)   # 留着旧译文时数字又变了：再识别一次
+                if (b.counter or b.born_dynamic) and b.held_until > now:
+                    self._recount.setdefault(b.bid, now + self._reread_wait(b))   # 留着旧译文时又变了：再识别一次
                 continue
             if self._verify(b):
                 covered += geom.area(geom.inter(b.screen_rect(), r))
@@ -1381,9 +1382,9 @@ class Engine(threading.Thread):
                 b.ok_rect = None
                 all_ok = False
                 self._dirty = True
-                if b.counter:
-                    # 计数器：不等这一片静止（游戏画面一直在动，等不到），稍等一下就单独识别这一小块
-                    self._recount.setdefault(b.bid, now + COUNTER_WAIT_S)
+                if b.counter or (b.born_dynamic and b.held_until > now):
+                    # 计数器、换了句的字幕：不等这一片静止（视频、游戏画面一直在动，等不到），稍等一下就单独识别
+                    self._recount.setdefault(b.bid, now + self._reread_wait(b))
         if not (all_ok and covered >= 0.8 * geom.area(r) and geom.area(r) <= 24 * TILE * TILE):
             self._mark_needs(m, r, track_volatile=track_volatile)
 
@@ -1629,9 +1630,13 @@ class Engine(threading.Thread):
             if not geom.empty(covered):
                 self._clear_needs(m, covered, outward=True)
 
+    @staticmethod
+    def _reread_wait(b: Block) -> float:
+        return COUNTER_WAIT_S if b.counter else SUBTITLE_WAIT_S
+
     def _recount_one(self, now: float) -> bool:
-        """数字刚变的计数器（倒计时、计数、血量）：单独识别它那一小块，排在别的识别前面。提交了就返回 True。
-        游戏画面一直在动，等整片静止要等好几秒，这期间只能留着旧数字或者露出原文。"""
+        """数字刚变的计数器（倒计时、计数、血量）、刚换句的字幕：单独识别那一小块，排在别的识别前面。提交了就返回 True。
+        视频、游戏画面一直在动，等整片静止要等好几秒，这期间只能留着旧译文，新句子更宽的话两头还会露出原文。"""
         for bid, due in list(self._recount.items()):
             b = self.blocks.get(bid)
             if b is None or b.ok_rect is not None or now - due > 2.0:
@@ -1644,9 +1649,14 @@ class Engine(threading.Thread):
             if m is None or not m.ready:
                 del self._recount[bid]
                 continue
-            # 数字变长（9 → 10）可能往左也可能往右长：左右各多留一个半行高
-            px, py = max(8, b.line_h * 3 // 2), max(6, b.line_h // 2)
-            rect = geom.inter((sr[0] - px, sr[1] - py, sr[2] + px, sr[3] + py), m.rect)
+            if b.counter:
+                # 数字变长（9 → 10）可能往左也可能往右长：左右各多留一个半行高
+                px, py = max(8, b.line_h * 3 // 2), max(6, b.line_h // 2)
+                rect = geom.inter((sr[0] - px, sr[1] - py, sr[2] + px, sr[3] + py), m.rect)
+            else:
+                # 字幕换句：新句子可能宽得多、也可能变成两行（多半往上长）：左右取整个画面，上下各多留一些
+                clip = b.canvas.screen_clip()
+                rect = geom.inter((clip[0], sr[1] - b.line_h * 6 // 5, clip[2], sr[3] + b.line_h * 3 // 5), m.rect)
             win = b.canvas.window()
             if win is not None and win.viewport is not None:
                 rect = geom.inter(rect, win.viewport)
@@ -1654,7 +1664,7 @@ class Engine(threading.Thread):
             if geom.empty(rect) or any(geom.overlaps(rect, r) for r in self._moving_clips(now)):
                 continue      # 正在滚动：停下再识别
             del self._recount[bid]
-            self.metrics["counter_reads"] += 1
+            self.metrics["counter_reads" if b.counter else "subtitle_reads"] += 1
             self._submit_ocr(m, rect, False, sr)
             return True
         return False
@@ -2710,6 +2720,7 @@ class Engine(threading.Thread):
         self._dirty = False
         self._last_publish = now
         items: list[DrawItem] = []
+        covers: list[DrawItem] = []
         pending: list = []
         canvases: list = []
         groups: list[tuple[Canvas, list[Rect]]] = []
@@ -2763,6 +2774,12 @@ class Engine(threading.Thread):
                     elif any(geom.overlaps(c, sr) for c in clips):
                         # 只报露出来的：被别的窗口整块挡住的不算“在翻译”（范围外的窗口永远不会翻译）
                         pending.append((sr, clips, b.state == "failed"))
+                        held = [o for o in (self.blocks.get(i) for i in b.replaces) if o is not None and o.held_until > now]
+                        if held:
+                            # 换句时旧译文还留着、新句子的译文还没好：新句子比旧底板宽的话两头会露出原文，
+                            # 先垫一块和旧底板同色的空底板挡住（画在最底下，旧译文画在它上面）
+                            covers.append(DrawItem(-b.bid, b.version, sr, sr, clips, "", held[0].bg, held[0].fg,
+                                                   b.line_h, len(b.lines), b.em))
         svc = self.service
         status = {
             "ocr": self.ocr_state if self.ocr_busy is None else "busy",
@@ -2794,4 +2811,4 @@ class Engine(threading.Thread):
                          ft=round(base - self.started, 4),
                          preds={str(k): (v[1] if v[0] == 0 else v[0]) for k, v in extras.items()})
             self._geo_frame_t = 0.0
-        self._publish_cb(Snapshot(tuple(items), tuple(pending), status, now))
+        self._publish_cb(Snapshot(tuple(covers + items), tuple(pending), status, now))

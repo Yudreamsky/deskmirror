@@ -8,6 +8,7 @@
 - **译文不再伸出面板**：一行放不下要向下多占几行时，只用下面同色的空白；下面是面板边框、图片或在动的画面，就先再缩小一点字号排进原来的高度。
 - **英文译文先横向压扁一点，少缩字号**：中日文译成英文常常更长，放不下时先把字横向压扁（压到八成以内几乎看不出来）再缩字号；名牌、倒计时这类短标签快要伸出面板时最扁压到原宽的六成（设置项 `style.min_squash`；中日韩文字最多压到八成）。小名牌里排成两行的译文不再被裁掉半截。
 - **日文识别更准**：片假名的长音“ー”被识别成“-”或“一”时自动改回（比如“セ-ブ”→“セーブ”），术语表对得上，游戏菜单不再漏翻。字号小的短词（三个字以内，比如“セーブ”）重新识别时置信度常常差一点：现在同一位置还是同样的字就算认出来了，译文不再时有时无；像素没变时就算没认出来，也要连着三次才撤下。
+- **字幕换句不再两头露原文**：新句子比旧译文宽时，以前在新译文出来之前（常常一秒多）两头会露出原文；现在字幕一换就单独识别那一条，约 0.2～0.5 秒内先用空底板挡住，旧译文留在上面，新译文一到就顶掉。
 - **调试用的录制**：通过调试通道按用户看到的样子录 60 帧视频（宣传片的实录素材用）。
 
 - **Faster and cheaper**: DeepSeek and other OpenAI-compatible services think before answering by default; thinking is
@@ -30,6 +31,9 @@
   glossary terms match and game menus are no longer left untranslated. Small short words (three characters or fewer)
   often come back from a re-read with slightly too little confidence; the same word in the same place now counts as
   seen, so their translations no longer come and go, and unchanged pixels need three missed reads in a row.
+- **Subtitle changes no longer show the original at the edges**: when the new line was wider than the old translation,
+  its ends used to show until the new translation arrived (often over a second); the changed line is now re-read right
+  away and covered by a blank plate within about 0.2–0.5 s, with the old translation on top until the new one is ready.
 - **Debug recording**: record 60 fps video of what the user sees through the debug channel (used for promo footage).
 
 ## 1.0.0（2026-10-06）

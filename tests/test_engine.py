@@ -373,6 +373,65 @@ class NotSeenTest(unittest.TestCase):
         self.assertFalse(any(x.text == "ロード" for x in eng.blocks.values()), "不拿置信度不够的短词新建块")
 
 
+class SubtitleCoverTest(unittest.TestCase):
+    def test_wider_new_line_is_covered_while_old_translation_is_held(self) -> None:
+        # 字幕换句：旧译文留到新译文出来；新句子比旧底板宽时，先在新句子的位置垫一块同色空底板（画在最底下），两头不露原文
+        page = text_page(3000, W, 6)
+        eng, m, win, sc = make_engine(page[0:H])
+        eng.visible = {1: [(0, 0, W, H)]}
+        eng.win_canvas[1], eng.win_rects[1], eng.z_order = win, (0, 0, W, H), [1]
+        snaps = []
+        eng._publish_cb = snaps.append
+        y0 = 400
+        old = add_block(eng, sc, (300, y0, 600, y0 + 30), page[y0:y0 + 30, 300:600].copy())
+        old.state, old.translation, old.born_dynamic, old.dynamic = "done", "我们终于到了老灯塔。", True, True
+        old.bg, old.fg = (24, 24, 28), (245, 245, 245)
+        new = add_block(eng, sc, (200, y0, 700, y0 + 30), page[y0:y0 + 30, 200:700].copy())
+        new.state, new.replaces = "translating", [old.bid]
+        old.ok_rect = None
+        old.hold_start = time.perf_counter()
+        old.held_until, old.hold_rect = old.hold_start + 4.0, old.screen_rect()
+        eng._publish(force=True)
+        items = snaps[-1].items
+        self.assertEqual(items[0].bid, -new.bid, "垫底的空底板先画")
+        self.assertEqual((items[0].rect, items[0].text, items[0].bg), (new.screen_rect(), "", (24, 24, 28)))
+        self.assertIn(old.bid, [it.bid for it in items[1:]], "旧译文画在它上面")
+        old.held_until = time.perf_counter() - 0.1                               # 保留时间到了：不再垫
+        eng._dirty = True
+        eng._publish(force=True)
+        self.assertNotIn(-new.bid, [it.bid for it in snaps[-1].items])
+
+    def test_changed_subtitle_is_read_again_across_the_whole_picture(self) -> None:
+        # 字幕换句：不等视频画面静止（等不到），0.15 秒后单独识别字幕那一条，左右取整个画面（新句子可能宽得多）
+        page = text_page(3000, W, 6)
+        eng, m, win, sc = make_engine(page[0:H])
+        eng.visible = {1: [(0, 0, W, H)]}
+        eng.set_mirrors([(0, 0, W, H)])
+        m.bgra = np.dstack([m.cur] * 3 + [np.full_like(m.cur, 255)])
+        jobs = []
+
+        class Ocr:
+            def submit(self, job) -> None:
+                jobs.append(job)
+
+        eng.ocr, eng.ocr_state = Ocr(), "ready"
+        y0 = next(y for y in range(200, 600) if page[y:y + 22, 10:500].std() > 40 and page[y, 10:500].min() == 255)
+        rect = (10, y0, 500, y0 + 22)
+        b = add_block(eng, sc, rect, page[y0:y0 + 22, 10:500].copy())
+        b.state, b.translation, b.born_dynamic = "done", "我们终于到了老灯塔。", True
+        m.cur[y0:y0 + 22, 10:500] = 255 - m.cur[y0:y0 + 22, 10:500]             # 换句
+        eng._content_changed(m, rect)
+        self.assertGreater(b.held_until, time.perf_counter(), "旧译文先留着")
+        self.assertIn(b.bid, eng._recount)
+        eng._recount[b.bid] = time.perf_counter() - 0.01
+        eng._schedule_ocr()
+        self.assertEqual(len(jobs), 1)
+        r = eng.jobs[jobs[0].job_id].rect
+        self.assertEqual((r[0], r[2]), (0, W), "左右取整个画面")
+        self.assertLessEqual(r[1], y0 - 22)
+        self.assertGreaterEqual(r[3], y0 + 22 + 10)
+
+
 class PauseTest(unittest.TestCase):
     def test_paused_engine_does_not_capture_and_resume_rechecks(self) -> None:
         page = text_page(3000, W, 9)

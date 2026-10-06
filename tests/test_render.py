@@ -125,6 +125,14 @@ class RenderTest(unittest.TestCase):
         self.assertLess(max(ink), r.height - 2, "最后一行的字没被底板下边裁掉")
         self.assertLess(abs(min(ink) - (r.height - 1 - max(ink))), 12, "整段大致竖直居中")
 
+    def test_empty_text_is_just_a_plate(self) -> None:
+        # 换句时垫在新句子下面的空底板：只有底色，大小和原文块一样
+        rect = (100, 100, 400, 140)
+        r = Renderer(StyleConfig()).get(DrawItem(-1, 1, rect, rect, (rect,), "", (24, 24, 28), (245, 245, 245), 40, 1, 36))
+        self.assertEqual((r.width, r.height, r.truncated), (300 + 4, 40 + 4, False))
+        c = r.image.pixelColor(150, 20)
+        self.assertEqual((c.red(), c.green(), c.blue()), (24, 24, 28))
+
     def test_long_word_widens_plate_instead_of_splitting(self) -> None:
         rect = (100, 100, 160, 134)                 # “装備”两个字那么宽，右边不是纯色空白
         r = Renderer(StyleConfig()).get(item("Equipment", rect, (100, 100, 160, 200), stretch=700))

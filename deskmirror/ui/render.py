@@ -130,6 +130,16 @@ class Renderer:
         font = QFont(st.font_family)
         font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
         text = " ".join(item.text.split())
+        if not text:
+            # 只要一块底板（字幕换句时垫在新句子下面，挡住还没译好的原文）
+            img = QImage(w + 2 * PAD, h + 2 * PAD, QImage.Format.Format_ARGB32_Premultiplied)
+            img.fill(0)
+            bg = QColor(*item.bg)
+            bg.setAlphaF(st.plate_opacity)
+            p = QPainter(img)
+            p.fillRect(QRectF(0, 0, img.width(), img.height()), bg)
+            p.end()
+            return Rendered(img, -PAD, -PAD, w + 2 * PAD, h + 2 * PAD, False, 0)
 
         # 横向压扁：压到八成几乎看不出来，先压扁再缩字号；更扁的（最扁 min_squash）只在快要伸出去、要缩得更小时才用。
         # 中日韩文字压扁了难看，最多压到八成
