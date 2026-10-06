@@ -114,6 +114,28 @@ class SettingsDialog(QDialog):
         note.setWordWrap(True)
         note.setStyleSheet("color: #888;")
         f.addRow("", note)
+        vg = QGroupBox("看图翻译（要能看图的多模态模型）")
+        vf = QFormLayout(vg)
+        self.v_protocol = QComboBox()
+        self.v_protocol.addItem("Ollama 原生接口", "ollama")
+        self.v_protocol.addItem("OpenAI 兼容接口", "openai")
+        self.v_protocol.setCurrentIndex(0 if self.cfg.vision.protocol == "ollama" else 1)
+        vf.addRow("接入方式", self.v_protocol)
+        self.v_base = QLineEdit(self.cfg.vision.base_url)
+        vf.addRow("服务地址", self.v_base)
+        self.v_model = QLineEdit(self.cfg.vision.model)
+        vf.addRow("模型", self.v_model)
+        self.v_key = QLineEdit(self.cfg.vision.api_key)
+        self.v_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.v_key.setPlaceholderText("本机 Ollama 不需要；只用 Windows 账户加密保存在本机")
+        vf.addRow("API Key", self.v_key)
+        vnote = QLabel("按 Ctrl+Alt+V 或点魔镜标签上的“看图”，把镜框里的画面交给这里的模型来读、来翻，"
+                       "适合漫画、艺术字、图片里的字。默认用本机 Ollama 的 gemma4:12b，画面不出本机；"
+                       "发给云端服务前，每次都会先问你。")
+        vnote.setWordWrap(True)
+        vnote.setStyleSheet("color: #888;")
+        vf.addRow(vnote)
+        f.addRow(vg)
         return page
 
     def _privacy_tab(self) -> QWidget:
@@ -268,6 +290,8 @@ class SettingsDialog(QDialog):
         kf.addRow("隐藏 / 显示魔镜", self.k_toggle)
         self.k_history = QLineEdit(self.cfg.hotkeys.history)
         kf.addRow("历史面板", self.k_history)
+        self.k_vision = QLineEdit(self.cfg.hotkeys.vision)
+        kf.addRow("看图翻译", self.k_vision)
         return page
 
     def _about_tab(self) -> QWidget:
@@ -357,6 +381,11 @@ class SettingsDialog(QDialog):
         c.hotkeys.refresh = self.k_refresh.text().strip()
         c.hotkeys.toggle_visible = self.k_toggle.text().strip()
         c.hotkeys.history = self.k_history.text().strip()
+        c.hotkeys.vision = self.k_vision.text().strip()
+        c.vision.protocol = self.v_protocol.currentData()
+        c.vision.base_url = self.v_base.text().strip()
+        c.vision.model = self.v_model.text().strip()
+        c.vision.api_key = self.v_key.text().strip()
         return copy.deepcopy(c)
 
     def _run_async(self, tag: str, fn) -> None:

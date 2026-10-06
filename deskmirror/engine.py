@@ -155,6 +155,8 @@ class Engine(threading.Thread):
         self.overrides: dict[str, str] = {}   # 用户改过的译文（缓存键 → 译文），优先于一切
         self.refs = RefHistory()              # 译过的段落：给后面的请求作参考，术语前后一致（只在内存里）
         self._langs = (cfg.source_lang, cfg.target_lang)   # 引擎当前按哪对语言工作（用户改了就对比着处理）
+        # 每个窗口最近翻译过的字幕 / 对话行（时间, 原文, 译文）：新的一句带上前几句作上下文（只在内存里）
+        self.dialog: dict[int, collections.deque] = {}
         self.memory: Memory | None = None     # 本地记忆（用户打开才有）
         self._mem_saving = False
         self._mem_thread: threading.Thread | None = None
@@ -2051,12 +2053,14 @@ class Engine(threading.Thread):
         win = cands[0][2].canvas.window()
         hwnd = win.hwnd if win is not None else 0
         texts, keys, chars = [], [], 0
+        dynamic = False
         for _o, _d, b in cands:
             bw = b.canvas.window()
             if (bw.hwnd if bw is not None else 0) != hwnd:
                 continue
             if b.key in keys:
                 continue
+            dynamic = dynamic or b.born_dynamic
             single = b.key in self.retry_single
             full = chars + len(b.text) > self.cfg.llm.max_batch_chars or len(texts) >= self.cfg.llm.max_batch_items
             if texts and (single or full):
@@ -2076,7 +2080,8 @@ class Engine(threading.Thread):
         app = self._app_of(hwnd)
         refs = self.refs.select(texts, keys, hwnd, app) if self.cfg.llm.consistency else []
         batch = Batch(self._batch_ids, texts, keys, self.cfg.target_lang, context,
-                      self._glossary_terms(hwnd, texts), refs, hwnd, app, self.cfg.source_lang)
+                      self._glossary_terms(hwnd, texts), refs, hwnd, app, self.cfg.source_lang,
+                      self._dialog_context(hwnd, keys) if dynamic else [])
         self.inflight[batch.batch_id] = Inflight(batch)
         svc["requests"] += 1
         svc["chars"] = svc.get("chars", 0) + chars
@@ -2085,7 +2090,8 @@ class Engine(threading.Thread):
         ref_chars = sum(len(s) + len(d) for s, d in refs)
         self.metrics["ref_chars"] += ref_chars
         self._metric("tr_submit", batch=batch.batch_id, n=len(texts), chars=chars, hwnd=hwnd,
-                     keys=[zlib.crc32(k.encode("utf-8")) for k in keys], refs=len(refs), ref_chars=ref_chars)
+                     keys=[zlib.crc32(k.encode("utf-8")) for k in keys], refs=len(refs), ref_chars=ref_chars,
+                     dialog=len(batch.dialog))
         self._dirty = True
 
     def _on_translation(self, ev: tuple) -> None:
@@ -2116,6 +2122,9 @@ class Engine(threading.Thread):
             same = textutil.cache_key(text) == key  # 模型原样返回（名称、代码、已是目标语言）：不遮盖原文
             if not same:
                 self.refs.add(key, inf.batch.texts[idx], text, inf.batch.hwnd, inf.batch.app)
+                if any(b.born_dynamic for b in (self.blocks.get(i) for i in self.by_key.get(key, ())) if b):
+                    hist = self.dialog.setdefault(inf.batch.hwnd, collections.deque(maxlen=6))
+                    hist.append((time.perf_counter(), inf.batch.texts[idx], text))
             # 迟到的结果按原文对号入座：文字已经变了的块拿不到它，只进缓存。
             for bid in list(self.by_key.get(key, ())):
                 b = self.blocks.get(bid)
@@ -2200,6 +2209,14 @@ class Engine(threading.Thread):
                 b.state = "done"
                 b.version += 1
         self._dirty = True
+
+    def _dialog_context(self, hwnd: int, keys: list[str]) -> list[tuple[str, str]]:
+        """同一窗口 30 秒内最近的 3 句字幕 / 对话（不含这一批本身），从早到晚。"""
+        now = time.perf_counter()
+        skip = set(keys)
+        lines = [(s, t) for ts, s, t in self.dialog.get(hwnd, ())
+                 if now - ts <= 30 and textutil.cache_key(s) not in skip]
+        return lines[-3:]
 
     def _app_of(self, hwnd: int) -> str:
         """窗口所属程序的文件名（小写，如 msedge.exe）；桌面本身是空字符串。"""
@@ -2323,6 +2340,7 @@ class Engine(threading.Thread):
     def _reset_translations(self) -> None:
         """换了译成的语言：旧语言的译文（缓存、模板、参考、改过的译文）都不能再用；在途的结果回来也不要。"""
         self.cache.clear()
+        self.dialog.clear()
         self.templates.clear()
         self.refs = RefHistory()
         self.overrides.clear()

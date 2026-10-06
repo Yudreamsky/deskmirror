@@ -7,6 +7,7 @@ import logging.handlers
 import os
 import signal
 import sys
+import threading
 import time
 
 os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "0")  # 全程用物理像素，和截屏坐标一致
@@ -17,6 +18,14 @@ log = logging.getLogger("deskmirror")
 
 
 PAUSED_TEXT = "已暂停：不识别、不翻译（点“继续”恢复）"
+
+
+def _qimage_bgr(img):
+    """截图（QImage，RGB32，内存里是 BGRA）转成 numpy 的 BGR 数组。"""
+    import numpy as np
+    w, h = img.width(), img.height()
+    arr = np.frombuffer(img.constBits(), np.uint8, count=img.sizeInBytes()).reshape(h, img.bytesPerLine() // 4, 4)
+    return arr[:, :w, :3].copy()
 
 
 def _setup_logging() -> None:
@@ -59,6 +68,7 @@ def main() -> int:
     from .ui.overlay import Overlay, UiState
     from .ui.render import Renderer
     from .ui.history import HistoryPanel
+    from .ui.vision import VisionPanel
     from .ui.settings import SettingsDialog
 
     qapp = QApplication(sys.argv)
@@ -87,6 +97,8 @@ def main() -> int:
 
     class App(QObject):
         snapshot_ready = Signal(object)
+        vision_piece = Signal(str)            # 看图翻译：后台线程拿到的一段译文
+        vision_done = Signal(str, float)      # 看图翻译结束：(出错说明, 用时)
 
         def __init__(self) -> None:
             super().__init__()
@@ -109,6 +121,13 @@ def main() -> int:
             self.peek = HoldShortcut(self)
             self.peek.changed.connect(self._on_peek)
             self.history = HistoryPanel()
+            self.vision_panel = VisionPanel()
+            self.vision_piece.connect(self.vision_panel.append)
+            self.vision_done.connect(self.vision_panel.finish)
+            self.vision_panel.retry_requested.connect(lambda: self.look(region=self._look_region))
+            self.vision_panel.cancel_requested.connect(self._cancel_look)
+            self._look_cancel: threading.Event | None = None
+            self._look_region: tuple | None = None
             self.history.edit_requested.connect(lambda key, src, text: self.engine.inbox.put(("override", key, text)))
             self._hist_seen: set[tuple[int, int]] = set()
             self._drag_mods = []
@@ -138,6 +157,7 @@ def main() -> int:
             menu.addAction("新建一个魔镜", self.add_mirror)
             menu.addAction("截原图（镜框内原样）", lambda: self.take_shot("orig"))
             menu.addAction("截译图（镜框内带译文）", lambda: self.take_shot("trans"))
+            menu.addAction("看图翻译（把镜框里的画面交给能看图的模型）", self.look)
             menu.addSeparator()
             scope_menu = menu.addMenu("预译范围")
             self.scope_actions = {}
@@ -207,6 +227,7 @@ def main() -> int:
             f.pause_clicked.connect(self.toggle_pause)
             f.set_paused(self.state.paused)
             f.lang_clicked.connect(self._lang_menu)
+            f.look_clicked.connect(lambda f=f: self.look(f))
             f.set_lang_label(self._lang_label())
             f.shown_rect = rect                                  # 上次画过译文的范围（移动后要擦掉）
             self.frames.append(f)
@@ -344,7 +365,7 @@ def main() -> int:
         def _register_keys(self) -> None:
             hk = self.cfg.hotkeys
             errors = self.hotkeys.register({"peek": hk.peek, "refresh": hk.refresh, "toggle": hk.toggle_visible,
-                                            "history": hk.history})
+                                            "history": hk.history, "vision": hk.vision})
             try:
                 self._drag_mods = parse_modifiers(hk.drag_modifiers)
             except ValueError as e:
@@ -395,6 +416,57 @@ def main() -> int:
             for f in self.frames:
                 f.set_lang_label(self._lang_label())
             self._save_timer.start()
+
+        def look(self, f: MirrorFrame | None = None, region: tuple | None = None) -> None:
+            """看图翻译：把镜框里的画面（原样，不带译文）发给能看图的模型，结果在弹出窗口里一段段出来。
+            发给本机以外的服务前，每次都先问。"""
+            from . import vision
+            vc = self.cfg.vision
+            region = tuple(region or (f or self.frame).mirror)
+            local = vision.is_local(vc.base_url)
+            if not local and not self._confirm(
+                    f"这张截图会发给 {vision.host_of(vc.base_url)}（模型 {vc.model}），截图里看得见的内容都会发出去。\n\n要发送吗？"):
+                return
+            try:
+                img = self._grab_region(region, translated=False)
+            except Exception as e:  # noqa: BLE001
+                self.tray.showMessage("桌面魔镜", f"截图失败：{e}", QSystemTrayIcon.MessageIcon.Warning, 4000)
+                return
+            self._cancel_look()                     # 上一次还没完：不要了
+            cancel = self._look_cancel = threading.Event()
+            self._look_region = region
+            self.vision_panel.start(img, f"本机 {vc.model}" if local else f"{vision.host_of(vc.base_url)} 的 {vc.model}")
+            bgr = _qimage_bgr(img)
+            target, source = self.cfg.target_lang, self.cfg.source_lang
+
+            def work() -> None:
+                err, secs = "", 0.0
+                try:
+                    b64, _w, _h = vision.encode_image(bgr, vc.max_side)
+                    secs = vision.stream_vision(vc, target, source, b64,
+                                                lambda s: None if cancel.is_set() else self.vision_piece.emit(s),
+                                                cancel)
+                except vision.ServiceError as e:
+                    err = str(e)
+                except Exception as e:  # noqa: BLE001
+                    log.exception("看图翻译出错")
+                    err = f"内部错误：{type(e).__name__}"
+                if not cancel.is_set():
+                    self.vision_done.emit(err, secs)
+            threading.Thread(target=work, name="vision", daemon=True).start()
+
+        def _cancel_look(self) -> None:
+            if self._look_cancel is not None:
+                self._look_cancel.set()
+                self._look_cancel = None
+
+        def _confirm(self, text: str) -> bool:
+            box = QMessageBox(QMessageBox.Icon.Question, "桌面魔镜", text,
+                              QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            box.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+            box.button(QMessageBox.StandardButton.Yes).setText("发送")
+            box.button(QMessageBox.StandardButton.No).setText("不发")
+            return box.exec() == QMessageBox.StandardButton.Yes
 
         def toggle_pause(self) -> None:
             """暂停：魔镜框还在，不截屏、不识别、不翻译（不花翻译费用），也不画译文；继续时重新核对画面。"""
@@ -512,6 +584,8 @@ def main() -> int:
                 self.toggle_visible()
             elif action == "history":
                 self.toggle_history()
+            elif action == "vision":
+                self.look()
 
         def _on_peek(self, on: bool) -> None:
             self.state.peek = on
@@ -839,6 +913,12 @@ def main() -> int:
             if cmd == "cache_get":
                 from .textutil import cache_key
                 return {"items": {s: self.engine.cache.get(cache_key(s)) for s in req.get("src", [])}}
+            if cmd == "look":
+                self.look(region=tuple(req["region"]) if req.get("region") else None)
+                return {"ok": True}
+            if cmd == "look_result":
+                p = self.vision_panel
+                return {"running": p.running, "status": p.status.text(), "text": p.text.toPlainText()}
             if cmd == "langs":
                 self.set_languages(req.get("source", self.cfg.source_lang), req.get("target", self.cfg.target_lang))
                 return {"ok": True, "label": self._lang_label()}
@@ -965,6 +1045,8 @@ def main() -> int:
                 f.close()
             self.tip.close()
             self.history.close()
+            self._cancel_look()
+            self.vision_panel.close()
             self.tray.hide()
             log.info("已退出")
 

@@ -19,7 +19,10 @@ TAB_H = 26
 MIN_W, MIN_H = 160, 90
 
 _ICONS = {"refresh": "⟳", "settings": "⚙", "hide": "—"}
-_LABELS = {"shot_orig": "截原图", "shot_trans": "截译图", "pause": "暂停"}
+_LABELS = {"shot_orig": "截原图", "shot_trans": "截译图", "look": "看图", "pause": "暂停"}
+# 从右往左排：— ⚙ ⟳ 看图 截译图 截原图 语言 暂停
+_ORDER = ("hide", "settings", "refresh", "look", "shot_trans", "shot_orig", "lang", "pause")
+_TAB_LABEL_W = 150                       # “魔镜”和一小段状态文字至少要的宽度
 
 
 def _btn_font() -> QFont:
@@ -43,6 +46,7 @@ class MirrorFrame(QWidget):
     settings_clicked = Signal()
     hide_clicked = Signal()
     shot_clicked = Signal(str)           # "orig" 截原图 / "trans" 截译图
+    look_clicked = Signal()              # 看图翻译：把镜框里的画面发给能看图的模型
     pause_clicked = Signal()             # 暂停 / 继续
     lang_clicked = Signal(QPoint)        # 语言按钮：弹出原文 / 译成的语言菜单（屏幕坐标）
     menu_requested = Signal(QPoint)      # 右键标签：跟随窗口、新建 / 关闭魔镜
@@ -86,7 +90,7 @@ class MirrorFrame(QWidget):
         scr = self._screen_for(m)
         self._tab_below = m[1] - BAND - TAB_H < scr[1]
         outer = geom.expand(m, BAND)
-        tab_w = min(max(400, (m[2] - m[0]) // 2), max(280, m[2] - m[0]))
+        tab_w = max(min(max(400, (m[2] - m[0]) // 2), max(280, m[2] - m[0])), _TAB_LABEL_W + self._buttons_width())
         if self._tab_below:
             tab = (m[0] - BAND, m[3] + BAND - 1, m[0] - BAND + tab_w, m[3] + BAND - 1 + TAB_H)
         else:
@@ -101,14 +105,21 @@ class MirrorFrame(QWidget):
     def _local(self, r: Rect) -> QRect:
         return QRect(r[0] - self._origin[0], r[1] - self._origin[1], r[2] - r[0], r[3] - r[1])
 
+    def _button_w(self, name: str, fm: QFontMetrics) -> int:
+        return TAB_H - 4 if name in _ICONS else fm.horizontalAdvance(self._label(name)) + 14
+
+    def _buttons_width(self) -> int:
+        fm = QFontMetrics(_btn_font())
+        return sum(self._button_w(n, fm) + (2 if n in _ICONS else 4) for n in _ORDER) + 2
+
     def _place_buttons(self) -> None:
         tab = self._local(self._tab)
         size = TAB_H - 4
         fm = QFontMetrics(_btn_font())
         x = tab.right() - 2
         self._buttons = {}
-        for name in ("hide", "settings", "refresh", "shot_trans", "shot_orig", "lang", "pause"):
-            w = size if name in _ICONS else fm.horizontalAdvance(self._label(name)) + 14
+        for name in _ORDER:
+            w = self._button_w(name, fm)
             x -= w
             self._buttons[name] = QRect(x, tab.top() + 2, w, size)
             x -= 2 if name in _ICONS else 4
@@ -126,8 +137,7 @@ class MirrorFrame(QWidget):
     def set_lang_label(self, text: str) -> None:
         if text != self.lang_label:
             self.lang_label = text
-            self._place_buttons()
-            self.update(self._local(self._tab))
+            self._layout()                 # 字数变了：按钮重排，标签不够宽时加宽
 
     def set_paused(self, on: bool) -> None:
         if on != self.paused:
@@ -327,6 +337,8 @@ class MirrorFrame(QWidget):
                 self.shot_clicked.emit("trans")
             elif zone == "btn:pause":
                 self.pause_clicked.emit()
+            elif zone == "btn:look":
+                self.look_clicked.emit()
             elif zone == "btn:lang":
                 r = self._buttons["lang"]
                 self.lang_clicked.emit(self.mapToGlobal(QPoint(r.left(), r.bottom() + 2)))

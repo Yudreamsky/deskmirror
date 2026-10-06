@@ -58,6 +58,9 @@ def system_prompt(target: str, source: str = "auto") -> str:
         "- A 'Glossary:' section lists required translations ('term = translation'). Whenever a term appears, "
         "use exactly that translation (if it equals the term, keep the term untranslated). Never output the "
         "glossary itself.\n"
+        "- A 'Previous lines:' section shows the subtitle or dialogue lines shown just before these, oldest first "
+        "('source => translation'). Use them only as context, to keep names, pronouns and tone consistent; "
+        "never translate or output them.\n"
         "- A 'Reference:' section shows earlier translations from the same window ('source => translation'). "
         "Translate the same terms, names and defined words exactly as they were translated there, so the "
         "terminology stays consistent. The Glossary wins if they differ. Never translate or output the "
@@ -67,7 +70,7 @@ def system_prompt(target: str, source: str = "auto") -> str:
 
 
 def build_user_message(texts: list[str], context: str = "", glossary: list[tuple[str, str]] | None = None,
-                       refs: list[tuple[str, str]] | None = None) -> str:
+                       refs: list[tuple[str, str]] | None = None, dialog: list[tuple[str, str]] | None = None) -> str:
     body = "\n".join(f"[{i + 1}] {t.replace(chr(10), ' ')}" for i, t in enumerate(texts))
     head = []
     if context:
@@ -77,6 +80,9 @@ def build_user_message(texts: list[str], context: str = "", glossary: list[tuple
     if refs:
         head.append("Reference:\n" + "\n".join(f"{s.replace(chr(10), ' ')} => {d.replace(chr(10), ' ')}"
                                                 for s, d in refs))
+    if dialog:
+        head.append("Previous lines:\n" + "\n".join(f"{s.replace(chr(10), ' ')} => {d.replace(chr(10), ' ')}"
+                                                     for s, d in dialog))
     return "\n\n".join(head + [body]) if head else body
 
 
@@ -169,13 +175,13 @@ def _clean(text: str) -> str:
 def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: Callable[[int, str], None],
                      client: httpx.Client, cancel: threading.Event, context: str = "",
                      glossary: list[tuple[str, str]] | None = None, refs: list[tuple[str, str]] | None = None,
-                     source: str = "auto") -> None:
+                     source: str = "auto", dialog: list[tuple[str, str]] | None = None) -> None:
     """发一批文字块，流式解析；全部完成后返回。失败抛 ServiceError。
 
     context 是这批文字所在窗口的标题，帮模型判断场景（比如 CSS 文档里的属性名不该翻译）。
     """
     messages = [{"role": "system", "content": system_prompt(target, source)},
-                {"role": "user", "content": build_user_message(texts, context, glossary, refs)}]
+                {"role": "user", "content": build_user_message(texts, context, glossary, refs, dialog)}]
     parser = SegmentParser(len(texts), on_segment)
     base = cfg.base_url.strip().rstrip("/")
     if not base:
@@ -320,6 +326,7 @@ class Batch:
     hwnd: int = 0                                  # 文字所在的窗口和程序（记参考用）
     app: str = ""
     source: str = "auto"                           # 用户指定的原文语言
+    dialog: list = field(default_factory=list)     # [(原文, 译文)]：同一窗口刚刚出现过的几句字幕 / 对话（上下文）
     created: float = field(default_factory=time.perf_counter)
 
 
@@ -354,7 +361,7 @@ class TranslatorPool:
                     stream_translate(self.cfg, batch.target, batch.texts,
                                      lambda i, s, b=batch: self._on_event(("segment", b.batch_id, i, s)),
                                      client, self._cancel, batch.context, batch.glossary, batch.refs,
-                                     batch.source)
+                                     batch.source, batch.dialog)
                     self._on_event(("batch_done", batch.batch_id, None, time.perf_counter() - t0))
                 except ServiceError as e:
                     self._on_event(("batch_done", batch.batch_id, e, time.perf_counter() - t0))

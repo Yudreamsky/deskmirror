@@ -86,6 +86,7 @@ class HotkeyConfig:
     refresh: str = "Ctrl+Alt+T"       # 刷新镜框内区域
     toggle_visible: str = "Ctrl+Alt+H"  # 隐藏 / 显示魔镜
     history: str = "Ctrl+Alt+Y"       # 历史面板：最近的原文和译文
+    vision: str = "Ctrl+Alt+V"        # 看图翻译：把镜框里的画面发给能看图的模型
 
 
 @dataclass
@@ -138,6 +139,18 @@ class ScopeConfig:
 
 
 @dataclass
+class VisionConfig:
+    """看图翻译用的模型（要能看图的多模态模型）。和翻译服务分开设：常用的翻译服务（如 DeepSeek）不收图片。"""
+    protocol: str = "ollama"          # ollama：Ollama 原生接口；openai：OpenAI 兼容接口
+    base_url: str = "http://127.0.0.1:11434"
+    model: str = "gemma4:12b"         # 本机的 gemma4 能看图，画面不出本机
+    api_key: str = ""                 # 云端服务才要；内存里是明文，存盘时加密
+    timeout_s: float = 120.0          # 多模态模型慢
+    max_side: int = 1600              # 发图前把长边缩到这么大（省时间、省费用）
+    num_ctx: int = 4096               # 和翻译用同一个 Ollama 模型时要一致，否则 Ollama 会重新加载模型
+
+
+@dataclass
 class GlossaryEntry:
     src: str = ""                     # 原文里的词（不分大小写）
     dst: str = ""                     # 必须用的译法；和原文一样表示“保持不译”
@@ -171,6 +184,7 @@ class AppConfig:
     track: TrackConfig = field(default_factory=TrackConfig)
     scope: ScopeConfig = field(default_factory=ScopeConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
+    vision: VisionConfig = field(default_factory=VisionConfig)
     glossary: list[dict] = field(default_factory=list)   # [{src, dst, app}]，用户填写的术语表
     usage: UsageConfig = field(default_factory=UsageConfig)
 
@@ -236,6 +250,10 @@ def validate(cfg: AppConfig) -> AppConfig:
         cfg.ocr.device = "gpu"
     if cfg.source_lang not in SOURCE_LANGS:
         cfg.source_lang = "auto"
+    if cfg.vision.protocol not in ("ollama", "openai"):
+        cfg.vision.protocol = "ollama"
+    cfg.vision.timeout_s = max(10.0, min(600.0, float(cfg.vision.timeout_s)))
+    cfg.vision.max_side = max(512, min(3000, int(cfg.vision.max_side)))
     if cfg.target_lang not in LANGUAGES:
         cfg.target_lang = "zh-Hans"
     cfg.llm.concurrency = max(1, min(8, cfg.llm.concurrency))
@@ -289,12 +307,14 @@ def load() -> AppConfig:
             data = {}
     cfg = _load_into(AppConfig, data)
     cfg.llm.api_key = _decrypt(cfg.llm.api_key)
+    cfg.vision.api_key = _decrypt(cfg.vision.api_key)
     return validate(cfg)
 
 
 def save(cfg: AppConfig) -> None:
     data = asdict(cfg)
     data["llm"]["api_key"] = _encrypt(cfg.llm.api_key)
+    data["vision"]["api_key"] = _encrypt(cfg.vision.api_key)
     path = config_path()
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
