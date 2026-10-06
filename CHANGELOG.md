@@ -7,7 +7,7 @@
 - **倒计时不再一闪一闪**：游戏里的倒计时、计数这类只有数字在变的字，以前每跳一下译文都要消失一会儿、露出原文，有时还忽大忽小；现在旧译文先留着，数字一变马上单独重新识别，约 0.2 秒换成新数字，排版也保持不变。动态画面上的抓拍识别不再从一行字中间切开。
 - **译文不再伸出面板**：一行放不下要向下多占几行时，只用下面同色的空白；下面是面板边框、图片或在动的画面，就先再缩小一点字号排进原来的高度。
 - **英文译文先横向压扁一点，少缩字号**：中日文译成英文常常更长，放不下时先把字横向压扁（压到八成以内几乎看不出来）再缩字号；名牌、倒计时这类短标签快要伸出面板时最扁压到原宽的六成（设置项 `style.min_squash`；中日韩文字最多压到八成）。小名牌里排成两行的译文不再被裁掉半截。
-- **日文识别更准**：片假名的长音“ー”被识别成“-”或“一”时自动改回（比如“セ-ブ”→“セーブ”），术语表对得上，游戏菜单不再漏翻。
+- **日文识别更准**：片假名的长音“ー”被识别成“-”或“一”时自动改回（比如“セ-ブ”→“セーブ”），术语表对得上，游戏菜单不再漏翻。“存档”这类三个字以内的短词，重新识别时偶尔没认出来也不会马上丢掉译文：像素没变就说明字还在，连着三次没认出来才撤下。
 - **调试用的录制**：通过调试通道按用户看到的样子录 60 帧视频（宣传片的实录素材用）。
 
 - **Faster and cheaper**: DeepSeek and other OpenAI-compatible services think before answering by default; thinking is
@@ -27,7 +27,9 @@
   tags and timers may go down to 60% before spilling out of their panel (`style.min_squash`; CJK text stops at 80%).
   Two-line translations in small name tags are no longer cut in half.
 - **Better Japanese OCR**: a katakana long-vowel mark misread as "-" or "一" is fixed automatically (セ-ブ → セーブ), so
-  glossary terms match and game menus are no longer left untranslated.
+  glossary terms match and game menus are no longer left untranslated. Short words (three characters or fewer) are no
+  longer dropped when one re-read misses them: if the pixels are unchanged the text is still there, so the translation
+  stays until three reads in a row miss it.
 - **Debug recording**: record 60 fps video of what the user sees through the debug channel (used for promo footage).
 
 ## 1.0.0（2026-10-06）

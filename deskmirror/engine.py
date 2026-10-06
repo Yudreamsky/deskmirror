@@ -1837,6 +1837,10 @@ class Engine(threading.Thread):
             self._finish_job(st, data)
 
     def _finish_job(self, st: JobState, info: dict) -> None:
+        for bid in st.touched:
+            b = self.blocks.get(bid)
+            if b is not None:
+                b.missed = 0
         # 提交时在区域内、这次识别没再出现的旧块：原文已经没了，删除。
         for bid, _sr0 in st.blocks_before:
             b = self.blocks.get(bid)
@@ -1852,6 +1856,11 @@ class Engine(threading.Thread):
             if st.stale and (ox, oy) != tuple(off0):
                 continue  # 识别期间这块跟着画布动过、又有结果因过时被丢：“没识别到”不可信，不删
             if geom.contains(st.rect, geom.shift(b.screen_rect(), off0[0] - ox, off0[1] - oy)):
+                if b.missed < 2 and b.ok_rect is not None and b.ok_rect == b.screen_rect() and self._verify(b):
+                    # 像素和识别时一模一样：字还在，只是这次没认出来（三个字以内的短词置信度要求高，常差一点没过）。
+                    # 连着三次都没认出来才删；字真的没了，像素就对不上，照样马上删
+                    b.missed += 1
+                    continue
                 self._delete_block(b, "ocr_not_seen")
         if getattr(st, "snapshot", False) and getattr(st, "tiles", None):
             # 动态区域的抓拍：没抓到字就放慢下一次，抓到了就恢复正常间隔

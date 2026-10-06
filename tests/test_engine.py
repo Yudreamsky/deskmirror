@@ -299,6 +299,44 @@ class NumberTickTest(unittest.TestCase):
 
 
 
+class NotSeenTest(unittest.TestCase):
+    def test_block_still_on_screen_survives_missed_reads(self) -> None:
+        # 重新识别没报出来（三个字以内的短词置信度差一点），但像素和识别时一模一样：字还在，连着三次没认出来才删；
+        # 字真的没了（像素变了）马上删
+        page = text_page(3000, W, 6)
+        eng, m, win, sc = make_engine(page[0:H])
+        eng.visible = {1: [(0, 0, W, H)]}
+        eng.set_mirrors([(0, 0, W, H)])
+        m.bgra = np.dstack([m.cur] * 3 + [np.full_like(m.cur, 255)])
+        jobs = []
+
+        class Ocr:
+            def submit(self, job) -> None:
+                jobs.append(job)
+
+        eng.ocr, eng.ocr_state = Ocr(), "ready"
+        eng.win_canvas[1], eng.win_rects[1], eng.z_order = win, (0, 0, W, H), [1]
+        y0 = next(y for y in range(200, 600) if page[y:y + 22, 10:500].std() > 40 and page[y, 10:500].min() == 255)
+        rect = (10, y0, 500, y0 + 22)
+
+        def miss() -> None:
+            eng.ocr_busy = None
+            eng._submit_ocr(m, (0, y0 - 20, W, y0 + 42))
+            eng._finish_job(eng.jobs[jobs[-1].job_id], {"blocks": 0})
+
+        b = add_block(eng, sc, rect, page[y0:y0 + 22, 10:500].copy())
+        b.state, b.translation = "done", "Save"
+        miss()
+        miss()
+        self.assertIn(b.bid, eng.blocks, "两次没认出来：字还在，不删")
+        miss()
+        self.assertNotIn(b.bid, eng.blocks, "连着三次没认出来：删")
+        b2 = add_block(eng, sc, rect, page[y0:y0 + 22, 10:500].copy())
+        m.cur[y0:y0 + 22, 10:500] = 255                                          # 字没了
+        miss()
+        self.assertNotIn(b2.bid, eng.blocks, "像素变了：马上删")
+
+
 class PauseTest(unittest.TestCase):
     def test_paused_engine_does_not_capture_and_resume_rechecks(self) -> None:
         page = text_page(3000, W, 9)

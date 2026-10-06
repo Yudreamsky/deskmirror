@@ -120,6 +120,7 @@ class Block:
     replaces: list = field(default_factory=list)   # 这块译好后要顶掉的旧块
     refind_at: float = 0.0            # 对不上时在附近重新找这段的下一次时间（找不到就逐步放慢）
     refind_n: int = 0
+    missed: int = 0                   # 像素没变、重新识别却没报出来的次数（短词置信度差一点）：连着三次才删
 
     def screen_rect(self) -> Rect:
         return self.canvas.to_screen(self.rect)
