@@ -46,6 +46,19 @@ class OcrBlockOut:
     rect: Rect
     lines: list[OcrLineOut]
     text: str
+    weak: bool = False           # 置信度差一点的短词：只用来确认同一位置已有的块还在，不新建
+
+
+def line_kind(text: str, score: float) -> str:
+    """一行识别结果怎么用：strong 正常收；weak 只确认已有的块还在；空串丢掉。
+    很短的结果多半是图标、图片纹理被认成了字，新建块要求更高的置信度；可字号小的短词（游戏菜单的“セーブ”）
+    重新识别时常常只差一点，丢掉的话引擎会以为字没了、把译文撤掉。"""
+    if not text.strip() or score < 0.6:
+        return ""
+    letters = sum(1 for c in text if c.isalnum())
+    if letters > 3 or score >= 0.88:
+        return "strong"
+    return "weak" if letters else ""
 
 
 # --------------------------------------------------------------------- 子进程端
@@ -171,22 +184,25 @@ def _process(engine, job: OcrJob, out_q) -> None:
         pos = 0
         blocks: list[OcrBlockOut] = []
         for k in batch:
-            lines = []
+            lines, weak = [], []
             for i in paras[k]:
                 text, score = texts[pos]
                 text = fix_ocr(text)
                 pos += 1
-                letters = sum(1 for c in text if c.isalnum())
-                # 很短的结果多半是图标、图片纹理被认成了字：要求更高的置信度
-                need = 0.88 if letters <= 3 else 0.6
-                if score >= need and text.strip():
+                kind = line_kind(text, score)
+                if kind == "strong":
                     lines.append(Line(rects[i], text, score))
+                elif kind == "weak":
+                    weak.append(Line(rects[i], text, score))
             for draft in split_by_text(lines):
                 out_lines = [OcrLineOut((ln.rect[0] + ox, ln.rect[1] + oy, ln.rect[2] + ox, ln.rect[3] + oy),
                                         ln.text, ln.score) for ln in draft.lines]
                 r = draft.rect
                 blocks.append(OcrBlockOut((r[0] + ox, r[1] + oy, r[2] + ox, r[3] + oy), out_lines,
                                           join_lines(draft.lines)))
+            for ln in weak:                  # 单独成块、不和别的行合并
+                r = (ln.rect[0] + ox, ln.rect[1] + oy, ln.rect[2] + ox, ln.rect[3] + oy)
+                blocks.append(OcrBlockOut(r, [OcrLineOut(r, ln.text, ln.score)], ln.text, weak=True))
         n_blocks += len(blocks)
         n_lines += len(line_rects)
         out_q.put(("blocks", job.job_id, blocks))

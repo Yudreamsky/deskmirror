@@ -1911,6 +1911,15 @@ class Engine(threading.Thread):
         off0 = st.offsets.get(canvas.cid, canvas.screen_offset())
         ox, oy = canvas.screen_offset()
         r_now = geom.shift(r0, ox - off0[0], oy - off0[1])
+        if ob.weak:
+            # 置信度差一点的短词：同一位置、同样的字的已有块算“这次也认出来了”，不当成字没了；不拿它新建块
+            key = textutil.cache_key(text)
+            for old in self._blocks_in(r_now):
+                sr = old.screen_rect()
+                if old.key == key and max(abs(a - c) for a, c in zip(sr, r_now)) <= 6:
+                    st.touched.add(old.bid)
+                    self.metrics["ocr_weak_kept"] += 1
+            return
         jl, jt = st.rect[0], st.rect[1]
         ref = st.gray[r0[1] - jt:r0[3] - jt, r0[0] - jl:r0[2] - jl].copy()
         if ref.size == 0:

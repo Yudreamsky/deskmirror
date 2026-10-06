@@ -336,6 +336,42 @@ class NotSeenTest(unittest.TestCase):
         miss()
         self.assertNotIn(b2.bid, eng.blocks, "像素变了：马上删")
 
+    def test_weak_read_keeps_block_but_never_creates_one(self) -> None:
+        # 字号小的短词重新识别时置信度常差一点（0.6~0.88）：同一位置同样的字算“认出来了”，一直留着；但不拿它新建块
+        from deskmirror.ocr_worker import OcrBlockOut, OcrLineOut, line_kind
+        self.assertEqual(line_kind("セーブ", 0.95), "strong")
+        self.assertEqual(line_kind("セーブ", 0.8), "weak")
+        self.assertEqual(line_kind("セーブ", 0.5), "")
+        self.assertEqual(line_kind("Quest: Head to the Lighthouse", 0.7), "strong")
+        self.assertEqual(line_kind("…", 0.8), "")
+        page = text_page(3000, W, 6)
+        eng, m, win, sc = make_engine(page[0:H])
+        eng.visible = {1: [(0, 0, W, H)]}
+        eng.set_mirrors([(0, 0, W, H)])
+        m.bgra = np.dstack([m.cur] * 3 + [np.full_like(m.cur, 255)])
+        jobs = []
+
+        class Ocr:
+            def submit(self, job) -> None:
+                jobs.append(job)
+
+        eng.ocr, eng.ocr_state = Ocr(), "ready"
+        eng.win_canvas[1], eng.win_rects[1], eng.z_order = win, (0, 0, W, H), [1]
+        y0 = next(y for y in range(200, 600) if page[y:y + 22, 10:500].std() > 40 and page[y, 10:500].min() == 255)
+        rect = (10, y0, 500, y0 + 22)
+        b = add_block(eng, sc, rect, page[y0:y0 + 22, 10:500].copy())
+        b.text, b.key, b.state, b.translation = "セーブ", E.textutil.cache_key("セーブ"), "done", "Save"
+        for _ in range(5):
+            eng.ocr_busy = None
+            eng._submit_ocr(m, (0, y0 - 20, W, y0 + 42))
+            st = eng.jobs[jobs[-1].job_id]
+            eng._accept_block(st, OcrBlockOut(rect, [OcrLineOut(rect, "セーブ", 0.8)], "セーブ", weak=True))
+            eng._accept_block(st, OcrBlockOut((10, y0 + 200, 200, y0 + 222), [OcrLineOut((10, y0 + 200, 200, y0 + 222), "ロード", 0.8)],
+                                              "ロード", weak=True))
+            eng._finish_job(st, {"blocks": 2})
+        self.assertIn(b.bid, eng.blocks, "置信度差一点也算认出来了：一直留着")
+        self.assertFalse(any(x.text == "ロード" for x in eng.blocks.values()), "不拿置信度不够的短词新建块")
+
 
 class PauseTest(unittest.TestCase):
     def test_paused_engine_does_not_capture_and_resume_rechecks(self) -> None:
