@@ -102,3 +102,6 @@ the mirror switches source and target languages on the fly (Chinese, English, Ja
 Requirements: Windows 11, Python 3.12. Run `setup.bat` once, then `start.bat`.
 
 License: GPL-3.0. Contact: a885187@gmail.com
+
+Some things need no translation: thank you. DeskMirror is free and open source; if it helps you, you can
+[buy me a coffee on Ko-fi](https://ko-fi.com/dreamskyu).
