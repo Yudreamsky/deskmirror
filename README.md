@@ -25,17 +25,28 @@ Windows 上的屏幕翻译工具：在桌面上放一块可以拖动的“镜子
 需要：
 
 - Windows 11（Windows 10 应该也行，但还没测过）
-- [Python 3.12](https://www.python.org/downloads/)（安装时勾选 “Add python.exe to PATH”）
 - 翻译服务，二选一：
   - 本机：安装 [Ollama](https://ollama.com)，再运行 `ollama pull gemma4:12b`（模型约 7.6 GB，需要显存较大的独立显卡）
   - 云端：DeepSeek 等服务的 API Key（按用量收费）
 
-步骤：
+### 下载即用（推荐）
 
-1. 下载本项目：`git clone https://github.com/Yudreamsky/deskmirror.git`，或在 GitHub 页面下载 ZIP 解压。
-2. 双击 `setup.bat`：创建 `.venv` 并安装依赖（PySide6、RapidOCR、ONNX Runtime 等，需要联网）。
-3. 双击 `start.bat`。文字识别模型随安装包一起装好；第一次选“原文：韩文”时，会自动下载韩文识别模型（约 14 MB）。
-4. 用云端服务的话：点魔镜标签上的 ⚙ → 翻译服务，选 “OpenAI 兼容接口”，填地址、模型和 API Key，点 “测试连接”。
+1. 在 [Releases](https://github.com/Yudreamsky/deskmirror/releases/latest) 下载 `DeskMirror-版本号-win64.zip`（约 140 MB）。
+2. 解压到任意文件夹（比如“文档”或 D 盘），双击里面的 `DeskMirror.exe`，按新手指南设好就能用。
+   - Windows 可能提示“Windows 已保护你的电脑”（程序没有付费签名）：点“更多信息”→“仍要运行”。
+   - 设置、日志都存在这个文件夹里；换新版本时把新的解压到同一位置覆盖即可，设置会保留。
+   - 不要解压到 C:\Program Files（那里写不进设置，会改存到 `%LOCALAPPDATA%\DeskMirror`）。
+3. 不需要装 Python；文字识别模型（含韩文）都在包里。
+
+### 从源码运行
+
+1. 安装 [Python 3.12](https://www.python.org/downloads/)（安装时勾选 “Add python.exe to PATH”）。
+2. 下载本项目：`git clone https://github.com/Yudreamsky/deskmirror.git`，或在 GitHub 页面下载 ZIP 解压。
+3. 双击 `setup.bat`：创建 `.venv` 并安装依赖（PySide6、RapidOCR、ONNX Runtime 等，需要联网）。
+4. 双击 `start.bat`。文字识别模型随安装包一起装好；第一次选“原文：韩文”时，会自动下载韩文识别模型（约 14 MB）。
+5. 自己打包 exe：`.venv\Scripts\python -m pip install -r requirements-build.txt`，再运行 `.venv\Scripts\python packaging\build.py`。
+
+用云端服务的话：新手指南第 3 步选“云端服务”，或点魔镜标签上的 ⚙ → 翻译服务，选 “OpenAI 兼容接口”，填地址、模型和 API Key，点 “测试连接”。
 
 文字识别默认用显卡（DirectML，支持 DirectX 12 的显卡都可以），没有合适的显卡时自动改用 CPU。
 
@@ -102,9 +113,16 @@ The interface is available in English and Chinese. On first launch a short guide
 interface switches to match. The language button on the mirror's tab (e.g. "Auto→EN") changes the source and target
 languages on the fly, and Settings → Recognition and display → Interface language switches the interface.
 
-Requirements: Windows 11, Python 3.12, and a translation service: a local [Ollama](https://ollama.com) model
+Requirements: Windows 11 (Python 3.12 only when running from source), and a translation service: a local [Ollama](https://ollama.com) model
 (`ollama pull gemma4:12b`, about 7.6 GB, needs a graphics card with plenty of video memory) or an API key for an
 OpenAI-compatible service.
+
+Easiest: download `DeskMirror-<version>-win64.zip` (about 140 MB) from
+[Releases](https://github.com/Yudreamsky/deskmirror/releases/latest), unzip it anywhere you can write to (not
+Program Files), and run `DeskMirror.exe`. No Python needed. If Windows SmartScreen says it protected your PC (the exe is
+not code-signed), click "More info" → "Run anyway". Settings and logs are kept in that folder.
+
+From source:
 
 1. Download the project (`git clone https://github.com/Yudreamsky/deskmirror.git`, or the ZIP from GitHub).
 2. Run `setup.bat` once: it creates `.venv` and installs the dependencies.

@@ -1015,8 +1015,15 @@ def main() -> int:
                 from .textutil import cache_key
                 return {"items": {s: self.engine.cache.get(cache_key(s)) for s in req.get("src", [])}}
             if cmd == "about":
+                from .ui.about import REWARD_IMAGE
                 self.open_about()
-                return {"ok": True, "visible": self.about.isVisible()}
+                # 打包后的 exe 要能读 JPG（Qt 的图片插件）
+                return {"ok": True, "visible": self.about.isVisible(), "reward_image": not QPixmap(str(REWARD_IMAGE)).isNull()}
+            if cmd == "http_check":
+                # 打包后的 exe 要能连 HTTPS（SSL 库、根证书）：只取模型列表，不发任何文字
+                from .translator import list_models
+                names, err = list_models(config.LlmConfig(protocol="openai", base_url=req["url"]))
+                return {"models": len(names), "err": err}
             if cmd == "guide":
                 self.open_guide()
                 if "page" in req and self.guide is not None:
