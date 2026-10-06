@@ -1961,6 +1961,7 @@ class Engine(threading.Thread):
         replaced: list[Block] = []
         number_tick = False      # 同一位置只是数字变了（计时器、计数、血量）
         was_counter = False
+        prev: Block | None = None   # 同一个计数器的上一块
         tmpl = number_template(text)
         # 与已有块去重：同位置同文字沿用原块（保留译文），文字变了就替换。
         for old in list(canvas.blocks.values()):
@@ -1974,9 +1975,9 @@ class Engine(threading.Thread):
             if same_place and tmpl is not None and old.key != key:
                 ot = number_template(old.text)
                 if ot is not None and textutil.cache_key(ot[0]) == textutil.cache_key(tmpl[0]):
-                    number_tick = True
+                    number_tick, prev = True, old
             if same_place and old.counter and (old.key == key or tmpl is not None):
-                was_counter = True   # 同一个计数器重新识别（框挪了几像素、数字又变了）：新块接着当计数器
+                was_counter, prev = True, old   # 同一个计数器重新识别（框挪了几像素、数字又变了）：新块接着当计数器
             if old.key != key and same_place and old.ok_rect is not None and self._verify(old):
                 # 像素和上次识别时完全一样，只是这次 OCR 结果差了一两个字：沿用旧块和旧译文，
                 # 不为“同样的内容”再发一次翻译请求。
@@ -2034,6 +2035,9 @@ class Engine(threading.Thread):
                 b.bg, b.fg = (24, 24, 28), (245, 245, 245)
         if number_tick or was_counter:
             b.counter = True       # 下次数字再变，像素对不上时先留着这块的译文（见 _start_hold），并且马上单独重新识别
+            if prev is not None and prev.em and abs(b.em - prev.em) <= 0.2 * prev.em:
+                # 字号估计跟着上一块慢慢走：识别框高低差一两个像素，译文字号就会每跳一下变一点
+                b.em = prev.em + (b.em - prev.em) * 0.25
         if not textutil.needs_translation(text, self.cfg.target_lang) or textutil.looks_like_code(text):
             b.state = "skip"
         elif (hit := self._cached(key, text)) is not None:

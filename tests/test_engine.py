@@ -237,6 +237,41 @@ class NumberTickTest(unittest.TestCase):
         self.assertLess(E.geom.area(r), 3 * E.geom.area(rect), "只识别这一小块")
         self.assertEqual(eng._recount, {})
 
+    def test_counter_tick_stays_counter_and_font_moves_slowly(self) -> None:
+        # 倒计时跳了一格、重新识别：新块套模板直接译好、顶掉旧块，接着当计数器；字号估计跟着上一块慢慢走
+        from deskmirror.ocr_worker import OcrBlockOut, OcrLineOut
+        page = text_page(3000, W, 6)
+        eng, m, win, sc = make_engine(page[0:H])
+        eng.visible = {1: [(0, 0, W, H)]}
+        eng.set_mirrors([(0, 0, W, H)])
+        jobs = []
+
+        class Ocr:
+            def submit(self, job) -> None:
+                jobs.append(job)
+
+        eng.ocr, eng.ocr_state = Ocr(), "ready"
+        eng.win_canvas[1], eng.win_rects[1], eng.z_order = win, (0, 0, W, H), [1]   # 识别结果按窗口找画布
+        y0 = next(y for y in range(200, 600) if page[y:y + 22, 10:500].std() > 40 and page[y, 10:500].min() == 255)
+        rect = (10, y0, 500, y0 + 22)
+        old = add_block(eng, sc, rect, page[y0:y0 + 22, 10:500].copy())
+        old.text, old.key = "残り 02:00", E.textutil.cache_key("残り 02:00")
+        eng.by_key[old.key].add(old.bid)
+        e = E.font_em(E.Line(rect, "残り 01:59"))
+        old.state, old.translation, old.counter, old.em = "done", "剩余 02:00", True, e * 1.15
+        eng.templates.learn(E.textutil.cache_key, "残り 02:00", "剩余 02:00")
+        m.cur[y0:y0 + 22, 10:500] = 255 - m.cur[y0:y0 + 22, 10:500]             # 数字跳了
+        old.ok_rect = None
+        m.bgra = np.dstack([m.cur] * 3 + [np.full_like(m.cur, 255)])
+        eng._submit_ocr(m, (0, y0 - 20, W, y0 + 42))
+        eng._accept_block(eng.jobs[jobs[0].job_id], OcrBlockOut(rect, [OcrLineOut(rect, "残り 01:59", 0.99)], "残り 01:59"))
+        new = [b for b in eng.blocks.values() if b.text == "残り 01:59"]
+        self.assertEqual(len(new), 1)
+        self.assertEqual((new[0].state, new[0].translation), ("done", "剩余 01:59"))
+        self.assertTrue(new[0].counter)
+        self.assertNotIn(old.bid, eng.blocks)
+        self.assertAlmostEqual(new[0].em, old.em + (e - old.em) * 0.25)
+
     def test_snapshot_never_cuts_known_text(self) -> None:
         # 动态区域的抓拍只框变了的那几格：碰到的已知文字块要整块框进去，不然切下的半行（只剩数字）会顶掉整行
         page = text_page(3000, W, 6)
