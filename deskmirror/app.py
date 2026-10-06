@@ -188,6 +188,8 @@ def main() -> int:
             autoquit = os.environ.get("DESKMIRROR_AUTOQUIT")
             if autoquit:
                 QTimer.singleShot(int(float(autoquit) * 1000), self.quit_app)
+            self.recorder = None                # 调试用的录制（record_start / record_stop）
+            self._record_native: set[int] = set()   # 录制时暂时不对截屏隐身的窗口（record_native）
             self.guide: GuideDialog | None = None
             self.about: AboutDialog | None = None
             if cfg.first_run_tip:
@@ -1085,6 +1087,12 @@ def main() -> int:
                         if req.get("text"):
                             d["text"] = it.text
                             d["src"] = it.src
+                        if req.get("plates"):
+                            # 译文底板实际画多大（译文长时会向下延伸、会缩小字号）
+                            img = self.state.renderer.get(it)
+                            x, y = it.rect[0] + img.dx, it.rect[1] + img.dy
+                            d["plate"] = [x, y, x + img.width, y + img.height]
+                            d["truncated"] = img.truncated
                         if req.get("refs") and it.ref is not None:
                             import base64
                             import cv2
@@ -1138,6 +1146,40 @@ def main() -> int:
                 return {"n": len(out), "blocks": out[:50]}
             if cmd == "composite":
                 return self._composite(req["path"], tuple(req.get("region") or self.state.mirror))
+            if cmd == "record_start":
+                # 按用户看到的样子录视频（演示、宣传片的实录素材）；见 recorder.py
+                from .recorder import Recorder
+                if self.recorder is not None:
+                    return {"error": "already recording"}
+                self.recorder = Recorder(req["path"], tuple(int(v) for v in req["region"]), int(req.get("fps", 60)),
+                                         self._record_background, self._record_layers,
+                                         req.get("codec", "h264_nvenc"), int(req.get("quality", 14)), self)
+                return {"ok": True}
+            if cmd == "record_cursor":
+                if self.recorder is not None:
+                    self.recorder.cursor = tuple(req["pos"]) if req.get("pos") else None
+                return {"ok": True}
+            if cmd == "record_native":
+                # 录制时让这个窗口照原样（标题栏、阴影）进截屏，不再另外叠画。
+                # 它进了截屏就会被当成桌面内容：只能放在不翻译的地方，别盖住要翻译的窗口。
+                w = {"vision": self.vision_panel, "guide": self.guide, "settings": self._settings,
+                     "about": self.about, "history": self.history}.get(req.get("window"))
+                if w is None:
+                    return {"error": "no such window"}
+                hwnd = int(w.winId())
+                if req.get("on", True):
+                    winapi.include_in_capture(hwnd)
+                    self._record_native.add(hwnd)
+                else:
+                    winapi.exclude_from_capture(hwnd)
+                    self._record_native.discard(hwnd)
+                return {"ok": True}
+            if cmd == "record_stop":
+                if self.recorder is None:
+                    return {"error": "not recording"}
+                stats, self.recorder = self.recorder.stop(), None
+                self._restore_capture_exclusion()
+                return stats
             if cmd == "shot":
                 self.take_shot(req.get("kind", "trans"))
                 return {"ok": True, "path": self._last_shot}
@@ -1147,6 +1189,33 @@ def main() -> int:
                 return {n: [r.left() + ox, r.top() + oy, r.right() + 1 + ox, r.bottom() + 1 + oy]
                         for n, r in self.frame._buttons.items()}
             return {"error": f"unknown cmd {cmd}"}
+
+        def _record_background(self, region: tuple):
+            """录制用的背景：引擎刚截好的屏幕画面（拿着截屏的锁复制一份），不在引擎截的屏上就自己截。"""
+            import numpy as np
+            for m in self.engine.mons:
+                if m.bgra is not None and geom.contains(m.rect, region):
+                    l, t, r, b = m.local(region)
+                    with m.cap.lock:
+                        return m.bgra[t:b, l:r].copy()        # 一定要复制：整行宽时切片是原缓冲区的视图
+            import mss
+            with mss.MSS() as s:
+                shot = s.grab({"left": region[0], "top": region[1], "width": region[2] - region[0],
+                               "height": region[3] - region[1]})
+            return np.frombuffer(shot.bgra, np.uint8).reshape(region[3] - region[1], region[2] - region[0], 4).copy()
+
+        def _record_layers(self) -> list:
+            """录制时叠在屏幕画面上的窗口，从下到上：译文层、魔镜边框、打开着的窗口、提示框。"""
+            wins = list(self.overlays) + [f for f in self.frames if f.isVisible()]
+            for w in (self.vision_panel, self.history, self.guide, self.about, self._settings, self.tip):
+                if w is not None and w.isVisible() and int(w.winId()) not in self._record_native:
+                    wins.append(w)
+            return wins
+
+        def _restore_capture_exclusion(self) -> None:
+            for hwnd in self._record_native:
+                winapi.exclude_from_capture(hwnd)
+            self._record_native.clear()
 
         def _composite(self, path: str, region: tuple) -> dict:
             """用户此刻看到的画面（截屏 + 译文 + 边框），测试看效果用。"""
@@ -1176,6 +1245,8 @@ def main() -> int:
             if self.about is not None:
                 self.about.close()
             self._cancel_look()
+            if self.recorder is not None:
+                self.recorder.stop()
             self.vision_panel.close()
             self.tray.hide()
             log.info("已退出")

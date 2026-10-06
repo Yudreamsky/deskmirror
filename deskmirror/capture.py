@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import threading
 import time
 import uuid
 from ctypes import wintypes as wt
@@ -180,6 +181,7 @@ class DuplicationCapture:
         self._factory = self._adapter = self._output = self._output1 = None
         self._device = self._context = self._dupl = self._staging = None
         self._buffer: np.ndarray | None = None
+        self.lock = threading.Lock()          # 别的线程（录制）复制画面时拿着它，免得读到改了一半的帧
         self._need_full = True
         self._gdi = None
         self._meta = (ctypes.c_ubyte * 65536)()
@@ -297,7 +299,8 @@ class DuplicationCapture:
             self._gdi = mss.MSS()
         w, h = self.size
         shot = self._gdi.grab({"left": self.origin[0], "top": self.origin[1], "width": w, "height": h})
-        self._buffer[:] = np.frombuffer(shot.bgra, np.uint8).reshape(h, w, 4)
+        with self.lock:
+            self._buffer[:] = np.frombuffer(shot.bgra, np.uint8).reshape(h, w, 4)
         self._need_full = False
         return Frame(self._buffer, self.origin, time.perf_counter(), [], [], True, False)
 
@@ -347,8 +350,9 @@ class DuplicationCapture:
                 src = np.ctypeslib.as_array(ctypes.cast(mapped.pData, ctypes.POINTER(ctypes.c_ubyte)),
                                             shape=(h, mapped.RowPitch))
                 buf = self._buffer
-                for l, t, r, b in regions:
-                    buf[t:b, l:r] = src[t:b, l * 4:r * 4].reshape(b - t, r - l, 4)
+                with self.lock:
+                    for l, t, r, b in regions:
+                        buf[t:b, l:r] = src[t:b, l * 4:r * 4].reshape(b - t, r - l, 4)
             finally:
                 self._context.fn(15, None, ctypes.c_void_p, wt.UINT)(self._context.ptr, self._staging.ptr, 0)
             return Frame(self._buffer, self.origin, time.perf_counter(), regions, moves, False,
@@ -422,6 +426,7 @@ class GdiCapture:
         self._mon = {"left": rect[0], "top": rect[1], "width": self.size[0], "height": self.size[1]}
         self._last = 0.0
         self._first = True
+        self.lock = threading.Lock()          # 和 DuplicationCapture 一样的接口（这里每帧都是新数组，不会读到一半）
 
     def grab(self, timeout_ms: int = 50) -> Frame | None:
         # GDI 没有“有新帧”通知，按最短间隔节流。

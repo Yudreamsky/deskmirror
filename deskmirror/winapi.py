@@ -140,6 +140,11 @@ def exclude_from_capture(hwnd: int) -> bool:
     return False
 
 
+def include_in_capture(hwnd: int) -> bool:
+    """撤销 exclude_from_capture（只在录演示视频时用：让自己的窗口连标题栏、阴影一起进画面）。"""
+    return bool(user32.SetWindowDisplayAffinity(hwnd, WDA_NONE))
+
+
 def display_affinity(hwnd: int) -> int:
     value = wt.DWORD()
     return int(value.value) if user32.GetWindowDisplayAffinity(hwnd, ctypes.byref(value)) else -1
