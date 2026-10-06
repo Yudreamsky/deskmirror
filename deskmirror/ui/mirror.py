@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QWidget
 
 from .. import geom, winapi
 from ..geom import Rect
+from ..i18n import N_, tr
 
 BAND = 7          # 边框可抓取的宽度（像素）
 LINE = 2          # 可见边线宽度
@@ -19,7 +20,7 @@ TAB_H = 26
 MIN_W, MIN_H = 160, 90
 
 _ICONS = {"refresh": "⟳", "settings": "⚙", "hide": "—"}
-_LABELS = {"shot_orig": "截原图", "shot_trans": "截译图", "look": "看图", "pause": "暂停"}
+_LABELS = {"shot_orig": N_("截原图"), "shot_trans": N_("截译图"), "look": N_("看图"), "pause": N_("暂停")}
 # 从右往左排：— ⚙ ⟳ 看图 截译图 截原图 语言 暂停
 _ORDER = ("hide", "settings", "refresh", "look", "shot_trans", "shot_orig", "lang", "pause")
 _TAB_LABEL_W = 150                       # “魔镜”和一小段状态文字至少要的宽度
@@ -71,7 +72,7 @@ class MirrorFrame(QWidget):
         self.bound = None                    # 由程序管理：(窗口句柄, 相对位置, 上次窗口矩形)
         self.suspended = False               # 跟随的窗口最小化了：魔镜暂时收起
         self.paused = False                  # 用户点了“暂停”：按钮显示“继续”
-        self.lang_label = "自动→中"           # 语言按钮上的字（由程序按设置更新）
+        self.lang_label = ""                 # 语言按钮上的字，如“自动→中”（由程序按设置更新）
         self.winId()
         winapi.exclude_from_capture(int(self.winId()))
         winapi.set_exstyle(int(self.winId()), add=winapi.WS_EX_NOACTIVATE | winapi.WS_EX_TOOLWINDOW)
@@ -132,7 +133,11 @@ class MirrorFrame(QWidget):
     def _label(self, name: str) -> str:
         if name == "lang":
             return self.lang_label
-        return "继续" if name == "pause" and self.paused else _LABELS[name]
+        return tr("继续") if name == "pause" and self.paused else tr(_LABELS[name])
+
+    def retranslate(self) -> None:
+        """换了界面语言：按钮上的字宽度变了，重新排。"""
+        self._layout()
 
     def set_lang_label(self, text: str) -> None:
         if text != self.lang_label:
@@ -208,15 +213,15 @@ class MirrorFrame(QWidget):
         font.setPixelSize(13)
         p.setFont(font)
         p.setPen(QColor(235, 238, 245))
-        p.drawText(tab.adjusted(10, 0, 0, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                   "魔镜📌" if self.pinned else "魔镜")
+        title = tr("魔镜") + ("📌" if self.pinned else "")
+        p.drawText(tab.adjusted(10, 0, 0, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, title)
         colors = {"ok": QColor(120, 220, 140), "busy": QColor(120, 180, 255), "warn": QColor(255, 200, 90),
                   "error": QColor(255, 110, 110), "paused": QColor(185, 185, 190)}
         p.setPen(colors.get(self.status_level, QColor(200, 200, 200)))
         left_btn = min((r.left() for r in self._buttons.values()), default=tab.right())
-        sx = tab.left() + (68 if self.pinned else 48)
-        status_rect = QRect(sx, tab.top(), max(0, left_btn - 6 - sx), tab.height())
         fm = QFontMetrics(font)
+        sx = tab.left() + 22 + fm.horizontalAdvance(title)      # 状态文字紧跟在标题后面
+        status_rect = QRect(sx, tab.top(), max(0, left_btn - 6 - sx), tab.height())
         p.drawText(status_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
                    fm.elidedText(self.status, Qt.TextElideMode.ElideRight, status_rect.width()))
         for name, r in self._buttons.items():

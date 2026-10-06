@@ -12,12 +12,13 @@ import time
 
 os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "0")  # 全程用物理像素，和截屏坐标一致
 
-from . import ROOT, config, geom, winapi  # noqa: E402
+from . import ROOT, config, geom, i18n, winapi  # noqa: E402
+from .i18n import N_, tr  # noqa: E402
 
 log = logging.getLogger("deskmirror")
 
 
-PAUSED_TEXT = "已暂停：不识别、不翻译（点“继续”恢复）"
+PAUSED_TEXT = N_("已暂停：不识别、不翻译（点“继续”恢复）")
 
 
 def _qimage_bgr(img):
@@ -75,11 +76,19 @@ def main() -> int:
 
     qapp = QApplication(sys.argv)
     qapp.setQuitOnLastWindowClosed(False)
-    qapp.setApplicationName("桌面魔镜")
-    if mutex is None:
-        QMessageBox.information(None, "桌面魔镜", "魔镜已经在运行了（看看右下角托盘图标）。")
-        return 0
     cfg = config.load()
+    if not cfg.ui_lang:
+        if cfg.first_run_tip:
+            # 第一次启动：按 Windows 的语言猜母语（译文语言），界面跟着用中文或英文；新手指南第 1 步可以改
+            cfg.target_lang = i18n.native_from_locale(i18n.system_locale())
+            cfg.ui_lang = i18n.ui_lang_for(cfg.target_lang)
+        else:
+            cfg.ui_lang = "zh"          # 以前的版本只有中文界面
+    i18n.set_ui_lang(cfg.ui_lang)
+    qapp.setApplicationName(tr("桌面魔镜"))
+    if mutex is None:
+        QMessageBox.information(None, tr("桌面魔镜"), tr("魔镜已经在运行了（看看右下角托盘图标）。"))
+        return 0
 
     def make_icon() -> QIcon:
         pm = QPixmap(64, 64)
@@ -145,43 +154,11 @@ def main() -> int:
             self._tip_bid = 0
             self._hover_since = 0.0
             self.tray = QSystemTrayIcon(make_icon())
-            self.tray.setToolTip("桌面魔镜")
+            self.tray.setToolTip(tr("桌面魔镜"))
             self._usage_seen = (0, 0)       # 引擎累计的请求数、字数（本次运行）
             self._usage_tip = ""
-            menu = QMenu()
-            self.act_toggle = QAction("隐藏魔镜", menu)
-            self.act_toggle.triggered.connect(self.toggle_visible)
-            menu.addAction(self.act_toggle)
-            self.act_pause = QAction("暂停（框留着，不识别、不翻译）", menu)
-            self.act_pause.triggered.connect(self.toggle_pause)
-            menu.addAction(self.act_pause)
-            menu.addAction("刷新镜框内区域", self.refresh)
-            menu.addAction("新建一个魔镜", self.add_mirror)
-            menu.addAction("截原图（镜框内原样）", lambda: self.take_shot("orig"))
-            menu.addAction("截译图（镜框内带译文）", lambda: self.take_shot("trans"))
-            menu.addAction("看图翻译（把镜框里的画面交给能看图的模型）", self.look)
-            menu.addSeparator()
-            scope_menu = menu.addMenu("预译范围")
-            self.scope_actions = {}
-            for code, name in config.SCOPE_MODES.items():
-                act = QAction(name, scope_menu)
-                act.setCheckable(True)
-                act.setChecked(cfg.scope.mode == code)
-                act.triggered.connect(lambda _=False, c=code: self.set_scope(c))
-                scope_menu.addAction(act)
-                self.scope_actions[code] = act
-            menu.addAction("不翻译魔镜下的这个程序", self.exclude_app_under_mirror)
-            menu.addAction("历史记录…（最近的原文和译文）", self.toggle_history)
-            menu.addAction("新手指南…", self.open_guide)
-            menu.addAction("设置…", self.open_settings)
-            self.act_debug = QAction("显示识别到的滚动区域（调试）", menu)
-            self.act_debug.setCheckable(True)
-            self.act_debug.toggled.connect(self._on_debug)
-            menu.addAction(self.act_debug)
-            menu.addSeparator()
-            menu.addAction("关于…", self.open_about)
-            menu.addAction("退出", qapp.quit)
-            self.tray.setContextMenu(menu)
+            self._menu: QMenu | None = None
+            self._build_menu()
             self.tray.activated.connect(self._on_tray)
             self.tray.messageClicked.connect(self._open_last_shot)
             self.tray.show()
@@ -210,11 +187,91 @@ def main() -> int:
                 self.debug = DebugServer(int(port), self._debug_cmd)
             autoquit = os.environ.get("DESKMIRROR_AUTOQUIT")
             if autoquit:
-                QTimer.singleShot(int(float(autoquit) * 1000), qapp.quit)
+                QTimer.singleShot(int(float(autoquit) * 1000), self.quit_app)
             self.guide: GuideDialog | None = None
             self.about: AboutDialog | None = None
             if cfg.first_run_tip:
                 QTimer.singleShot(1200, self.open_guide)     # 第一次启动：新手指南（看完或关掉就不再自动打开）
+
+        # -------------------------------------------------------------- 托盘菜单、界面语言
+        def _build_menu(self) -> None:
+            """托盘菜单（换界面语言时整个重建）。"""
+            menu = QMenu()
+            self.act_toggle = QAction(tr("显示魔镜") if self.state.hidden else tr("隐藏魔镜"), menu)
+            self.act_toggle.triggered.connect(self.toggle_visible)
+            menu.addAction(self.act_toggle)
+            self.act_pause = QAction(tr("继续翻译") if self.state.paused else tr("暂停（框留着，不识别、不翻译）"), menu)
+            self.act_pause.triggered.connect(self.toggle_pause)
+            menu.addAction(self.act_pause)
+            menu.addAction(tr("刷新镜框内区域"), self.refresh)
+            menu.addAction(tr("新建一个魔镜"), self.add_mirror)
+            menu.addAction(tr("截原图（镜框内原样）"), lambda: self.take_shot("orig"))
+            menu.addAction(tr("截译图（镜框内带译文）"), lambda: self.take_shot("trans"))
+            menu.addAction(tr("看图翻译（把镜框里的画面交给能看图的模型）"), self.look)
+            menu.addSeparator()
+            scope_menu = menu.addMenu(tr("预译范围"))
+            self.scope_actions = {}
+            for code, name in config.SCOPE_MODES.items():
+                act = QAction(tr(name), scope_menu)
+                act.setCheckable(True)
+                act.setChecked(self.cfg.scope.mode == code)
+                act.triggered.connect(lambda _=False, c=code: self.set_scope(c))
+                scope_menu.addAction(act)
+                self.scope_actions[code] = act
+            menu.addAction(tr("不翻译魔镜下的这个程序"), self.exclude_app_under_mirror)
+            menu.addAction(tr("历史记录…（最近的原文和译文）"), self.toggle_history)
+            menu.addAction(tr("新手指南…"), self.open_guide)
+            menu.addAction(tr("设置…"), self.open_settings)
+            self.act_debug = QAction(tr("显示识别到的滚动区域（调试）"), menu)
+            self.act_debug.setCheckable(True)
+            self.act_debug.setChecked(self.state.debug)
+            self.act_debug.toggled.connect(self._on_debug)
+            menu.addAction(self.act_debug)
+            menu.addSeparator()
+            menu.addAction(tr("关于…"), self.open_about)
+            menu.addAction(tr("退出"), self.quit_app)
+            old, self._menu = self._menu, menu
+            self.tray.setContextMenu(menu)
+            if old is not None:
+                old.deleteLater()
+
+        def quit_app(self) -> None:
+            """退出程序。Qt 6 退出时会先关掉所有窗口：新手指南这时被关掉不算看过，下次启动还会弹出。"""
+            if self.guide is not None:
+                self.guide.blockSignals(True)
+            qapp.quit()
+
+        def apply_ui_lang(self, lang: str) -> None:
+            """换界面语言：托盘菜单、魔镜标签、历史和看图窗口马上换；关于、设置、新手指南下次打开时按新语言建。"""
+            self.cfg.ui_lang = lang
+            i18n.set_ui_lang(lang)
+            qapp.setApplicationName(tr("桌面魔镜"))
+            self._build_menu()
+            for f in self.frames:
+                f.set_lang_label(self._lang_label())
+                f.retranslate()
+            self.history.retranslate()
+            self.vision_panel.retranslate()
+            if self.about is not None:
+                self.about.close()
+                self.about.deleteLater()
+                self.about = None
+            self._usage_tip = ""                 # 托盘提示、标签上的状态按新语言重写
+            snap = self.state.snapshot
+            if snap is not None:
+                self._count_usage(snap.status)
+                self._update_status(snap)
+            elif self.state.paused:
+                for f in self.frames:
+                    f.set_status(tr(PAUSED_TEXT), "paused")
+            self._save_timer.start()
+
+        def _guide_language(self, native: str) -> None:
+            """新手指南第 1 步选了母语：译文语言换成它，界面语言跟着换（中文或英文）。"""
+            ui = i18n.ui_lang_for(native)
+            if ui != self.cfg.ui_lang:
+                self.apply_ui_lang(ui)
+            self.set_languages(self.cfg.source_lang, native)
 
         # -------------------------------------------------------------- 多个魔镜、跟随窗口
         def _new_frame(self, rect: tuple) -> MirrorFrame:
@@ -245,7 +302,8 @@ def main() -> int:
 
         def add_mirror(self) -> None:
             if len(self.frames) >= 4:
-                self.tray.showMessage("桌面魔镜", "最多同时开 4 个魔镜。", QSystemTrayIcon.MessageIcon.Information, 4000)
+                self.tray.showMessage(tr("桌面魔镜"), tr("最多同时开 4 个魔镜。"),
+                                      QSystemTrayIcon.MessageIcon.Information, 4000)
                 return
             base = self.frames[-1].mirror
             w, h = min(640, base[2] - base[0]), min(360, base[3] - base[1])
@@ -282,12 +340,12 @@ def main() -> int:
         def _frame_menu(self, f: MirrorFrame, pos) -> None:
             menu = QMenu()
             if f.bound is None:
-                menu.addAction("跟随下面的窗口（窗口移动、缩放时魔镜跟着走）", lambda: self.bind_mirror(f))
+                menu.addAction(tr("跟随下面的窗口（窗口移动、缩放时魔镜跟着走）"), lambda: self.bind_mirror(f))
             else:
-                menu.addAction("取消跟随窗口", lambda: self.unbind_mirror(f))
-            menu.addAction("新建一个魔镜", self.add_mirror)
+                menu.addAction(tr("取消跟随窗口"), lambda: self.unbind_mirror(f))
+            menu.addAction(tr("新建一个魔镜"), self.add_mirror)
             if f is not self.frame:
-                menu.addAction("关闭这个魔镜", lambda: self.close_mirror(f))
+                menu.addAction(tr("关闭这个魔镜"), lambda: self.close_mirror(f))
             menu.exec(pos)
 
         def bind_mirror(self, f: MirrorFrame) -> bool:
@@ -301,10 +359,10 @@ def main() -> int:
                     rel = ((m[0] - wr[0]) / W, (m[1] - wr[1]) / H, (m[2] - wr[0]) / W, (m[3] - wr[1]) / H)
                     f.bound = (w.hwnd, rel, wr)
                     f.set_pinned(True)
-                    self.tray.showMessage("桌面魔镜", f"魔镜正跟随窗口：{w.title[:40] or w.cls}",
+                    self.tray.showMessage(tr("桌面魔镜"), tr("魔镜正跟随窗口：{title}").format(title=w.title[:40] or w.cls),
                                           QSystemTrayIcon.MessageIcon.Information, 3000)
                     return True
-            self.tray.showMessage("桌面魔镜", "魔镜下面没有找到窗口。", QSystemTrayIcon.MessageIcon.Warning, 3000)
+            self.tray.showMessage(tr("桌面魔镜"), tr("魔镜下面没有找到窗口。"), QSystemTrayIcon.MessageIcon.Warning, 3000)
             return False
 
         def unbind_mirror(self, f: MirrorFrame) -> None:
@@ -326,7 +384,7 @@ def main() -> int:
                 wr = winapi.window_rect(hwnd)
                 if wr is None:
                     self.unbind_mirror(f)
-                    self.tray.showMessage("桌面魔镜", "跟随的窗口已关闭，魔镜不再跟随。",
+                    self.tray.showMessage(tr("桌面魔镜"), tr("跟随的窗口已关闭，魔镜不再跟随。"),
                                           QSystemTrayIcon.MessageIcon.Information, 3000)
                     continue
                 gone = winapi.window_minimized(hwnd)
@@ -373,7 +431,7 @@ def main() -> int:
                 errors.append(str(e))
                 self._drag_mods = []
             if errors:
-                self.tray.showMessage("部分快捷键不可用", "\n".join(errors), QSystemTrayIcon.MessageIcon.Warning, 8000)
+                self.tray.showMessage(tr("部分快捷键不可用"), "\n".join(errors), QSystemTrayIcon.MessageIcon.Warning, 8000)
                 log.warning("快捷键：%s", errors)
 
         def _on_tray(self, reason) -> None:
@@ -392,17 +450,17 @@ def main() -> int:
                 self._feed_history(snap)
 
         def _lang_label(self) -> str:
-            return f"{config.SOURCE_SHORT[self.cfg.source_lang]}→{config.TARGET_SHORT[self.cfg.target_lang]}"
+            return f"{tr(config.SOURCE_SHORT[self.cfg.source_lang])}→{tr(config.TARGET_SHORT[self.cfg.target_lang])}"
 
         def _lang_menu(self, pos) -> None:
             """标签上的语言按钮：手动指定原文语言和译成的语言，立即生效。"""
             menu = QMenu()
-            menu.addSection("原文")
+            menu.addSection(tr("原文"))
             for code, name in config.SOURCE_LANGS.items():
-                act = menu.addAction(name, lambda c=code: self.set_languages(c, self.cfg.target_lang))
+                act = menu.addAction(tr(name), lambda c=code: self.set_languages(c, self.cfg.target_lang))
                 act.setCheckable(True)
                 act.setChecked(code == self.cfg.source_lang)
-            menu.addSection("译成")
+            menu.addSection(tr("译成"))
             for code, name in config.LANGUAGES.items():
                 act = menu.addAction(name, lambda c=code: self.set_languages(self.cfg.source_lang, c))
                 act.setCheckable(True)
@@ -426,17 +484,21 @@ def main() -> int:
             region = tuple(region or (f or self.frame).mirror)
             local = vision.is_local(vc.base_url)
             if not local and not self._confirm(
-                    f"这张截图会发给 {vision.host_of(vc.base_url)}（模型 {vc.model}），截图里看得见的内容都会发出去。\n\n要发送吗？"):
+                    tr("这张截图会发给 {host}（模型 {model}），截图里看得见的内容都会发出去。\n\n要发送吗？")
+                    .format(host=vision.host_of(vc.base_url), model=vc.model)):
                 return
             try:
                 img = self._grab_region(region, translated=False)
             except Exception as e:  # noqa: BLE001
-                self.tray.showMessage("桌面魔镜", f"截图失败：{e}", QSystemTrayIcon.MessageIcon.Warning, 4000)
+                self.tray.showMessage(tr("桌面魔镜"), tr("截图失败：{error}").format(error=e),
+                                      QSystemTrayIcon.MessageIcon.Warning, 4000)
                 return
             self._cancel_look()                     # 上一次还没完：不要了
             cancel = self._look_cancel = threading.Event()
             self._look_region = region
-            self.vision_panel.start(img, f"本机 {vc.model}" if local else f"{vision.host_of(vc.base_url)} 的 {vc.model}")
+            who = (tr("本机 {model}").format(model=vc.model) if local
+                   else tr("{host} 的 {model}").format(host=vision.host_of(vc.base_url), model=vc.model))
+            self.vision_panel.start(img, who)
             bgr = _qimage_bgr(img)
             target, source = self.cfg.target_lang, self.cfg.source_lang
 
@@ -451,7 +513,7 @@ def main() -> int:
                     err = str(e)
                 except Exception as e:  # noqa: BLE001
                     log.exception("看图翻译出错")
-                    err = f"内部错误：{type(e).__name__}"
+                    err = tr("内部错误：{name}").format(name=type(e).__name__)
                 if not cancel.is_set():
                     self.vision_done.emit(err, secs)
             threading.Thread(target=work, name="vision", daemon=True).start()
@@ -462,11 +524,11 @@ def main() -> int:
                 self._look_cancel = None
 
         def _confirm(self, text: str) -> bool:
-            box = QMessageBox(QMessageBox.Icon.Question, "桌面魔镜", text,
+            box = QMessageBox(QMessageBox.Icon.Question, tr("桌面魔镜"), text,
                               QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             box.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-            box.button(QMessageBox.StandardButton.Yes).setText("发送")
-            box.button(QMessageBox.StandardButton.No).setText("不发")
+            box.button(QMessageBox.StandardButton.Yes).setText(tr("发送"))
+            box.button(QMessageBox.StandardButton.No).setText(tr("不发"))
             return box.exec() == QMessageBox.StandardButton.Yes
 
         def open_guide(self) -> None:
@@ -476,6 +538,7 @@ def main() -> int:
                 self.guide.activateWindow()
                 return
             g = self.guide = GuideDialog(self.cfg)
+            g.apply_language.connect(self._guide_language)
             g.apply_llm.connect(self._guide_llm)
             g.apply_scope.connect(self.set_scope)
             g.guide_done.connect(self._guide_done)
@@ -504,8 +567,8 @@ def main() -> int:
             """暂停：魔镜框还在，不截屏、不识别、不翻译（不花翻译费用），也不画译文；继续时重新核对画面。"""
             paused = self.state.paused = not self.state.paused
             self.engine.set_working(not paused)
-            self.act_pause.setText("继续翻译" if paused else "暂停（框留着，不识别、不翻译）")
-            status = (PAUSED_TEXT, "paused") if paused else ("继续工作，正在核对画面…", "busy")
+            self.act_pause.setText(tr("继续翻译") if paused else tr("暂停（框留着，不识别、不翻译）"))
+            status = (tr(PAUSED_TEXT), "paused") if paused else (tr("继续工作，正在核对画面…"), "busy")
             for f in self.frames:
                 f.set_paused(paused)
                 f.set_status(*status)
@@ -547,8 +610,9 @@ def main() -> int:
                 u.requests += d_req
                 u.chars += d_chars
             host = self.cfg.llm.base_url.split("//")[-1].split("/")[0]
-            where = "本机" if host.startswith(("127.0.0.1", "localhost")) else host
-            tip = f"桌面魔镜 · 今天发给翻译服务（{where}）{u.requests} 次、{u.chars} 字"
+            where = tr("本机") if host.startswith(("127.0.0.1", "localhost")) else host
+            tip = tr("桌面魔镜 · 今天发给翻译服务（{where}）{requests} 次、{chars} 字").format(
+                where=where, requests=u.requests, chars=u.chars)
             if tip != self._usage_tip:
                 self._usage_tip = tip
                 self.tray.setToolTip(tip)
@@ -556,7 +620,7 @@ def main() -> int:
         def _update_status(self, snap) -> None:
             if self.state.paused:
                 for f in self.frames:
-                    f.set_status(PAUSED_TEXT, "paused")
+                    f.set_status(tr(PAUSED_TEXT), "paused")
                 return
             for f in self._active_frames():
                 f.set_status(*self._status_for(snap, f.mirror))
@@ -571,23 +635,23 @@ def main() -> int:
             if s.get("error"):
                 text, level = s["error"], "error"
             elif s.get("ocr") == "starting":
-                text, level = "正在启动文字识别…", "busy"
+                text, level = tr("正在启动文字识别…"), "busy"
             elif s.get("paused"):
-                text, level = f"翻译已暂停：{s.get('service_msg')}（点 ⟳ 重试或改设置）", "error"
+                text, level = tr("翻译已暂停：{msg}（点 ⟳ 重试或改设置）").format(msg=s.get("service_msg")), "error"
             elif s.get("service") == "error":
-                text, level = f"翻译服务出错，稍后自动重试：{s.get('service_msg')}", "warn"
+                text, level = tr("翻译服务出错，稍后自动重试：{msg}").format(msg=s.get("service_msg")), "warn"
             elif in_failed:
-                text, level = f"{in_failed} 块翻译失败，点 ⟳ 重试", "warn"
+                text, level = tr("{n} 块翻译失败，点 ⟳ 重试").format(n=in_failed), "warn"
             elif in_pending:
-                text, level = f"翻译中：镜内还有 {in_pending} 块", "busy"
+                text, level = tr("翻译中：镜内还有 {n} 块").format(n=in_pending), "busy"
             elif s.get("needs", 0) and s.get("ocr") == "busy":
-                text, level = "正在识别桌面文字…", "busy"
+                text, level = tr("正在识别桌面文字…"), "busy"
             else:
-                text, level = f"就绪 · 已翻译 {s.get('done', 0)} 块", "ok"
+                text, level = tr("就绪 · 已翻译 {n} 块").format(n=s.get("done", 0)), "ok"
             if s.get("slow") and level == "ok":
-                text, level = text + " · 服务较慢", "warn"
+                text, level = text + tr(" · 服务较慢"), "warn"
             if s.get("excluded_in_mirror") and level in ("ok", "busy"):
-                text += " · 镜内有不翻译的窗口（排除名单）"
+                text += tr(" · 镜内有不翻译的窗口（排除名单）")
             return text, level
 
         def _on_rect(self, rect, final: bool) -> None:
@@ -648,14 +712,15 @@ def main() -> int:
                     name = winapi.process_name(w.pid)
                     break
             if not name:
-                self.tray.showMessage("桌面魔镜", "魔镜下面没有找到窗口（或拿不到它的程序名）。",
+                self.tray.showMessage(tr("桌面魔镜"), tr("魔镜下面没有找到窗口（或拿不到它的程序名）。"),
                                       QSystemTrayIcon.MessageIcon.Warning, 4000)
                 return
             if name.lower() not in {a.lower() for a in self.cfg.scope.exclude_apps}:
                 self.cfg.scope.exclude_apps = self.cfg.scope.exclude_apps + [name]
                 self._save()
-            self.tray.showMessage("桌面魔镜", f"已把 {name} 加入不翻译名单：它的窗口不再识别和翻译。可在 设置 → 范围与隐私 里移除。",
-                                  QSystemTrayIcon.MessageIcon.Information, 5000)
+            self.tray.showMessage(tr("桌面魔镜"),
+                                  tr("已把 {name} 加入不翻译名单：它的窗口不再识别和翻译。可在 设置 → 范围与隐私 里移除。")
+                                  .format(name=name), QSystemTrayIcon.MessageIcon.Information, 5000)
 
         def take_shot(self, kind: str, f: MirrorFrame | None = None) -> None:
             """截下镜框内的画面：原图（屏幕原样）或译图（叠上译文，和镜里看到的一样）。
@@ -668,12 +733,12 @@ def main() -> int:
                 img = self._grab_region(region, translated=(kind == "trans"))
             except Exception as e:  # noqa: BLE001
                 log.warning("截图失败：%s", e)
-                self.tray.showMessage("截图失败", str(e), QSystemTrayIcon.MessageIcon.Warning, 5000)
+                self.tray.showMessage(tr("截图失败"), str(e), QSystemTrayIcon.MessageIcon.Warning, 5000)
                 return
             qapp.clipboard().setImage(img)
             pics = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.PicturesLocation)
-            folder = (Path(pics) if pics else ROOT) / "桌面魔镜"
-            stem = time.strftime(("魔镜译图" if kind == "trans" else "魔镜原图") + "_%Y%m%d_%H%M%S")
+            folder = (Path(pics) if pics else ROOT) / tr("桌面魔镜")
+            stem = time.strftime((tr("魔镜译图") if kind == "trans" else tr("魔镜原图")) + "_%Y%m%d_%H%M%S")
             try:
                 folder.mkdir(parents=True, exist_ok=True)
                 path = folder / f"{stem}.png"
@@ -684,14 +749,14 @@ def main() -> int:
                 saved = img.save(str(path))
             except OSError:
                 saved = False
-            what = "译图" if kind == "trans" else "原图"
+            title = tr("已截译图") if kind == "trans" else tr("已截原图")
             if saved:
                 self._last_shot = str(path)
-                log.info("已保存%s截图：%s", what, path)
-                self.tray.showMessage(f"已截{what}", f"已复制到剪贴板，并保存到 {path}（点这条提示打开文件夹）",
+                log.info("已保存截图：%s", path)
+                self.tray.showMessage(title, tr("已复制到剪贴板，并保存到 {path}（点这条提示打开文件夹）").format(path=path),
                                       QSystemTrayIcon.MessageIcon.Information, 4000)
             else:
-                self.tray.showMessage(f"已截{what}", f"已复制到剪贴板；保存到 {folder} 失败。",
+                self.tray.showMessage(title, tr("已复制到剪贴板；保存到 {folder} 失败。").format(folder=folder),
                                       QSystemTrayIcon.MessageIcon.Warning, 5000)
 
         def _open_last_shot(self) -> None:
@@ -730,7 +795,7 @@ def main() -> int:
             self.state.hidden = not self.state.hidden
             for f in self.frames:
                 f.setVisible(not self.state.hidden and not f.suspended)
-            self.act_toggle.setText("显示魔镜" if self.state.hidden else "隐藏魔镜")
+            self.act_toggle.setText(tr("显示魔镜") if self.state.hidden else tr("隐藏魔镜"))
             for o in self.overlays:
                 o.repaint_mirror()
 
@@ -746,6 +811,7 @@ def main() -> int:
                 if result:
                     new = config.validate(dlg.collect())
                     langs_changed = (new.source_lang, new.target_lang) != (self.cfg.source_lang, self.cfg.target_lang)
+                    ui_changed = new.ui_lang != i18n.ui_lang()
                     need_restart = (new.ocr.device != self.cfg.ocr.device
                                     or new.track.all_monitors != self.cfg.track.all_monitors
                                     or new.track.wheel_predict != self.cfg.track.wheel_predict)
@@ -768,12 +834,14 @@ def main() -> int:
                         self.engine.set_languages()
                         for f in self.frames:
                             f.set_lang_label(self._lang_label())
+                    if ui_changed:
+                        self.apply_ui_lang(self.cfg.ui_lang)
                     self._register_keys()
                     self._save()
                     for o in self.overlays:
                         o.repaint_mirror()
                     if need_restart:
-                        self.tray.showMessage("桌面魔镜", "识别设备、屏幕范围和滚动跟随的更改在下次启动时生效。",
+                        self.tray.showMessage(tr("桌面魔镜"), tr("识别设备、屏幕范围和滚动跟随的更改在下次启动时生效。"),
                                               QSystemTrayIcon.MessageIcon.Information, 5000)
                 self._settings = None
             dlg.finished.connect(done)
@@ -918,7 +986,7 @@ def main() -> int:
                 self.refresh()
                 return {"ok": True}
             if cmd == "quit":
-                QTimer.singleShot(0, qapp.quit)
+                QTimer.singleShot(0, self.quit_app)
                 return {"ok": True}
             if cmd == "settings_snapshot":
                 # 设置窗口对截屏隐身：用它自己的渲染结果出图（测试看界面用）
@@ -953,7 +1021,9 @@ def main() -> int:
                 self.open_guide()
                 if "page" in req and self.guide is not None:
                     self.guide.pages.setCurrentIndex(int(req["page"]))
-                return {"ok": True}
+                if req.get("pick") and self.guide is not None:
+                    self.guide.lang_buttons[req["pick"]].click()     # 像用户在第 1 步点了这种语言
+                return {"ok": True, "title": self.guide.windowTitle() if self.guide is not None else ""}
             if cmd == "look":
                 self.look(region=tuple(req["region"]) if req.get("region") else None)
                 return {"ok": True}
@@ -963,6 +1033,13 @@ def main() -> int:
             if cmd == "langs":
                 self.set_languages(req.get("source", self.cfg.source_lang), req.get("target", self.cfg.target_lang))
                 return {"ok": True, "label": self._lang_label()}
+            if cmd == "ui_lang":
+                # 换界面语言（和设置里改的是同一处）；顺便返回托盘菜单的字，测试核对用
+                if req.get("lang"):
+                    self.apply_ui_lang(req["lang"])
+                return {"ok": True, "lang": i18n.ui_lang(), "label": self._lang_label(),
+                        "menu": [a.text() for a in self._menu.actions() if a.text()],
+                        "status": self.frame.status}
             if cmd == "pause_all":
                 if bool(req.get("on")) != self.state.paused:
                     self.toggle_pause()
@@ -1097,11 +1174,12 @@ def main() -> int:
             log.info("已退出")
 
     app = App()
-    signal.signal(signal.SIGINT, lambda *_: qapp.quit())
+    signal.signal(signal.SIGINT, lambda *_, a=app: a.quit_app())
     # 让 Python 有机会处理 Ctrl+C
     keepalive = QTimer()
     keepalive.start(200)
     keepalive.timeout.connect(lambda: None)
     code = qapp.exec()
+    signal.signal(signal.SIGINT, signal.SIG_DFL)      # 放开上面对 app 的引用
     del app
     return code

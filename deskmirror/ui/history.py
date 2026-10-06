@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox, QHB
                                QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget)
 
 from .. import winapi
+from ..i18n import N_, tr
 
 MAX_ENTRIES = 500
 
@@ -30,13 +31,11 @@ class HistoryPanel(QWidget):
 
     def __init__(self) -> None:
         super().__init__(None, Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
-        self.setWindowTitle("桌面魔镜 · 历史")
         self.resize(640, 720)
         self.entries: list[Entry] = []
         lay = QVBoxLayout(self)
         top = QHBoxLayout()
         self.search = QLineEdit()
-        self.search.setPlaceholderText("搜索原文或译文")
         self.search.textChanged.connect(self._refill)
         top.addWidget(self.search, 1)
         lay.addLayout(top)
@@ -47,19 +46,30 @@ class HistoryPanel(QWidget):
         self.list.itemDoubleClicked.connect(lambda _it: self._edit())
         lay.addWidget(self.list, 1)
         btns = QHBoxLayout()
-        for text, fn in (("复制译文", lambda: self._copy(False)), ("复制原文和译文", lambda: self._copy(True)),
-                         ("改译文…", self._edit), ("清空", self._clear)):
-            b = QPushButton(text)
+        self._buttons: list[tuple[QPushButton, str]] = []
+        for text, fn in ((N_("复制译文"), lambda: self._copy(False)), (N_("复制原文和译文"), lambda: self._copy(True)),
+                         (N_("改译文…"), self._edit), (N_("清空"), self._clear)):
+            b = QPushButton()
             b.clicked.connect(fn)
             btns.addWidget(b)
+            self._buttons.append((b, text))
         btns.addStretch(1)
         lay.addLayout(btns)
-        note = QLabel("最近在魔镜里出现过的文字（最新的在上面），只保存在内存里，退出即清空。双击一条可以改译文。")
-        note.setWordWrap(True)
-        note.setStyleSheet("color: #888;")
-        lay.addWidget(note)
+        self.note = QLabel()
+        self.note.setWordWrap(True)
+        self.note.setStyleSheet("color: #888;")
+        lay.addWidget(self.note)
+        self.retranslate()
         self.winId()
         winapi.exclude_from_capture(int(self.winId()))
+
+    def retranslate(self) -> None:
+        """界面上的字（换界面语言时再调一次；记下的历史不动）。"""
+        self.setWindowTitle(tr("桌面魔镜 · 历史"))
+        self.search.setPlaceholderText(tr("搜索原文或译文"))
+        for b, text in self._buttons:
+            b.setText(tr(text))
+        self.note.setText(tr("最近在魔镜里出现过的文字（最新的在上面），只保存在内存里，退出即清空。双击一条可以改译文。"))
 
     # ------------------------------------------------------------------ 数据
     def add(self, key: str, src: str, text: str) -> None:
@@ -181,20 +191,20 @@ class EditDialog(QDialog):
 
     def __init__(self, src: str, text: str, parent: QWidget | None = None) -> None:
         super().__init__(parent, Qt.WindowType.Dialog | Qt.WindowType.WindowStaysOnTopHint)
-        self.setWindowTitle("改译文")
+        self.setWindowTitle(tr("改译文"))
         self.resize(560, 300)
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel("原文："))
+        lay.addWidget(QLabel(tr("原文：")))
         s = QPlainTextEdit(src)
         s.setReadOnly(True)
         s.setMaximumHeight(90)
         lay.addWidget(s)
-        lay.addWidget(QLabel("译文（改完后，这段文字以后再出现也用这个译文）："))
+        lay.addWidget(QLabel(tr("译文（改完后，这段文字以后再出现也用这个译文）：")))
         self.edit = QPlainTextEdit(text)
         lay.addWidget(self.edit, 1)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
-        bb.button(QDialogButtonBox.StandardButton.Save).setText("保存")
-        bb.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        bb.button(QDialogButtonBox.StandardButton.Save).setText(tr("保存"))
+        bb.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("取消"))
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)

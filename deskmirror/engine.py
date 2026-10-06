@@ -28,6 +28,7 @@ from . import geom, pixels, textutil, winapi
 from .capture import open_capture
 from .config import AppConfig, ocr_lang_for
 from .geom import Rect
+from .i18n import tr
 from .layout import Line, font_em
 from .consistency import RefHistory
 from .memory import Memory, TemplateCache, number_template
@@ -203,6 +204,7 @@ class Engine(threading.Thread):
         self.episodes: dict[int, Episode] = {}
         self._win_class: dict[int, str] = {}
         self.error = ""
+        self._ko_fallback = ""        # 韩文识别模型没下载成功时的提示（重新就绪后清掉）
 
     # ------------------------------------------------------------------ 线程外调用
     def set_mirror(self, rect: Rect) -> None:
@@ -240,7 +242,7 @@ class Engine(threading.Thread):
             self._setup()
         except Exception as e:  # noqa: BLE001
             log.exception("引擎初始化失败")
-            self.error = f"初始化失败：{e}"
+            self.error = tr("初始化失败：{error}").format(error=e)
             self._publish(force=True)
             self._shutdown()
             return
@@ -254,7 +256,7 @@ class Engine(threading.Thread):
                     log.exception("引擎处理出错")
                     errors.append(time.perf_counter())
                     if len(errors) == errors.maxlen and errors[-1] - errors[0] < 10:
-                        self.error = f"内部错误，跟踪已停止：{type(e).__name__}（请重启魔镜）"
+                        self.error = tr("内部错误，跟踪已停止：{name}（请重启魔镜）").format(name=type(e).__name__)
                         self._publish(force=True)
                         break
                     got = False
@@ -1732,14 +1734,14 @@ class Engine(threading.Thread):
             self.ocr_state = "ready"
             log.info("识别进程就绪（%s，%s）", data.get("device"), data.get("lang", "default"))
             if data.get("wanted", "default") != data.get("lang", "default"):
-                self.error = "韩文识别模型没能下载，暂时用默认模型（检查网络后重新选一次韩文）"
-            elif self.error.startswith("韩文识别模型"):
-                self.error = ""
+                self.error = self._ko_fallback = tr("韩文识别模型没能下载，暂时用默认模型（检查网络后重新选一次韩文）")
+            elif self._ko_fallback and self.error == self._ko_fallback:
+                self.error = self._ko_fallback = ""
             self._dirty = True
             return
         if kind == "fatal":
             self.ocr_state = "error"
-            self.error = "文字识别启动失败"
+            self.error = tr("文字识别启动失败")
             log.error("识别进程失败：%s", data)
             self._dirty = True
             return
@@ -2145,7 +2147,7 @@ class Engine(threading.Thread):
             missing = [k for i, k in enumerate(inf.batch.keys) if i not in inf.received]
             if err is None:
                 svc.update(fails=0, state="ok", message="", last_ok=now, slow=secs > 8)
-                msg = "模型漏掉了这段"
+                msg = tr("模型漏掉了这段")
                 retry = now + 5.0
             else:
                 svc["fails"] += 1

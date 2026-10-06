@@ -15,6 +15,7 @@ Windows 上的屏幕翻译工具：在桌面上放一块可以拖动的“镜子
 - **翻译服务任选**：本机 [Ollama](https://ollama.com)（免费，文字不出本机），或 DeepSeek、通义千问、OpenAI 等 OpenAI 兼容接口。
 - **隐私可控**：不翻译名单（默认排除聊天软件、密码管理器、网银）、三档预译范围、当天用量统计；屏幕上的文字默认不存盘。
 - **语言随时切换**：魔镜标签上的语言按钮（如“英→中”）手动指定原文和译成的语言；支持中文、英文、日文、韩文、印尼文。
+- **中英文界面**：第一次启动先选母语，译文用这种语言，界面跟着换成中文或英文；以后在设置里随时改。
 - **术语**：术语表里的词必须照用；没写进术语表的词也尽量前后一致。字幕和游戏对话带上前几句作上下文，人称、语气更连贯。
 - **看图翻译**：按 Ctrl+Alt+V 或点标签上的“看图”，把镜框里的画面交给能看图的模型来读、来翻（默认本机 Ollama 的 gemma4:12b），适合漫画、艺术字、图片里的字。
 - 还有：历史面板、改译文、多个魔镜、魔镜跟随窗口、暂停、截图。
@@ -40,7 +41,7 @@ Windows 上的屏幕翻译工具：在桌面上放一块可以拖动的“镜子
 
 ## 使用
 
-第一次启动会弹出新手指南（以后在托盘菜单里随时能再打开），详见[新手指南](docs/QUICKSTART.md)和[使用说明](docs/GUIDE.md)。常用操作：
+第一次启动会弹出新手指南（第 1 步选母语；以后在托盘菜单里随时能再打开），详见[新手指南](docs/QUICKSTART.md)和[使用说明](docs/GUIDE.md)。常用操作：
 
 | 想做的事 | 怎么做 |
 |---|---|
@@ -96,10 +97,21 @@ the text translated in place — web pages, PDFs, apps, games and video subtitle
 It follows scrolling, window moves and subtitles, pre-translates the screen in the background, and works with a local
 [Ollama](https://ollama.com) model or any OpenAI-compatible API (DeepSeek, OpenAI, …).
 
-The user interface is currently in Chinese. The default target language is Simplified Chinese; the language button on
-the mirror switches source and target languages on the fly (Chinese, English, Japanese, Korean, Indonesian).
+The interface is available in English and Chinese. On first launch a short guide asks for your native language
+(English, Simplified or Traditional Chinese, Japanese, Korean, Indonesian): translations appear in that language and the
+interface switches to match. The language button on the mirror's tab (e.g. "Auto→EN") changes the source and target
+languages on the fly, and Settings → Recognition and display → Interface language switches the interface.
 
-Requirements: Windows 11, Python 3.12. Run `setup.bat` once, then `start.bat`.
+Requirements: Windows 11, Python 3.12, and a translation service: a local [Ollama](https://ollama.com) model
+(`ollama pull gemma4:12b`, about 7.6 GB, needs a graphics card with plenty of video memory) or an API key for an
+OpenAI-compatible service.
+
+1. Download the project (`git clone https://github.com/Yudreamsky/deskmirror.git`, or the ZIP from GitHub).
+2. Run `setup.bat` once: it creates `.venv` and installs the dependencies.
+3. Run `start.bat`. The getting-started guide walks you through the language, the translation service and the basics.
+
+Handy keys: hold Ctrl+Alt+O to see the original, Ctrl+Alt+H hides the mirror, Ctrl+Alt+Y opens the history of recent
+subtitles and dialogue, Ctrl+Alt+V sends the frame to a vision model (comics, stylized lettering, text in pictures).
 
 License: GPL-3.0. Contact: a885187@gmail.com
 

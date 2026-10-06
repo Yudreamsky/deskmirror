@@ -7,6 +7,8 @@ from ctypes import wintypes
 
 from PySide6.QtCore import QAbstractNativeEventFilter, QObject, QTimer, Signal
 
+from .i18n import tr
+
 log = logging.getLogger(__name__)
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -41,7 +43,7 @@ def _key_code(name: str, keypad: bool) -> int:
         return 0x6F + int(name[1:])  # VK_F1..F24
     if name in _NAMED_KEYS:
         return _NAMED_KEYS[name]
-    raise ValueError(f"不认识的按键：{name}")
+    raise ValueError(tr("不认识的按键：{name}").format(name=name))
 
 
 def parse_hotkey(text: str) -> tuple[int, int]:
@@ -49,19 +51,19 @@ def parse_hotkey(text: str) -> tuple[int, int]:
     mods, vk, keypad = 0, None, False
     for part in (p.strip().lower() for p in text.split("+")):
         if not part:
-            raise ValueError(f"快捷键格式不对：{text}")
+            raise ValueError(tr("快捷键格式不对：{text}").format(text=text))
         if part in _MODIFIERS:
             mods |= _MODIFIERS[part]
         elif part == "num":
             keypad = True
         elif vk is not None:
-            raise ValueError(f"快捷键只能有一个主键：{text}")
+            raise ValueError(tr("快捷键只能有一个主键：{text}").format(text=text))
         else:
             vk = _key_code(part, keypad)
     if vk is None:
-        raise ValueError(f"快捷键缺少主键：{text}")
+        raise ValueError(tr("快捷键缺少主键：{text}").format(text=text))
     if not mods and not 0x70 <= vk <= 0x87:  # 除了 F 键，单键会吞掉正常打字
-        raise ValueError(f"快捷键至少要带一个 Ctrl / Alt / Shift / Win：{text}")
+        raise ValueError(tr("快捷键至少要带一个 Ctrl / Alt / Shift / Win：{text}").format(text=text))
     return mods, vk
 
 
@@ -141,7 +143,7 @@ class HotkeyManager(QObject):
             if user32.RegisterHotKey(None, hid, mods | MOD_NOREPEAT, vk):
                 self._actions[hid] = action
             else:
-                errors.append(f"{combo} 注册失败，可能被其他程序占用了")
+                errors.append(tr("{combo} 注册失败，可能被其他程序占用了").format(combo=combo))
         for err in errors:
             log.warning(err)
         return errors
@@ -171,9 +173,9 @@ def parse_modifiers(text: str) -> list[tuple[int, ...]]:
         if part in _MOD_VKS:
             out.append(_MOD_VKS[part])
         elif part:
-            raise ValueError(f"拖动键只能由 Ctrl / Alt / Shift / Win 组成：{text}")
+            raise ValueError(tr("拖动键只能由 Ctrl / Alt / Shift / Win 组成：{text}").format(text=text))
     if not out:
-        raise ValueError("拖动键不能为空")
+        raise ValueError(tr("拖动键不能为空"))
     return out
 
 

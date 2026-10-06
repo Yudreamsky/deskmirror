@@ -18,6 +18,7 @@ import httpx
 import numpy as np
 
 from .config import LANGUAGES, VisionConfig
+from .i18n import tr
 from .translator import _SOURCE_DESC, _TARGET_DESC, ServiceError, _http_error, make_client
 
 
@@ -50,7 +51,7 @@ def encode_image(bgr: np.ndarray, max_side: int) -> tuple[str, int, int]:
         bgr = cv2.resize(bgr, (max(1, int(w * scale)), max(1, int(h * scale))), interpolation=cv2.INTER_AREA)
     ok, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 88])
     if not ok:
-        raise ValueError("图片编码失败")
+        raise ValueError(tr("图片编码失败"))
     return base64.b64encode(buf.tobytes()).decode("ascii"), bgr.shape[1], bgr.shape[0]
 
 
@@ -82,9 +83,9 @@ def stream_vision(cfg: VisionConfig, target: str, source: str, image_b64: str, o
                   cancel: threading.Event) -> float:
     """发一张图，译文一段段交给 on_text；返回用时（秒）。失败抛 ServiceError（说明是给用户看的）。"""
     if not cfg.base_url.strip():
-        raise ServiceError("还没有填写看图翻译的服务地址", retryable=False)
+        raise ServiceError(tr("还没有填写看图翻译的服务地址"), retryable=False)
     if not cfg.model.strip():
-        raise ServiceError("还没有填写看图翻译用的模型", retryable=False)
+        raise ServiceError(tr("还没有填写看图翻译用的模型"), retryable=False)
     url, payload, headers = build_request(cfg, vision_prompt(target, source), image_b64)
     t0 = time.perf_counter()
     try:
@@ -98,8 +99,8 @@ def stream_vision(cfg: VisionConfig, target: str, source: str, image_b64: str, o
                             payload.pop("think")       # 这个模型不支持思考开关：去掉参数重发一次
                             continue
                         if _no_vision(resp.text):
-                            raise ServiceError(f"模型 {cfg.model} 不能看图，请在设置里换一个能看图的模型",
-                                               retryable=False)
+                            raise ServiceError(tr("模型 {model} 不能看图，请在设置里换一个能看图的模型")
+                                               .format(model=cfg.model), retryable=False)
                         raise _http_error(resp)
                     for line in resp.iter_lines():
                         if cancel.is_set():
@@ -109,13 +110,13 @@ def stream_vision(cfg: VisionConfig, target: str, source: str, image_b64: str, o
                             on_text(piece)
                     break
     except httpx.TimeoutException:
-        raise ServiceError("看图翻译响应超时（多模态模型比较慢，可在设置里把超时调长）") from None
+        raise ServiceError(tr("看图翻译响应超时（多模态模型比较慢，可以稍后再试，或换一个快些的模型）")) from None
     except httpx.ConnectError:
-        raise ServiceError("连不上看图翻译的服务（服务没启动或地址不对）") from None
+        raise ServiceError(tr("连不上看图翻译的服务（服务没启动或地址不对）")) from None
     except (httpx.RemoteProtocolError, httpx.ReadError):
-        raise ServiceError("看图翻译的连接中途断开") from None
+        raise ServiceError(tr("看图翻译的连接中途断开")) from None
     except httpx.HTTPError as e:
-        raise ServiceError(f"网络错误：{type(e).__name__}") from None
+        raise ServiceError(tr("网络错误：{name}").format(name=type(e).__name__)) from None
     return time.perf_counter() - t0
 
 
@@ -128,8 +129,9 @@ def _piece(protocol: str, line: str, model: str) -> str:
         if data.get("error"):
             err = str(data["error"])
             if _no_vision(err):
-                raise ServiceError(f"模型 {model} 不能看图，请在设置里换一个能看图的模型", retryable=False)
-            raise ServiceError(f"服务报错：{err[:120]}")
+                raise ServiceError(tr("模型 {model} 不能看图，请在设置里换一个能看图的模型").format(model=model),
+                                   retryable=False)
+            raise ServiceError(tr("服务报错：{detail}").format(detail=err[:120]))
         return (data.get("message") or {}).get("content", "")
     if not line.startswith("data:"):
         return ""
@@ -141,6 +143,6 @@ def _piece(protocol: str, line: str, model: str) -> str:
     except ValueError:
         return ""
     if obj.get("error"):
-        raise ServiceError(f"服务报错：{str(obj['error'])[:120]}")
+        raise ServiceError(tr("服务报错：{detail}").format(detail=str(obj["error"])[:120]))
     choices = obj.get("choices") or []
     return ((choices[0].get("delta") or {}).get("content") or "") if choices else ""

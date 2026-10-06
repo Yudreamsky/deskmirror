@@ -6,6 +6,7 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")   # 不在桌面上弹窗
 import deskmirror  # noqa: E402,F401  预加载 DLL
+from deskmirror import i18n  # noqa: E402
 from deskmirror.config import AppConfig  # noqa: E402
 from deskmirror.ui import guide as G  # noqa: E402
 
@@ -35,6 +36,7 @@ class GuideDialogTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         G.GuideDialog._check_local = self._orig
+        i18n.set_ui_lang("zh")
 
     def test_pages_and_choices(self) -> None:
         cfg = AppConfig()
@@ -44,8 +46,12 @@ class GuideDialogTest(unittest.TestCase):
         g.apply_scope.connect(scopes.append)
         g.guide_done.connect(lambda: done.append(1))
         self.assertEqual(g.pages.count(), G.STEPS)
+        self.assertEqual(g.step_label.text(), "新手指南 · 第 1 步，共 6 步")
+        self.assertTrue(g.lang_buttons["zh-Hans"].isChecked(), "第 1 步选中现在的译文语言")
         self.assertTrue(g.use_local.isChecked(), "默认是本机 Ollama")
-        g._go(1)                                   # 第 2 步：改成云端 DeepSeek
+        g._go(1)
+        g._go(1)                                   # 第 3 步：改成云端 DeepSeek
+        self.assertEqual(g.pages.currentIndex(), G.P_SERVICE)
         g.use_cloud.setChecked(True)
         g.preset.setCurrentIndex(0)
         g.key.setText("test-key")
@@ -54,13 +60,14 @@ class GuideDialogTest(unittest.TestCase):
         self.assertEqual((llms[0].protocol, llms[0].api_key), ("openai", "test-key"))
         self.assertTrue(llms[0].base_url.startswith("https://"))
         self.assertGreaterEqual(llms[0].concurrency, 2)
-        g._go(1)                                   # 第 4 步：只翻魔镜所在的窗口
+        g._go(1)                                   # 第 5 步：只翻魔镜所在的窗口
         g.scope.setCurrentIndex(g.scope.findData("window"))
         g._go(1)
         self.assertEqual(scopes, ["window"])
         self.assertEqual(g.pages.currentIndex(), G.STEPS - 1)
         self.assertEqual(g.next.text(), "开始使用")
         self.assertIn("DeepSeek", g.summary.text())
+        self.assertIn("简体中文", g.summary.text())
         g._go(1)                                   # 开始使用 = 关掉
         self.app.processEvents()
         self.assertTrue(done)
@@ -74,9 +81,36 @@ class GuideDialogTest(unittest.TestCase):
         g.apply_llm.connect(llms.append)
         self.assertTrue(g.use_cloud.isChecked())
         self.assertEqual((g.model.text(), g.key.text()), ("deepseek-flash", "k"))
-        g._go(1)
-        g._go(1)
+        for _ in range(3):
+            g._go(1)
+        self.assertEqual(g.pages.currentIndex(), G.P_USAGE)
         self.assertEqual(llms, [], "没改就不动现在的设置")
+        g.close()
+
+    def test_pick_language(self) -> None:
+        from PySide6.QtWidgets import QLabel
+        g = G.GuideDialog(AppConfig())
+        picked = []
+        g.apply_language.connect(picked.append)
+        self.assertEqual(g.next.text(), "下一步")
+        g.lang_buttons["ja"].click()               # 日语：译文用日语，界面换成英文
+        self.assertEqual(picked, ["ja"])
+        self.assertEqual(i18n.ui_lang(), "en")
+        self.assertTrue(g.lang_buttons["ja"].isChecked())
+        self.assertEqual((g.next.text(), g.back.text(), g.skip.text()), ("Next", "Back", "Skip"))
+        self.assertEqual(g.windowTitle(), "DeskMirror · Getting started")
+        self.assertEqual(g.step_label.text(), "Getting started · step 1 of 6")
+        self.assertEqual(g.pages.count(), G.STEPS, "后面各页按英文重建，页数不变")
+        welcome = " ".join(lbl.text() for lbl in g.pages.widget(G.P_WELCOME).findChildren(QLabel))
+        self.assertIn("Welcome to DeskMirror", welcome)
+        g.lang_buttons["en"].click()               # 英文界面里换一种：不用重建
+        self.assertEqual(picked, ["ja", "en"])
+        g.lang_buttons["zh-Hant"].click()          # 繁体中文：界面换回中文
+        self.assertEqual(i18n.ui_lang(), "zh")
+        self.assertEqual(g.next.text(), "下一步")
+        for _ in range(G.STEPS - 1):
+            g._go(1)
+        self.assertIn("繁體中文", g.summary.text())
         g.close()
 
 
@@ -123,6 +157,60 @@ class AboutTest(unittest.TestCase):
             A.KOFI_URL = orig
         r.close()
         d.close()
+
+
+class EnglishUiTest(unittest.TestCase):
+    """英文界面：魔镜标签、打赏窗口、设置窗口、服务的出错说明。"""
+
+    def setUp(self) -> None:
+        self.app = _app()
+        i18n.set_ui_lang("en")
+
+    def tearDown(self) -> None:
+        i18n.set_ui_lang("zh")
+
+    def test_mirror_tab(self) -> None:
+        from deskmirror.ui.mirror import MirrorFrame
+        i18n.set_ui_lang("zh")
+        f = MirrorFrame((300, 300, 1100, 800), "#3d8bfd")
+        zh_w = f._buttons_width()
+        i18n.set_ui_lang("en")
+        f.retranslate()
+        self.assertEqual([f._label(n) for n in ("pause", "look", "shot_trans", "shot_orig")],
+                         ["Pause", "Image", "Shot", "Orig. shot"])
+        self.assertGreater(f._buttons_width(), zh_w, "英文按钮更宽，标签跟着加宽")
+        f.set_paused(True)
+        self.assertEqual(f._label("pause"), "Resume")
+        f.close()
+
+    def test_reward_kofi_first(self) -> None:
+        from deskmirror.ui import about as A
+        if not A.KOFI_URL:
+            self.skipTest("没填 Ko-fi 地址")
+        r = A.RewardDialog()
+        first = r.layout().itemAt(0).widget().text()
+        self.assertIn("Ko-fi", first, "英文界面 Ko-fi 放最前面")
+        self.assertIn("Buy me a coffee", first)
+        r.close()
+
+    def test_settings(self) -> None:
+        from deskmirror.ui.settings import SettingsDialog
+        cfg = AppConfig()
+        cfg.ui_lang = "en"
+        d = SettingsDialog(cfg)
+        self.assertEqual([d.tabs.tabText(i) for i in range(d.tabs.count())],
+                         ["Translation service", "Scope and privacy", "Glossary", "Recognition and display", "Hotkeys",
+                          "About"])
+        self.assertEqual(d.source.itemText(0), "Auto-detect")
+        self.assertEqual(d.ui_lang.currentData(), "en")
+        d.ui_lang.setCurrentIndex(d.ui_lang.findData("zh"))
+        self.assertEqual(d.collect().ui_lang, "zh")
+        d.close()
+
+    def test_service_messages(self) -> None:
+        from deskmirror.config import LlmConfig
+        from deskmirror.translator import list_models
+        self.assertEqual(list_models(LlmConfig(base_url=""))[1], "Enter the service address first")
 
 
 if __name__ == "__main__":

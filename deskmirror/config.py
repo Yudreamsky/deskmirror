@@ -13,9 +13,11 @@ from pathlib import Path
 from typing import Any
 
 from . import ROOT, winapi
+from .i18n import N_
 
 log = logging.getLogger(__name__)
 
+# 译文语言（也是新手指南第 1 步的“母语”）：各用自己的文字写，任何界面语言下都这样显示
 LANGUAGES: dict[str, str] = {
     "zh-Hans": "简体中文",
     "zh-Hant": "繁體中文",
@@ -27,16 +29,17 @@ LANGUAGES: dict[str, str] = {
 
 # 原文语言：自动识别，或手动指定（告诉模型原文是什么语言；韩文还要换识别模型）
 SOURCE_LANGS: dict[str, str] = {
-    "auto": "自动识别",
-    "en": "英文",
-    "id": "印尼文",
-    "ja": "日文",
-    "ko": "韩文（换用韩文识别模型）",
-    "zh": "中文",
+    "auto": N_("自动识别"),
+    "en": N_("英文"),
+    "id": N_("印尼文"),
+    "ja": N_("日文"),
+    "ko": N_("韩文（换用韩文识别模型）"),
+    "zh": N_("中文"),
 }
-# 魔镜标签上的简称：“英→中”
-SOURCE_SHORT = {"auto": "自动", "en": "英", "id": "印尼", "ja": "日", "ko": "韩", "zh": "中"}
-TARGET_SHORT = {"zh-Hans": "中", "zh-Hant": "繁", "en": "英", "ja": "日", "ko": "韩", "id": "印尼"}
+# 魔镜标签上的简称：“英→中”（显示时 tr）
+SOURCE_SHORT = {"auto": N_("自动"), "en": N_("英"), "id": N_("印尼"), "ja": N_("日"), "ko": N_("韩"), "zh": N_("中")}
+TARGET_SHORT = {"zh-Hans": N_("中"), "zh-Hant": N_("繁"), "en": N_("英"), "ja": N_("日"), "ko": N_("韩"),
+                "id": N_("印尼")}
 
 
 def ocr_lang_for(source: str) -> str:
@@ -44,14 +47,14 @@ def ocr_lang_for(source: str) -> str:
     （RapidOCR 第一次用时从 ModelScope 下载并校验，约 14 MB）。"""
     return "korean" if source == "ko" else "default"
 
-# OpenAI 兼容接口的常见地址，只用于设置页一键填入；用户可以改成任意服务。
+# OpenAI 兼容接口的常见地址，只用于设置页一键填入；用户可以改成任意服务。名称显示时 tr。
 OPENAI_PRESETS: dict[str, tuple[str, str]] = {
     "DeepSeek": ("https://api.deepseek.com", "deepseek-chat"),
-    "通义千问（阿里云百炼）": ("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
-    "硅基流动": ("https://api.siliconflow.cn/v1", ""),
+    N_("通义千问（阿里云百炼）"): ("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
+    N_("硅基流动"): ("https://api.siliconflow.cn/v1", ""),
     "OpenAI": ("https://api.openai.com/v1", ""),
-    "Ollama（OpenAI 兼容）": ("http://127.0.0.1:11434/v1", "gemma4:12b"),
-    "LM Studio（本地）": ("http://127.0.0.1:1234/v1", ""),
+    N_("Ollama（OpenAI 兼容）"): ("http://127.0.0.1:11434/v1", "gemma4:12b"),
+    N_("LM Studio（本地）"): ("http://127.0.0.1:1234/v1", ""),
 }
 
 
@@ -123,10 +126,10 @@ DEFAULT_EXCLUDE_TITLES = [
     "网上银行", "网银", "手机银行", "Online Banking", "支付宝", "Alipay", "PayPal", "微信支付",
     "WhatsApp", "LastPass", "Bitwarden", "1Password", "KeePass",
 ]
-SCOPE_MODES: dict[str, str] = {
-    "screen": "整块屏幕（拖到哪里译文都已备好）",
-    "window": "只翻魔镜所在的窗口",
-    "near": "只翻镜框附近",
+SCOPE_MODES: dict[str, str] = {        # 显示时 tr
+    "screen": N_("整块屏幕（拖到哪里译文都已备好）"),
+    "window": N_("只翻魔镜所在的窗口"),
+    "near": N_("只翻镜框附近"),
 }
 
 
@@ -174,6 +177,7 @@ class UsageConfig:
 class AppConfig:
     source_lang: str = "auto"
     target_lang: str = "zh-Hans"
+    ui_lang: str = ""                 # 界面语言 zh / en；空 = 还没定（第一次启动按 Windows 的语言猜）
     mirror_rect: list[int] = field(default_factory=list)  # [left, top, right, bottom]，物理像素
     extra_mirrors: list[list[int]] = field(default_factory=list)   # 另外开的魔镜（最多 3 个）
     first_run_tip: bool = True
@@ -256,6 +260,8 @@ def validate(cfg: AppConfig) -> AppConfig:
     cfg.vision.max_side = max(512, min(3000, int(cfg.vision.max_side)))
     if cfg.target_lang not in LANGUAGES:
         cfg.target_lang = "zh-Hans"
+    if cfg.ui_lang not in ("", "zh", "en"):
+        cfg.ui_lang = ""
     cfg.llm.concurrency = max(1, min(8, cfg.llm.concurrency))
     cfg.llm.timeout_s = max(5.0, min(300.0, cfg.llm.timeout_s))
     cfg.llm.max_batch_chars = max(200, min(6000, cfg.llm.max_batch_chars))

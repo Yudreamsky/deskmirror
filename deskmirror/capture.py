@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .i18n import tr
+
 log = logging.getLogger(__name__)
 
 HRESULT = ctypes.c_long
@@ -104,7 +106,7 @@ class D3D11_BOX(ctypes.Structure):
 
 class ComError(OSError):
     def __init__(self, what: str, hr: int) -> None:
-        super().__init__(f"{what} 失败 0x{hr & 0xFFFFFFFF:08X}")
+        super().__init__(tr("{what} 失败 0x{hr:08X}").format(what=what, hr=hr & 0xFFFFFFFF))
         self.hr = hr & 0xFFFFFFFF
 
 
@@ -221,7 +223,7 @@ class DuplicationCapture:
                 output_index += 1
             adapter.release()
             adapter_index += 1
-        raise RuntimeError(f"找不到显示器 {self.device_name} 对应的 DXGI 输出")
+        raise RuntimeError(tr("找不到显示器 {name} 对应的 DXGI 输出").format(name=self.device_name))
 
     def _create_device(self) -> None:
         dptr, cptr, level = ctypes.c_void_p(), ctypes.c_void_p(), ctypes.c_uint()
@@ -241,7 +243,7 @@ class DuplicationCapture:
         desc = DXGI_OUTDUPL_DESC()
         self._dupl.fn(7, None, ctypes.POINTER(DXGI_OUTDUPL_DESC))(self._dupl.ptr, ctypes.byref(desc))
         if desc.Rotation not in (0, 1):
-            raise RuntimeError("暂不支持旋转的显示器")
+            raise RuntimeError(tr("暂不支持旋转的显示器"))
         w, h = desc.ModeDesc.Width, desc.ModeDesc.Height
         self.size = (w, h)
         if self._staging is None or self._buffer is None or self._buffer.shape[:2] != (h, w):

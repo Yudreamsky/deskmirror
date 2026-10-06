@@ -9,6 +9,7 @@ from PySide6.QtGui import QGuiApplication, QImage, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
 
 from .. import winapi
+from ..i18n import tr
 
 
 class VisionPanel(QWidget):
@@ -17,7 +18,6 @@ class VisionPanel(QWidget):
 
     def __init__(self) -> None:
         super().__init__(None, Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
-        self.setWindowTitle("桌面魔镜 · 看图翻译")
         self.resize(560, 640)
         lay = QVBoxLayout(self)
         self.status = QLabel()
@@ -31,22 +31,30 @@ class VisionPanel(QWidget):
         self.text.setReadOnly(True)
         lay.addWidget(self.text, 1)
         row = QHBoxLayout()
-        copy_btn = QPushButton("复制译文")
-        copy_btn.clicked.connect(lambda: QGuiApplication.clipboard().setText(self.text.toPlainText()))
-        row.addWidget(copy_btn)
-        self.retry = QPushButton("重新看一次")
+        self.copy_btn = QPushButton()
+        self.copy_btn.clicked.connect(lambda: QGuiApplication.clipboard().setText(self.text.toPlainText()))
+        row.addWidget(self.copy_btn)
+        self.retry = QPushButton()
         self.retry.clicked.connect(self.retry_requested.emit)
         row.addWidget(self.retry)
         row.addStretch(1)
         lay.addLayout(row)
-        note = QLabel("把魔镜框里的画面交给能看图的模型来读、来翻：适合漫画、艺术字、图片里的字。"
-                      "比实时翻译慢，结果只在这个窗口里，不存盘。")
-        note.setWordWrap(True)
-        note.setStyleSheet("color: #888;")
-        lay.addWidget(note)
+        self.note = QLabel()
+        self.note.setWordWrap(True)
+        self.note.setStyleSheet("color: #888;")
+        lay.addWidget(self.note)
         self.running = False
+        self.retranslate()
         self.winId()
         winapi.exclude_from_capture(int(self.winId()))
+
+    def retranslate(self) -> None:
+        """界面上的字（换界面语言时再调一次）。"""
+        self.setWindowTitle(tr("桌面魔镜 · 看图翻译"))
+        self.copy_btn.setText(tr("复制译文"))
+        self.retry.setText(tr("重新看一次"))
+        self.note.setText(tr("把魔镜框里的画面交给能看图的模型来读、来翻：适合漫画、艺术字、图片里的字。"
+                             "比实时翻译慢，结果只在这个窗口里，不存盘。"))
 
     def start(self, image: QImage, who: str) -> None:
         """开始一次：显示缩略图，清空上次的结果。who 是给用户看的“发给了谁”。"""
@@ -55,7 +63,7 @@ class VisionPanel(QWidget):
         self.text.clear()
         self.thumb.setPixmap(QPixmap.fromImage(image).scaled(
             520, 200, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        self.status.setText(f"正在看图…（{who}，通常几秒到十几秒）")
+        self.status.setText(tr("正在看图…（{who}，通常几秒到十几秒）").format(who=who))
         self.show()
         self.raise_()
 
@@ -69,9 +77,9 @@ class VisionPanel(QWidget):
         self.running = False
         self.retry.setEnabled(True)
         if error:
-            self.status.setText(f"没看成：{error}")
+            self.status.setText(tr("没看成：{error}").format(error=error))
         else:
-            self.status.setText(f"完成，用时 {secs:.1f} 秒。")
+            self.status.setText(tr("完成，用时 {secs:.1f} 秒。").format(secs=secs))
 
     def closeEvent(self, ev) -> None:  # noqa: N802
         if self.running:

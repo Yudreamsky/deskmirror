@@ -20,6 +20,7 @@ from typing import Callable
 import httpx
 
 from .config import LANGUAGES, LlmConfig
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -157,12 +158,13 @@ def _http_error(resp: httpx.Response) -> ServiceError:
         detail = ""
     detail = str(detail)[:120]
     if code in (401, 403):
-        return ServiceError(f"密钥无效或没有权限（HTTP {code}）", retryable=False)
+        return ServiceError(tr("密钥无效或没有权限（HTTP {code}）").format(code=code), retryable=False)
     if code == 404:
-        return ServiceError(f"地址或模型不存在（HTTP 404）{detail}", retryable=False)
+        return ServiceError(tr("地址或模型不存在（HTTP 404）{detail}").format(detail=detail), retryable=False)
     if code == 429:
-        return ServiceError("请求太频繁或额度用完（HTTP 429）")
-    return ServiceError(f"服务返回错误 HTTP {code} {detail}", retryable=code >= 500)
+        return ServiceError(tr("请求太频繁或额度用完（HTTP 429）"))
+    return ServiceError(tr("服务返回错误 HTTP {code} {detail}").format(code=code, detail=detail),
+                        retryable=code >= 500)
 
 
 def _clean(text: str) -> str:
@@ -185,9 +187,9 @@ def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: 
     parser = SegmentParser(len(texts), on_segment)
     base = cfg.base_url.strip().rstrip("/")
     if not base:
-        raise ServiceError("还没有填写翻译服务地址", retryable=False)
+        raise ServiceError(tr("还没有填写翻译服务地址"), retryable=False)
     if not cfg.model.strip():
-        raise ServiceError("还没有填写模型名", retryable=False)
+        raise ServiceError(tr("还没有填写模型名"), retryable=False)
     try:
         if cfg.protocol == "ollama":
             payload = {"model": cfg.model, "messages": messages, "stream": True, "keep_alive": cfg.keep_alive,
@@ -210,7 +212,7 @@ def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: 
                             continue
                         data = json.loads(line)
                         if data.get("error"):
-                            raise ServiceError(f"服务报错：{str(data['error'])[:120]}")
+                            raise ServiceError(tr("服务报错：{detail}").format(detail=str(data["error"])[:120]))
                         piece = (data.get("message") or {}).get("content", "")
                         if piece:
                             parser.feed_raw(piece)
@@ -239,20 +241,20 @@ def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: 
                     except ValueError:
                         continue
                     if obj.get("error"):
-                        raise ServiceError(f"服务报错：{str(obj['error'])[:120]}")
+                        raise ServiceError(tr("服务报错：{detail}").format(detail=str(obj["error"])[:120]))
                     choices = obj.get("choices") or []
                     if choices:
                         piece = (choices[0].get("delta") or {}).get("content") or ""
                         if piece:
                             parser.feed_raw(piece)
     except httpx.TimeoutException:
-        raise ServiceError("翻译服务响应超时") from None
+        raise ServiceError(tr("翻译服务响应超时")) from None
     except httpx.ConnectError:
-        raise ServiceError("连不上翻译服务（服务没启动或地址不对）") from None
+        raise ServiceError(tr("连不上翻译服务（服务没启动或地址不对）")) from None
     except (httpx.RemoteProtocolError, httpx.ReadError):
-        raise ServiceError("翻译服务连接中途断开（服务重启或网络不稳）") from None
+        raise ServiceError(tr("翻译服务连接中途断开（服务重启或网络不稳）")) from None
     except httpx.HTTPError as e:
-        raise ServiceError(f"网络错误：{type(e).__name__}") from None
+        raise ServiceError(tr("网络错误：{name}").format(name=type(e).__name__)) from None
     parser.close()
 
 
@@ -275,15 +277,15 @@ def test_connection(cfg: LlmConfig, target: str) -> tuple[bool, str]:
         return False, str(e)
     dt = time.perf_counter() - t0
     if len(got) < 2:
-        return False, f"服务有回应，但没有按编号返回译文（用时 {dt:.1f} 秒）；可换一个模型试试"
-    return True, f"连接成功，用时 {dt:.1f} 秒：{got.get(0, '')} / {got.get(1, '')}"
+        return False, tr("服务有回应，但没有按编号返回译文（用时 {secs:.1f} 秒）；可换一个模型试试").format(secs=dt)
+    return True, tr("连接成功，用时 {secs:.1f} 秒：{a} / {b}").format(secs=dt, a=got.get(0, ""), b=got.get(1, ""))
 
 
 def list_models(cfg: LlmConfig) -> tuple[list[str], str]:
     """设置页的“获取模型列表”：返回 (模型名, 没取到时给用户看的原因)。"""
     base = cfg.base_url.strip().rstrip("/")
     if not base:
-        return [], "先填服务地址"
+        return [], tr("先填服务地址")
     try:
         with make_client(cfg, timeout_s=8.0) as c:
             if cfg.protocol == "ollama":
@@ -292,24 +294,25 @@ def list_models(cfg: LlmConfig) -> tuple[list[str], str]:
                 headers = {"Authorization": f"Bearer {cfg.api_key}"} if cfg.api_key else {}
                 r = c.get(f"{base}/models", headers=headers)
             if r.status_code in (401, 403):
-                return [], ("还没填 API Key" if not cfg.api_key else f"密钥不对或没有权限（HTTP {r.status_code}）")
+                return [], (tr("还没填 API Key") if not cfg.api_key
+                            else tr("密钥不对或没有权限（HTTP {code}）").format(code=r.status_code))
             if r.status_code == 404:
-                return [], "这个地址没有模型列表接口（HTTP 404），检查服务地址和接入方式"
+                return [], tr("这个地址没有模型列表接口（HTTP 404），检查服务地址和接入方式")
             r.raise_for_status()
             data = r.json()
             if cfg.protocol == "ollama":
                 names = [str(m["name"]) for m in data.get("models", [])]
             else:
                 names = [str(m["id"]) for m in data.get("data", [])]
-            return sorted(names), ("" if names else "服务返回的模型列表是空的")
+            return sorted(names), ("" if names else tr("服务返回的模型列表是空的"))
     except httpx.ConnectError:
-        return [], "连不上服务，检查服务地址和网络"
+        return [], tr("连不上服务，检查服务地址和网络")
     except httpx.TimeoutException:
-        return [], "服务响应超时"
+        return [], tr("服务响应超时")
     except httpx.HTTPStatusError as e:
-        return [], f"服务返回错误（HTTP {e.response.status_code}）"
+        return [], tr("服务返回错误（HTTP {code}）").format(code=e.response.status_code)
     except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError):
-        return [], "服务返回的内容不是模型列表"
+        return [], tr("服务返回的内容不是模型列表")
 
 
 # --------------------------------------------------------------------- 工作线程
@@ -367,7 +370,8 @@ class TranslatorPool:
                     self._on_event(("batch_done", batch.batch_id, e, time.perf_counter() - t0))
                 except Exception as e:  # noqa: BLE001 - 不能让工作线程死掉
                     log.exception("翻译线程异常")
-                    self._on_event(("batch_done", batch.batch_id, ServiceError(f"内部错误：{type(e).__name__}"),
+                    self._on_event(("batch_done", batch.batch_id,
+                                    ServiceError(tr("内部错误：{name}").format(name=type(e).__name__)),
                                     time.perf_counter() - t0))
         finally:
             client.close()
