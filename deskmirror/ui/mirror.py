@@ -44,6 +44,7 @@ class MirrorFrame(QWidget):
     hide_clicked = Signal()
     shot_clicked = Signal(str)           # "orig" 截原图 / "trans" 截译图
     pause_clicked = Signal()             # 暂停 / 继续
+    lang_clicked = Signal(QPoint)        # 语言按钮：弹出原文 / 译成的语言菜单（屏幕坐标）
     menu_requested = Signal(QPoint)      # 右键标签：跟随窗口、新建 / 关闭魔镜
 
     def __init__(self, rect: Rect, color: str) -> None:
@@ -66,6 +67,7 @@ class MirrorFrame(QWidget):
         self.bound = None                    # 由程序管理：(窗口句柄, 相对位置, 上次窗口矩形)
         self.suspended = False               # 跟随的窗口最小化了：魔镜暂时收起
         self.paused = False                  # 用户点了“暂停”：按钮显示“继续”
+        self.lang_label = "自动→中"           # 语言按钮上的字（由程序按设置更新）
         self.winId()
         winapi.exclude_from_capture(int(self.winId()))
         winapi.set_exstyle(int(self.winId()), add=winapi.WS_EX_NOACTIVATE | winapi.WS_EX_TOOLWINDOW)
@@ -105,8 +107,8 @@ class MirrorFrame(QWidget):
         fm = QFontMetrics(_btn_font())
         x = tab.right() - 2
         self._buttons = {}
-        for name in ("hide", "settings", "refresh", "shot_trans", "shot_orig", "pause"):
-            w = size if name in _ICONS else fm.horizontalAdvance(_LABELS[name]) + 14
+        for name in ("hide", "settings", "refresh", "shot_trans", "shot_orig", "lang", "pause"):
+            w = size if name in _ICONS else fm.horizontalAdvance(self._label(name)) + 14
             x -= w
             self._buttons[name] = QRect(x, tab.top() + 2, w, size)
             x -= 2 if name in _ICONS else 4
@@ -115,6 +117,17 @@ class MirrorFrame(QWidget):
         if rect != self.mirror:
             self.mirror = rect
             self._layout()
+
+    def _label(self, name: str) -> str:
+        if name == "lang":
+            return self.lang_label
+        return "继续" if name == "pause" and self.paused else _LABELS[name]
+
+    def set_lang_label(self, text: str) -> None:
+        if text != self.lang_label:
+            self.lang_label = text
+            self._place_buttons()
+            self.update(self._local(self._tab))
 
     def set_paused(self, on: bool) -> None:
         if on != self.paused:
@@ -218,7 +231,7 @@ class MirrorFrame(QWidget):
                 p.drawRoundedRect(r, 4, 4)
                 p.setPen(QColor(30, 30, 34) if lit else QColor(235, 238, 245))
                 p.setFont(_btn_font())
-                p.drawText(r, Qt.AlignmentFlag.AlignCenter, "继续" if lit else _LABELS[name])
+                p.drawText(r, Qt.AlignmentFlag.AlignCenter, self._label(name))
 
     # ------------------------------------------------------------------ 鼠标
     def _zone(self, pos: QPoint) -> str:
@@ -314,6 +327,9 @@ class MirrorFrame(QWidget):
                 self.shot_clicked.emit("trans")
             elif zone == "btn:pause":
                 self.pause_clicked.emit()
+            elif zone == "btn:lang":
+                r = self._buttons["lang"]
+                self.lang_clicked.emit(self.mapToGlobal(QPoint(r.left(), r.bottom() + 2)))
             return
         self._finish_drag()
 

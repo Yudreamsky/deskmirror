@@ -50,12 +50,12 @@ class OcrBlockOut:
 
 # --------------------------------------------------------------------- 子进程端
 
-def _make_engine(device: str, threads: int):
+def _make_engine(device: str, threads: int, lang: str = "default"):
     import deskmirror
     if device == "gpu":
         deskmirror.use_directml_runtime()
     import onnxruntime as ort
-    from rapidocr import RapidOCR
+    from rapidocr import LangRec, ModelType, OCRVersion, RapidOCR
 
     params = {
         "Global.use_cls": False,
@@ -64,6 +64,10 @@ def _make_engine(device: str, threads: int):
         "EngineConfig.onnxruntime.inter_op_num_threads": 1,
         "Rec.rec_batch_num": 16 if device == "gpu" else 6,
     }
+    if lang == "korean":
+        # 检测模型通用；只换识别模型。没有时 RapidOCR 从 ModelScope 下载并按 SHA256 校验
+        params.update({"Rec.lang_type": LangRec.KOREAN, "Rec.ocr_version": OCRVersion.PPOCRV5,
+                       "Rec.model_type": ModelType.MOBILE})
     engine = RapidOCR(params=params)
     actual = "cpu"
     if device == "gpu" and "DmlExecutionProvider" in ort.get_available_providers():
@@ -198,10 +202,19 @@ def _process(engine, job: OcrJob, out_q) -> None:
                                      "blocks": n_blocks, "size": img.shape[:2]}))
 
 
-def worker_main(in_q, out_q, device: str, threads: int) -> None:
+def worker_main(in_q, out_q, device: str, threads: int, lang: str = "default") -> None:
     try:
-        engine, actual = _make_engine(device, threads)
-        out_q.put(("ready", 0, {"device": actual}))
+        try:
+            engine, actual = _make_engine(device, threads, lang)
+            used = lang
+        except Exception:  # noqa: BLE001
+            if lang == "default":
+                raise
+            # 换语言失败（比如第一次用时下载不了模型）：先用默认模型，状态里说明
+            out_q.put(("error", 0, traceback.format_exc(limit=3)))
+            engine, actual = _make_engine(device, threads)
+            used = "default"
+        out_q.put(("ready", 0, {"device": actual, "lang": used, "wanted": lang}))
     except Exception:  # noqa: BLE001
         out_q.put(("fatal", 0, traceback.format_exc(limit=3)))
         return
@@ -221,11 +234,11 @@ def worker_main(in_q, out_q, device: str, threads: int) -> None:
 class OcrClient:
     """管理识别子进程；结果用回调交给调用方（在内部读取线程里调用）。"""
 
-    def __init__(self, device: str, threads: int, on_message) -> None:
+    def __init__(self, device: str, threads: int, on_message, lang: str = "default") -> None:
         ctx = mp.get_context("spawn")
         self._in = ctx.Queue()
         self._out = ctx.Queue()
-        self._proc = ctx.Process(target=worker_main, args=(self._in, self._out, device, threads), daemon=True,
+        self._proc = ctx.Process(target=worker_main, args=(self._in, self._out, device, threads, lang), daemon=True,
                                  name="deskmirror-ocr")
         self._on_message = on_message
         self._stop = threading.Event()

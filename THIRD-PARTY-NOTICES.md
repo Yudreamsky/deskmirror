@@ -1,9 +1,10 @@
 # 第三方组件 / Third-party components
 
-本仓库不包含下列组件：运行 `setup.bat` 时由 pip 从 PyPI 安装；文字识别模型由 RapidOCR 在第一次运行时下载。
+本仓库不包含下列组件：运行 `setup.bat` 时由 pip 从 PyPI 安装。文字识别模型随 RapidOCR 的安装包一起安装；
+韩文识别模型在第一次选“原文：韩文”时由 RapidOCR 从 ModelScope 下载。
 
-These components are not included in this repository. They are installed from PyPI by `setup.bat`;
-the OCR models are downloaded by RapidOCR on first run.
+These components are not included in this repository. They are installed from PyPI by `setup.bat`. The OCR models
+come with the RapidOCR package; the Korean model is downloaded by RapidOCR from ModelScope when Korean is first selected.
 
 | 组件 Component | 用途 Used for | 许可证 License | 主页 Homepage |
 |---|---|---|---|

@@ -26,7 +26,7 @@ import numpy as np
 
 from . import geom, pixels, textutil, winapi
 from .capture import open_capture
-from .config import AppConfig
+from .config import AppConfig, ocr_lang_for
 from .geom import Rect
 from .layout import Line, font_em
 from .consistency import RefHistory
@@ -154,6 +154,7 @@ class Engine(threading.Thread):
         self.templates = TemplateCache()      # 只有数字不同的文字套用已有译文（只在内存里）
         self.overrides: dict[str, str] = {}   # 用户改过的译文（缓存键 → 译文），优先于一切
         self.refs = RefHistory()              # 译过的段落：给后面的请求作参考，术语前后一致（只在内存里）
+        self._langs = (cfg.source_lang, cfg.target_lang)   # 引擎当前按哪对语言工作（用户改了就对比着处理）
         self.memory: Memory | None = None     # 本地记忆（用户打开才有）
         self._mem_saving = False
         self._mem_thread: threading.Thread | None = None
@@ -392,7 +393,12 @@ class Engine(threading.Thread):
         infos = self._all_infos if self.cfg.track.all_monitors else [self._mirror_monitor()]
         for i, info in enumerate(infos):
             self.mons.append(self._make_mon(i, info))
-        self.ocr = OcrClient(self.cfg.ocr.device, self.cfg.ocr.threads, lambda msg: self.inbox.put(("ocr", msg)))
+        self._start_ocr()
+
+    def _start_ocr(self) -> None:
+        self.ocr_state = "starting"
+        self.ocr = OcrClient(self.cfg.ocr.device, self.cfg.ocr.threads, lambda msg: self.inbox.put(("ocr", msg)),
+                             ocr_lang_for(self.cfg.source_lang))
         self.pool = TranslatorPool(self.cfg.llm, lambda ev: self.inbox.put(("tr", ev)))
         self.wheel_models = load_models(self._wheel_path())
         self._sync_memory()
@@ -481,6 +487,8 @@ class Engine(threading.Thread):
                     self._on_wheel(*msg[1])
             elif kind == "work":
                 self._set_working(bool(msg[1]))
+            elif kind == "langs":
+                self._apply_languages()
             elif kind == "override":
                 self._override(msg[1], msg[2])
             elif kind == "glossary":
@@ -1720,7 +1728,11 @@ class Engine(threading.Thread):
         kind, job_id, data = msg
         if kind == "ready":
             self.ocr_state = "ready"
-            log.info("识别进程就绪（%s）", data.get("device"))
+            log.info("识别进程就绪（%s，%s）", data.get("device"), data.get("lang", "default"))
+            if data.get("wanted", "default") != data.get("lang", "default"):
+                self.error = "韩文识别模型没能下载，暂时用默认模型（检查网络后重新选一次韩文）"
+            elif self.error.startswith("韩文识别模型"):
+                self.error = ""
             self._dirty = True
             return
         if kind == "fatal":
@@ -2064,7 +2076,7 @@ class Engine(threading.Thread):
         app = self._app_of(hwnd)
         refs = self.refs.select(texts, keys, hwnd, app) if self.cfg.llm.consistency else []
         batch = Batch(self._batch_ids, texts, keys, self.cfg.target_lang, context,
-                      self._glossary_terms(hwnd, texts), refs, hwnd, app)
+                      self._glossary_terms(hwnd, texts), refs, hwnd, app, self.cfg.source_lang)
         self.inflight[batch.batch_id] = Inflight(batch)
         svc["requests"] += 1
         svc["chars"] = svc.get("chars", 0) + chars
@@ -2290,6 +2302,52 @@ class Engine(threading.Thread):
                 b.state = "pending"
                 b.attempts = 0
         self._dirty = True
+
+    def set_languages(self) -> None:
+        """用户改了原文语言或译成的语言（配置已经改好）：立即生效。"""
+        self.inbox.put(("langs",))
+
+    def _apply_languages(self) -> None:
+        """译成的语言变了：已有译文全部作废、重新翻译。原文换成或换出韩文：换识别模型，屏幕上的字全部重新识别。"""
+        src, dst = self.cfg.source_lang, self.cfg.target_lang
+        old_src, old_dst = self._langs
+        self._langs = (src, dst)
+        log.info("语言：%s → %s", src, dst)
+        self._metric("langs", source=src, target=dst)
+        if dst != old_dst:
+            self._reset_translations()
+        if ocr_lang_for(src) != ocr_lang_for(old_src):
+            self._restart_ocr()
+        self._dirty = True
+
+    def _reset_translations(self) -> None:
+        """换了译成的语言：旧语言的译文（缓存、模板、参考、改过的译文）都不能再用；在途的结果回来也不要。"""
+        self.cache.clear()
+        self.templates.clear()
+        self.refs = RefHistory()
+        self.overrides.clear()
+        self.retry_single.clear()
+        self.inflight.clear()
+        dst = self.cfg.target_lang
+        for b in self.blocks.values():
+            need = textutil.needs_translation(b.text, dst) and not textutil.looks_like_code(b.text)
+            b.state = "pending" if need else "skip"
+            b.translation = ""
+            b.attempts = 0
+            b.version += 1
+
+    def _restart_ocr(self) -> None:
+        """换识别模型：旧模型认出来的块都作废（比如韩文被默认模型认成乱码），整块屏幕重新识别；译文缓存保留。"""
+        if self.ocr is not None:
+            self.ocr.close()
+        self.jobs.clear()
+        self.ocr_busy = None
+        for b in list(self.blocks.values()):
+            self._delete_block(b, "ocr_lang")
+        past = time.perf_counter() - 10.0
+        for m in self.mons:
+            self._mark_needs(m, m.rect, when=past)
+        self._start_ocr()
 
     def _set_working(self, on: bool) -> None:
         if on == self.working:

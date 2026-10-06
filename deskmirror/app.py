@@ -206,6 +206,8 @@ def main() -> int:
             f.menu_requested.connect(lambda pos, f=f: self._frame_menu(f, pos))
             f.pause_clicked.connect(self.toggle_pause)
             f.set_paused(self.state.paused)
+            f.lang_clicked.connect(self._lang_menu)
+            f.set_lang_label(self._lang_label())
             f.shown_rect = rect                                  # 上次画过译文的范围（移动后要擦掉）
             self.frames.append(f)
             return f
@@ -366,6 +368,33 @@ def main() -> int:
             self._count_usage(snap.status)
             if not self.state.paused:
                 self._feed_history(snap)
+
+        def _lang_label(self) -> str:
+            return f"{config.SOURCE_SHORT[self.cfg.source_lang]}→{config.TARGET_SHORT[self.cfg.target_lang]}"
+
+        def _lang_menu(self, pos) -> None:
+            """标签上的语言按钮：手动指定原文语言和译成的语言，立即生效。"""
+            menu = QMenu()
+            menu.addSection("原文")
+            for code, name in config.SOURCE_LANGS.items():
+                act = menu.addAction(name, lambda c=code: self.set_languages(c, self.cfg.target_lang))
+                act.setCheckable(True)
+                act.setChecked(code == self.cfg.source_lang)
+            menu.addSection("译成")
+            for code, name in config.LANGUAGES.items():
+                act = menu.addAction(name, lambda c=code: self.set_languages(self.cfg.source_lang, c))
+                act.setCheckable(True)
+                act.setChecked(code == self.cfg.target_lang)
+            menu.exec(pos)
+
+        def set_languages(self, source: str, target: str) -> None:
+            if (source, target) == (self.cfg.source_lang, self.cfg.target_lang):
+                return
+            self.cfg.source_lang, self.cfg.target_lang = source, target
+            self.engine.set_languages()
+            for f in self.frames:
+                f.set_lang_label(self._lang_label())
+            self._save_timer.start()
 
         def toggle_pause(self) -> None:
             """暂停：魔镜框还在，不截屏、不识别、不翻译（不花翻译费用），也不画译文；继续时重新核对画面。"""
@@ -609,6 +638,7 @@ def main() -> int:
             def done(result: int) -> None:
                 if result:
                     new = config.validate(dlg.collect())
+                    langs_changed = (new.source_lang, new.target_lang) != (self.cfg.source_lang, self.cfg.target_lang)
                     need_restart = (new.ocr.device != self.cfg.ocr.device
                                     or new.track.all_monitors != self.cfg.track.all_monitors
                                     or new.track.wheel_predict != self.cfg.track.wheel_predict)
@@ -627,6 +657,10 @@ def main() -> int:
                     self.engine.update_llm(self.cfg)
                     if dlg.clear_memory_requested:
                         self.engine.inbox.put(("memory_clear", None))
+                    if langs_changed:
+                        self.engine.set_languages()
+                        for f in self.frames:
+                            f.set_lang_label(self._lang_label())
                     self._register_keys()
                     self._save()
                     for o in self.overlays:
@@ -805,6 +839,9 @@ def main() -> int:
             if cmd == "cache_get":
                 from .textutil import cache_key
                 return {"items": {s: self.engine.cache.get(cache_key(s)) for s in req.get("src", [])}}
+            if cmd == "langs":
+                self.set_languages(req.get("source", self.cfg.source_lang), req.get("target", self.cfg.target_lang))
+                return {"ok": True, "label": self._lang_label()}
             if cmd == "pause_all":
                 if bool(req.get("on")) != self.state.paused:
                     self.toggle_pause()

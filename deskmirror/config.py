@@ -22,7 +22,27 @@ LANGUAGES: dict[str, str] = {
     "en": "English",
     "ja": "日本語",
     "ko": "한국어",
+    "id": "Bahasa Indonesia",
 }
+
+# 原文语言：自动识别，或手动指定（告诉模型原文是什么语言；韩文还要换识别模型）
+SOURCE_LANGS: dict[str, str] = {
+    "auto": "自动识别",
+    "en": "英文",
+    "id": "印尼文",
+    "ja": "日文",
+    "ko": "韩文（换用韩文识别模型）",
+    "zh": "中文",
+}
+# 魔镜标签上的简称：“英→中”
+SOURCE_SHORT = {"auto": "自动", "en": "英", "id": "印尼", "ja": "日", "ko": "韩", "zh": "中"}
+TARGET_SHORT = {"zh-Hans": "中", "zh-Hant": "繁", "en": "英", "ja": "日", "ko": "韩", "id": "印尼"}
+
+
+def ocr_lang_for(source: str) -> str:
+    """原文语言对应的识别模型：默认模型认中文、英文、日文（印尼文等拉丁字母也行）；韩文要换韩文模型
+    （RapidOCR 第一次用时从 ModelScope 下载并校验，约 14 MB）。"""
+    return "korean" if source == "ko" else "default"
 
 # OpenAI 兼容接口的常见地址，只用于设置页一键填入；用户可以改成任意服务。
 OPENAI_PRESETS: dict[str, tuple[str, str]] = {
@@ -214,6 +234,8 @@ def validate(cfg: AppConfig) -> AppConfig:
         cfg.llm.protocol = "ollama"
     if cfg.ocr.device not in ("gpu", "cpu"):
         cfg.ocr.device = "gpu"
+    if cfg.source_lang not in SOURCE_LANGS:
+        cfg.source_lang = "auto"
     if cfg.target_lang not in LANGUAGES:
         cfg.target_lang = "zh-Hans"
     cfg.llm.concurrency = max(1, min(8, cfg.llm.concurrency))

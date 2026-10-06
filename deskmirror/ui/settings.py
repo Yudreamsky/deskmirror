@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
 
 from .. import winapi
 from ..config import (DEFAULT_EXCLUDE_APPS, DEFAULT_EXCLUDE_TITLES, LANGUAGES, OPENAI_PRESETS, SCOPE_MODES,
-                      AppConfig)
+                      SOURCE_LANGS, AppConfig)
 from ..translator import list_models, test_connection
 
 
@@ -217,6 +217,11 @@ class SettingsDialog(QDialog):
         lay = QVBoxLayout(page)
         gen = QGroupBox("翻译与识别")
         g = QFormLayout(gen)
+        self.source = QComboBox()
+        for code, name in SOURCE_LANGS.items():
+            self.source.addItem(name, code)
+        self.source.setCurrentIndex(max(0, self.source.findData(self.cfg.source_lang)))
+        g.addRow("原文", self.source)
         self.target = QComboBox()
         for code, name in LANGUAGES.items():
             self.target.addItem(name, code)
@@ -342,6 +347,7 @@ class SettingsDialog(QDialog):
         c.llm.consistency = self.consistency.isChecked()
         c.target_lang = self.target.currentData()
         c.ocr.device = self.device.currentData()
+        c.source_lang = self.source.currentData()
         c.track.all_monitors = self.all_monitors.isChecked()
         c.track.wheel_predict = self.wheel_predict.isChecked()
         c.style.min_font_px = self.min_font.value()

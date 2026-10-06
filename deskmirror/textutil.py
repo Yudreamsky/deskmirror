@@ -18,6 +18,19 @@ def cache_key(text: str) -> str:
     return _SPACES.sub(" ", unicodedata.normalize("NFKC", text)).strip()
 
 
+# 印尼文里很常见、英文里几乎不出现的词：拉丁字母的文字靠它们分辨是不是印尼文
+_ID_WORDS = frozenset("yang dan untuk dengan tidak adalah ini itu dari pada akan atau juga dalam kami anda bisa sudah "
+                      "harus jika kepada oleh telah belum karena saat setelah sebelum semua tersebut".split())
+_WORDS = re.compile(r"[A-Za-z]+")
+
+
+def looks_indonesian(text: str) -> bool:
+    """拉丁字母写的文字像不像印尼文：常见印尼文虚词出现两个以上（短句一个就算）。"""
+    words = [w.lower() for w in _WORDS.findall(text)]
+    hits = {w for w in words if w in _ID_WORDS}
+    return len(hits) >= 2 or (len(words) <= 4 and len(hits) == 1)
+
+
 def needs_translation(text: str, target: str) -> bool:
     """原文已经是目标语言、或只有数字符号时不翻译，也不遮盖原文。"""
     letters = _LETTER.findall(text)
@@ -35,7 +48,9 @@ def needs_translation(text: str, target: str) -> bool:
     if target == "ko":
         return not (hangul / n >= 0.5)
     if target == "en":
-        return not (latin / n >= 0.8)
+        return not (latin / n >= 0.8) or looks_indonesian(text)
+    if target == "id":
+        return not (latin / n >= 0.8 and looks_indonesian(text))
     return True
 
 

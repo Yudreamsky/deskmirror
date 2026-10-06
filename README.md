@@ -3,6 +3,8 @@
 Windows 上的屏幕翻译工具：在桌面上放一块可以拖动的“镜子”，镜框里同一位置的文字换成译文，镜框外照常是你的桌面。
 网页、PDF、软件界面、游戏和视频字幕都用同一种方式工作，不需要浏览器插件。
 
+![桌面魔镜：镜框里的英文换成了中文，镜框外照常](docs/screenshot.jpg)
+
 [English](#english)
 
 ## 特点
@@ -12,6 +14,7 @@ Windows 上的屏幕翻译工具：在桌面上放一块可以拖动的“镜子
 - **后台预译**：魔镜所在屏幕上的文字提前翻译，拖到哪里马上显示；看过的内容不重复翻译。
 - **翻译服务任选**：本机 [Ollama](https://ollama.com)（免费，文字不出本机），或 DeepSeek、通义千问、OpenAI 等 OpenAI 兼容接口。
 - **隐私可控**：不翻译名单（默认排除聊天软件、密码管理器、网银）、三档预译范围、当天用量统计；屏幕上的文字默认不存盘。
+- **语言随时切换**：魔镜标签上的语言按钮（如“英→中”）手动指定原文和译成的语言；支持中文、英文、日文、韩文、印尼文。
 - **术语**：术语表里的词必须照用；没写进术语表的词也尽量前后一致。
 - 还有：历史面板、改译文、多个魔镜、魔镜跟随窗口、暂停、截图。
 
@@ -29,7 +32,7 @@ Windows 上的屏幕翻译工具：在桌面上放一块可以拖动的“镜子
 
 1. 下载本项目：`git clone https://github.com/Yudreamsky/deskmirror.git`，或在 GitHub 页面下载 ZIP 解压。
 2. 双击 `setup.bat`：创建 `.venv` 并安装依赖（PySide6、RapidOCR、ONNX Runtime 等，需要联网）。
-3. 双击 `start.bat`。第一次启动时 RapidOCR 会自动下载文字识别模型（约 30 MB）。
+3. 双击 `start.bat`。文字识别模型随安装包一起装好；第一次选“原文：韩文”时，会自动下载韩文识别模型（约 14 MB）。
 4. 用云端服务的话：点魔镜标签上的 ⚙ → 翻译服务，选 “OpenAI 兼容接口”，填地址、模型和 API Key，点 “测试连接”。
 
 文字识别默认用显卡（DirectML，支持 DirectX 12 的显卡都可以），没有合适的显卡时自动改用 CPU。
@@ -45,6 +48,7 @@ Windows 上的屏幕翻译工具：在桌面上放一块可以拖动的“镜子
 | 隐藏 / 显示魔镜 | Ctrl+Alt+H |
 | 回看刚才的字幕、对话 | Ctrl+Alt+Y 打开历史面板 |
 | 暂停（框留着，不识别、不翻译） | 点标签上的 “暂停” |
+| 指定语言（比如英→中、印尼→中、中→印尼） | 点标签上的语言按钮 |
 | 设置 | 点标签上的 ⚙，或右键托盘图标 |
 
 ## 隐私
@@ -57,7 +61,7 @@ Windows 上的屏幕翻译工具：在桌面上放一块可以拖动的“镜子
 
 - 目前只在一台电脑上测试过（Windows 11、3840×2160 / 100% 缩放、RTX 4090）。
 - 独占全屏的游戏、有版权保护的视频画面无法覆盖或截取；游戏请用无边框或窗口模式。
-- 竖排文字、艺术字、很小的字可能识别错；韩文暂不支持识别。
+- 竖排文字、艺术字、很小的字可能识别错。韩文要在语言按钮里选“原文：韩文”（换用韩文识别模型）。
 - 更多见[使用说明](docs/GUIDE.md#已知限制)。
 
 ## 开发
@@ -89,8 +93,8 @@ the text translated in place — web pages, PDFs, apps, games and video subtitle
 It follows scrolling, window moves and subtitles, pre-translates the screen in the background, and works with a local
 [Ollama](https://ollama.com) model or any OpenAI-compatible API (DeepSeek, OpenAI, …).
 
-The user interface is currently in Chinese. The default target language is Simplified Chinese; Traditional Chinese,
-English, Japanese and Korean can be chosen in Settings.
+The user interface is currently in Chinese. The default target language is Simplified Chinese; the language button on
+the mirror switches source and target languages on the fly (Chinese, English, Japanese, Korean, Indonesian).
 
 Requirements: Windows 11, Python 3.12. Run `setup.bat` once, then `start.bat`.
 

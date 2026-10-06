@@ -3,6 +3,8 @@ chcp 65001 >nul
 rem 桌面魔镜：第一次使用前运行一次，创建 .venv 并安装依赖（需要联网）。
 setlocal
 cd /d "%~dp0"
+rem pip 缓存放在项目自己的 .cache 里（不占系统盘）；已经另外指定了就沿用
+if not defined PIP_CACHE_DIR set "PIP_CACHE_DIR=%~dp0.cache\pip"
 set "PY="
 py -3.12 -c "import sys" >nul 2>nul && set "PY=py -3.12"
 if not defined PY python -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" >nul 2>nul && set "PY=python"

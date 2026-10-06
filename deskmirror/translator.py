@@ -29,17 +29,21 @@ _TARGET_DESC = {
     "en": "English",
     "ja": "Japanese (日本語)",
     "ko": "Korean (한국어)",
+    "id": "Indonesian (Bahasa Indonesia)",
 }
+_SOURCE_DESC = {"en": "English", "id": "Indonesian", "ja": "Japanese", "ko": "Korean", "zh": "Chinese"}
 
 _SEG = re.compile(r"^\s*\[(\d{1,3})\]\s?(.*)$")
 _THINK = re.compile(r"<think>.*?</think>", re.S)
 
 
-def system_prompt(target: str) -> str:
+def system_prompt(target: str, source: str = "auto") -> str:
     lang = _TARGET_DESC.get(target, LANGUAGES.get(target, target))
+    src = (f"The user says the text is mostly {_SOURCE_DESC[source]}; read it as {_SOURCE_DESC[source]}. "
+           if source in _SOURCE_DESC else "")
     return (
         f"You translate on-screen text into {lang}. The text comes from OCR of a computer screen: web pages, "
-        "documents, app interfaces, games. Each input segment starts with a number like [1].\n"
+        f"documents, app interfaces, games. {src}Each input segment starts with a number like [1].\n"
         "Rules:\n"
         f"- Output every segment in the same order, each starting with its own number, e.g. [1] <{lang} text>.\n"
         "- Never merge, split, skip or reorder segments; one output segment per input segment.\n"
@@ -164,12 +168,13 @@ def _clean(text: str) -> str:
 
 def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: Callable[[int, str], None],
                      client: httpx.Client, cancel: threading.Event, context: str = "",
-                     glossary: list[tuple[str, str]] | None = None, refs: list[tuple[str, str]] | None = None) -> None:
+                     glossary: list[tuple[str, str]] | None = None, refs: list[tuple[str, str]] | None = None,
+                     source: str = "auto") -> None:
     """发一批文字块，流式解析；全部完成后返回。失败抛 ServiceError。
 
     context 是这批文字所在窗口的标题，帮模型判断场景（比如 CSS 文档里的属性名不该翻译）。
     """
-    messages = [{"role": "system", "content": system_prompt(target)},
+    messages = [{"role": "system", "content": system_prompt(target, source)},
                 {"role": "user", "content": build_user_message(texts, context, glossary, refs)}]
     parser = SegmentParser(len(texts), on_segment)
     base = cfg.base_url.strip().rstrip("/")
@@ -314,6 +319,7 @@ class Batch:
     refs: list = field(default_factory=list)       # [(原文, 译文)]：本窗口里含同样词语的已有译文（术语前后一致）
     hwnd: int = 0                                  # 文字所在的窗口和程序（记参考用）
     app: str = ""
+    source: str = "auto"                           # 用户指定的原文语言
     created: float = field(default_factory=time.perf_counter)
 
 
@@ -347,7 +353,8 @@ class TranslatorPool:
                 try:
                     stream_translate(self.cfg, batch.target, batch.texts,
                                      lambda i, s, b=batch: self._on_event(("segment", b.batch_id, i, s)),
-                                     client, self._cancel, batch.context, batch.glossary, batch.refs)
+                                     client, self._cancel, batch.context, batch.glossary, batch.refs,
+                                     batch.source)
                     self._on_event(("batch_done", batch.batch_id, None, time.perf_counter() - t0))
                 except ServiceError as e:
                     self._on_event(("batch_done", batch.batch_id, e, time.perf_counter() - t0))
