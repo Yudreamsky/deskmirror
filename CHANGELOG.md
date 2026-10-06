@@ -10,6 +10,7 @@
 - **英文译文先横向压扁一点，少缩字号**：中日文译成英文常常更长，放不下时先把字横向压扁（压到八成以内几乎看不出来）再缩字号；名牌、倒计时这类短标签快要伸出面板时最扁压到原宽的六成（设置项 `style.min_squash`；中日韩文字最多压到八成）。小名牌里排成两行的译文不再被裁掉半截。
 - **日文识别更准**：片假名的长音“ー”被识别成“-”或“一”时自动改回（比如“セ-ブ”→“セーブ”），术语表对得上，游戏菜单不再漏翻。字号小的短词（三个字以内，比如“セーブ”）重新识别时置信度常常差一点：现在同一位置还是同样的字就算认出来了，译文不再时有时无；像素没变时就算没认出来，也要连着三次才撤下。
 - **字幕换句不再两头露原文**：新句子比旧译文宽时，以前在新译文出来之前（常常一秒多）两头会露出原文；现在字幕一换就单独识别那一条，约 0.2～0.5 秒内先用空底板挡住，旧译文留在上面，新译文一到就顶掉。
+- **视频字幕换句不再空一下**：以前有几种情况换句时译文会消失一秒左右：刚把魔镜挪到视频上时的第一句字幕、新句子的识别结果因为画面在变被丢掉、识别时少认了句末一个字。现在旧译文都会留到新译文出来；中文、日文、韩文字幕实测各换句 5 次以上都不再空。
 - **调试用的录制**：通过调试通道按用户看到的样子录 60 帧视频（宣传片的实录素材用）。
 
 - **Translate chat apps switch**: chat apps are still skipped by default (private chats are not sent anywhere); when
@@ -39,6 +40,10 @@
 - **Subtitle changes no longer show the original at the edges**: when the new line was wider than the old translation,
   its ends used to show until the new translation arrived (often over a second); the changed line is now re-read right
   away and covered by a blank plate within about 0.2–0.5 s, with the old translation on top until the new one is ready.
+- **Subtitles no longer blank out between lines**: the translation used to vanish for about a second when the line
+  changed in a few cases: the first subtitle after moving the mirror onto a video, a new line whose OCR result was
+  dropped because the picture kept moving, or a read that missed the final character. The old translation now stays
+  until the new one is ready; Chinese, Japanese and Korean subtitles were tested over many line changes.
 - **Debug recording**: record 60 fps video of what the user sees through the debug channel (used for promo footage).
 
 ## 1.0.0（2026-10-06）

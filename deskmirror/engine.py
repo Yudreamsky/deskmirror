@@ -1415,6 +1415,10 @@ class Engine(threading.Thread):
         if not ok and self._is_volatile(m, sr) and self._verify_strokes(b.ref, m, sr, b.lum_fg, b.lum_bg, b.em):
             # 动态背景上的字：背景在动，笔画没变，仍然有效（不更新参考图）。
             # 底真的花才换深色底板；只是被误判在动态区域的网页文字保持原来的底色。
+            if not b.born_dynamic and not self._recently_scrolled(b):
+                # 这就是视频、游戏画面上的字：换句时旧译文留到新译文出来。刚打开视频时第一句字幕建块那会儿，
+                # 画面还没被认定“一直在动”，不补上的话第一次换句会空一秒多
+                b.born_dynamic = True
             if not b.dynamic and self._busy_behind(m, sr, b.lum_fg, b.lum_bg):
                 b.dynamic = True
                 b.bg, b.fg = (24, 24, 28), (245, 245, 245)
@@ -1511,11 +1515,22 @@ class Engine(threading.Thread):
         """动态区域（字幕、游戏文字）的旧译文先保留，等新句子的译文准备好直接顶掉；
         字幕消失（下一次抓拍没有字）或最多保留 subtitle_hold_ms 后撤下。网页、文档不保留。
         计数器（倒计时这类只有数字在变的字）也一样：不然每跳一下，译文都要消失半秒、露出原文。"""
+        if not (b.born_dynamic or b.counter) and b.state == "done" and b.ok_rect is not None \
+                and not self._recently_scrolled(b):
+            m = self._monitor_for(sr)
+            if m is not None and m.ready and self._volatile_frac(m, sr, 1.5) >= 0.5:
+                b.born_dynamic = True    # 一直在动的画面上的字（建块时画面还没被认定在动）：同样先留着旧译文
         if (b.born_dynamic or b.counter) and b.state == "done" and b.held_until == 0.0 and b.ok_rect is not None:
             b.hold_start = time.perf_counter()
             b.held_until = b.hold_start + self._hold_s(b)
             b.hold_rect = sr
             self._dirty = True
+
+    @staticmethod
+    def _recently_scrolled(b: Block) -> bool:
+        """块所在的窗口刚刚（2 秒内）滚动过：画面在变是滚动造成的，不是视频、动画。"""
+        win = b.canvas.window()
+        return win is not None and time.perf_counter() - win.last_scroll_ok < 2.0
 
     def _hold_s(self, b: Block) -> float:
         # 计数器只等下一次识别（变了以后半秒左右就识别），不用像字幕那样留那么久
@@ -1882,6 +1897,10 @@ class Engine(threading.Thread):
                     # 连着三次都没认出来才删；字真的没了，像素就对不上，照样马上删
                     b.missed += 1
                     continue
+                if st.stale and b.held_until > time.perf_counter():
+                    # 正留着旧译文的字幕（可能是刚才核对时才发现换了句）：这次有结果因为识别期间画面变了被丢掉
+                    # （多半就是新句子），“没认出来”不可信，旧译文接着留着，等下一次识别
+                    continue
                 self._delete_block(b, "ocr_not_seen")
         if getattr(st, "snapshot", False) and getattr(st, "tiles", None):
             # 动态区域的抓拍：没抓到字就放慢下一次，抓到了就恢复正常间隔
@@ -2002,6 +2021,7 @@ class Engine(threading.Thread):
         was_counter = False
         prev: Block | None = None   # 同一个计数器的上一块
         tmpl = number_template(text)
+        doomed: list[Block] = []  # 要被这次结果顶掉的旧块：循环完、确定这次结果不是被已有的块吸收了再删
         # 与已有块去重：同位置同文字沿用原块（保留译文），文字变了就替换。
         for old in list(canvas.blocks.values()):
             if not geom.overlaps(old.rect, content):
@@ -2020,6 +2040,14 @@ class Engine(threading.Thread):
             if old.key != key and same_place and old.ok_rect is not None and self._verify(old):
                 # 像素和上次识别时完全一样，只是这次 OCR 结果差了一两个字：沿用旧块和旧译文，
                 # 不为“同样的内容”再发一次翻译请求。
+                if old.state in ("pending", "translating", "failed") and (hit := self._cached(key, text)) is not None:
+                    # 旧块还在等译文，这次认全的文字已经有译文（比如上次少认了句末的“。”）：直接用上，不再干等
+                    old.translation = hit
+                    old.state = "skip" if textutil.cache_key(hit) == key else "done"
+                    old.version += 1
+                    self.metrics["cache_hits"] += 1
+                    self._retire_replaced(old)
+                    self._dirty = True
                 st.touched.add(old.bid)
                 return
             if old.key == key and abs(old.rect[0] - content[0]) <= 3 and abs(old.rect[1] - content[1]) <= 3:
@@ -2043,6 +2071,8 @@ class Engine(threading.Thread):
                 replaced.append(old)
                 st.touched.add(old.bid)
                 continue
+            doomed.append(old)
+        for old in doomed:
             self._delete_block(old, "ocr_overlap")
         crop_l, crop_t = r0[0] - jl, r0[1] - jt
         pad = 3

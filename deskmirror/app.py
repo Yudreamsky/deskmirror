@@ -1053,7 +1053,7 @@ def main() -> int:
                     if (win.hwnd if win is not None else 0) != hwnd:
                         continue
                     d = {"bid": b.bid, "rect": list(b.screen_rect()), "state": b.state, "ok": b.ok_rect is not None,
-                         "created": round(b.created - self.engine.started, 1)}
+                         "created": round(b.created - self.engine.started, 1), "dyn": b.born_dynamic, "counter": b.counter}
                     if req.get("text"):
                         d["text"] = b.text[:60]
                     out.append(d)

@@ -432,6 +432,134 @@ class SubtitleCoverTest(unittest.TestCase):
         self.assertGreaterEqual(r[3], y0 + 22 + 10)
 
 
+class FirstSubtitleTest(unittest.TestCase):
+    def _setup(self):
+        page = text_page(3000, W, 6)
+        eng, m, win, sc = make_engine(page[0:H])
+        eng.visible = {1: [(0, 0, W, H)]}
+        y0 = next(y for y in range(200, 600) if page[y:y + 22, 10:500].std() > 40 and page[y, 10:500].min() == 255)
+        rect = (10, y0, 500, y0 + 22)
+        b = add_block(eng, sc, rect, page[y0:y0 + 22, 10:500].copy())
+        b.state, b.translation = "done", "我们终于到了老灯塔。"
+        now = time.perf_counter()
+        rows, cols = slice(y0 // E.TILE, (y0 + 22) // E.TILE + 1), slice(0, 500 // E.TILE + 1)
+        m.last_chg[rows, cols], m.chg_start[rows, cols] = now, now - 5      # 视频画面：这一片一直在动
+        return eng, m, win, b, y0
+
+    def test_first_subtitle_on_moving_picture_keeps_old_translation(self) -> None:
+        # 刚打开视频时第一句字幕建块那会儿画面还没被认定在动（没标成字幕）：换句时也要先留着旧译文，不空一秒
+        eng, m, win, b, y0 = self._setup()
+        self.assertFalse(b.born_dynamic)
+        m.cur[y0:y0 + 22, 10:500] = 255 - m.cur[y0:y0 + 22, 10:500]             # 换句
+        self.assertFalse(eng._verify(b))
+        self.assertTrue(b.born_dynamic)
+        self.assertGreater(b.held_until, time.perf_counter())
+
+    def test_recently_scrolled_window_is_not_treated_as_video(self) -> None:
+        # 画面在变是滚动造成的：网页文字照常一变就撤（不留旧译文）
+        eng, m, win, b, y0 = self._setup()
+        win.last_scroll_ok = time.perf_counter()
+        m.cur[y0:y0 + 22, 10:500] = 255 - m.cur[y0:y0 + 22, 10:500]
+        self.assertFalse(eng._verify(b))
+        self.assertFalse(b.born_dynamic)
+        self.assertEqual(b.held_until, 0.0)
+
+    def test_held_subtitle_survives_a_read_with_dropped_results(self) -> None:
+        # 换句后单独识别那一条：新句子的结果要是因为识别期间画面变了被丢掉，“没认出来”不可信，旧译文接着留着；
+        # 字幕真的消失（识别结果干净、什么都没有）才撤下
+        eng, m, win, b, y0 = self._setup()
+        eng.set_mirrors([(0, 0, W, H)])
+        m.bgra = np.dstack([m.cur] * 3 + [np.full_like(m.cur, 255)])
+        eng.win_canvas[1], eng.win_rects[1], eng.z_order = win, (0, 0, W, H), [1]
+        jobs = []
+
+        class Ocr:
+            def submit(self, job) -> None:
+                jobs.append(job)
+
+        eng.ocr, eng.ocr_state = Ocr(), "ready"
+        b.born_dynamic = True
+        m.cur[y0:y0 + 22, 10:500] = 255 - m.cur[y0:y0 + 22, 10:500]             # 换句
+        self.assertFalse(eng._verify(b))
+        b.ok_rect = None
+        self.assertGreater(b.held_until, time.perf_counter())
+
+        def read(stale: int) -> None:
+            eng.ocr_busy = None
+            eng._submit_ocr(m, (0, y0 - 20, W, y0 + 42))
+            st = eng.jobs[jobs[-1].job_id]
+            st.stale = stale
+            eng._finish_job(st, {"blocks": 0})
+
+        read(1)
+        self.assertIn(b.bid, eng.blocks, "有结果被丢掉：旧译文接着留着")
+        read(0)
+        self.assertNotIn(b.bid, eng.blocks, "识别结果干净、什么都没有：字幕没了，撤下")
+
+    def test_subtitle_changed_just_before_a_read_with_dropped_results(self) -> None:
+        # 换了句、还没轮到核对这一块，识别就先完成了，而且新句子的结果因为画面在变被丢掉：
+        # 这时才核对出来换了句（开始留着旧译文），也不能因为“没认出来”就删
+        eng, m, win, b, y0 = self._setup()
+        eng.set_mirrors([(0, 0, W, H)])
+        m.bgra = np.dstack([m.cur] * 3 + [np.full_like(m.cur, 255)])
+        eng.win_canvas[1], eng.win_rects[1], eng.z_order = win, (0, 0, W, H), [1]
+        jobs = []
+
+        class Ocr:
+            def submit(self, job) -> None:
+                jobs.append(job)
+
+        eng.ocr, eng.ocr_state = Ocr(), "ready"
+        b.born_dynamic = True
+        m.cur[y0:y0 + 22, 10:500] = 255 - m.cur[y0:y0 + 22, 10:500]             # 换句（还没核对）
+        eng._submit_ocr(m, (0, y0 - 20, W, y0 + 42))
+        st = eng.jobs[jobs[-1].job_id]
+        st.stale = 1
+        eng._finish_job(st, {"blocks": 0})
+        self.assertIn(b.bid, eng.blocks)
+        self.assertGreater(b.held_until, time.perf_counter(), "核对出换了句：旧译文留着")
+
+    def test_complete_read_gives_its_cached_translation_to_waiting_block(self) -> None:
+        # 新句子第一次少认了句末的“。”（查不到缓存，正在请求翻译），旧字幕留着；第二次认全了，而这一句早就译过：
+        # 直接把译文给正在等的块、旧字幕退场。以前会先把旧字幕删掉、等的块继续干等，空一秒
+        from deskmirror.ocr_worker import OcrBlockOut, OcrLineOut
+        eng, m, win, b, y0 = self._setup()
+        eng.set_mirrors([(0, 0, W, H)])
+        m.bgra = np.dstack([m.cur] * 3 + [np.full_like(m.cur, 255)])
+        eng.win_canvas[1], eng.win_rects[1], eng.z_order = win, (0, 0, W, H), [1]
+        jobs = []
+
+        class Ocr:
+            def submit(self, job) -> None:
+                jobs.append(job)
+
+        eng.ocr, eng.ocr_state = Ocr(), "ready"
+        rect = b.rect
+        held = b                                                    # 上一句的译文还留着
+        held.born_dynamic, held.ok_rect = True, None
+        held.hold_start = time.perf_counter()
+        held.held_until, held.hold_rect = held.hold_start + 4.0, held.screen_rect()
+        waiting = add_block(eng, held.canvas, rect, m.cur[y0:y0 + 22, 10:500].copy())
+        waiting.text, waiting.key = "我们终于到了那座老灯塔", E.textutil.cache_key("我们终于到了那座老灯塔")
+        waiting.state, waiting.born_dynamic, waiting.replaces = "translating", True, [held.bid]
+        full = "我们终于到了那座老灯塔。"
+        eng.cache[E.textutil.cache_key(full)] = "We finally made it to the old lighthouse."
+        eng._submit_ocr(m, (0, y0 - 20, W, y0 + 42))
+        eng._accept_block(eng.jobs[jobs[-1].job_id], OcrBlockOut(rect, [OcrLineOut(rect, full, 0.99)], full))
+        self.assertEqual((waiting.state, waiting.translation), ("done", "We finally made it to the old lighthouse."))
+        self.assertNotIn(held.bid, eng.blocks, "新译文有了，旧字幕退场")
+        self.assertFalse(any(x.text == full for x in eng.blocks.values()), "不另建一块")
+
+    def test_text_on_moving_background_becomes_subtitle(self) -> None:
+        # 背景在动、笔画没变：核对通过，而且补上字幕的标记（下次换句先留着旧译文）
+        eng, m, win, b, y0 = self._setup()
+        patch = m.cur[y0:y0 + 22, 10:500]
+        light = patch > 200
+        patch[light] = np.random.default_rng(1).integers(205, 256, int(light.sum())).astype(np.uint8)
+        self.assertTrue(eng._verify(b))
+        self.assertTrue(b.born_dynamic)
+
+
 class ChatSwitchTest(unittest.TestCase):
     def test_chat_apps_follow_the_switch(self) -> None:
         # 聊天软件默认不翻（私人聊天不发出去）；打开“翻译聊天软件”就照常翻；密码管理器始终不翻
