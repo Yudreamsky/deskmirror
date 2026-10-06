@@ -97,6 +97,8 @@ class StyleConfig:
     font_family: str = "Microsoft YaHei UI"
     min_font_px: int = 11             # 放不下时最多缩到这么小；再放不下就截断并标出“…”
     min_scale: float = 0.75           # 相对原文字号最多缩小到 75%
+    min_squash: float = 0.6           # 英文等放不下时最多横向压扁到原宽的 60%：先压到八成（几乎看不出来）再缩字号，
+                                      # 更扁的只在快要伸出去、要缩得更小时才用；中日韩文字最多压到八成
     plate_opacity: float = 1.0        # 原位底板的不透明度（1 = 完全盖住原文）
     border_color: str = "#3D8BFD"
 
@@ -268,6 +270,7 @@ def validate(cfg: AppConfig) -> AppConfig:
     cfg.llm.max_batch_items = max(1, min(32, cfg.llm.max_batch_items))
     cfg.style.min_font_px = max(8, min(32, cfg.style.min_font_px))
     cfg.style.min_scale = max(0.4, min(1.0, cfg.style.min_scale))
+    cfg.style.min_squash = max(0.5, min(1.0, cfg.style.min_squash))
     cfg.style.plate_opacity = max(0.3, min(1.0, cfg.style.plate_opacity))
     cfg.track.stable_ms = max(100, min(3000, cfg.track.stable_ms))
     cfg.track.ring_px = max(60, min(2000, cfg.track.ring_px))

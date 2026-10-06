@@ -1096,6 +1096,7 @@ def main() -> int:
                             d["truncated"] = img.truncated
                             d["room"] = list(it.room)
                             d["font_px"] = img.font_px
+                            d["squash"] = img.squash
                         if req.get("refs") and it.ref is not None:
                             import base64
                             import cv2

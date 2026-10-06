@@ -6,6 +6,7 @@
 - **英文译文更好看**：中日文译成英文放不下时，借用右边的纯色空白（不越过别的字，不盖图片、不盖视频画面）；英文单词不再从中间拆开；g、p、y 这类字母的下半截不再被裁掉；句末的全角“。”不再露在底板外面。
 - **倒计时不再一闪一闪**：游戏里的倒计时、计数这类只有数字在变的字，以前每跳一下译文都要消失一会儿、露出原文，有时还忽大忽小；现在旧译文先留着，数字一变马上单独重新识别，约 0.2 秒换成新数字，排版也保持不变。动态画面上的抓拍识别不再从一行字中间切开。
 - **译文不再伸出面板**：一行放不下要向下多占几行时，只用下面同色的空白；下面是面板边框、图片或在动的画面，就先再缩小一点字号排进原来的高度。
+- **英文译文先横向压扁一点，少缩字号**：中日文译成英文常常更长，放不下时先把字横向压扁（压到八成以内几乎看不出来）再缩字号；名牌、倒计时这类短标签快要伸出面板时最扁压到原宽的六成（设置项 `style.min_squash`；中日韩文字最多压到八成）。小名牌里排成两行的译文不再被裁掉半截。
 - **调试用的录制**：通过调试通道按用户看到的样子录 60 帧视频（宣传片的实录素材用）。
 
 - **Faster and cheaper**: DeepSeek and other OpenAI-compatible services think before answering by default; thinking is
@@ -20,6 +21,10 @@
   pictures no longer cut a line of text in half.
 - **Translations stay inside their panels**: when a translation needs extra lines, it only takes plain space below;
   above a panel border, picture or moving video it first shrinks a little to fit the original height.
+- **English is squeezed a little before it shrinks**: translations from Chinese or Japanese are often longer; they are
+  first narrowed horizontally (up to 80%, barely visible) before the font gets smaller, and short labels such as name
+  tags and timers may go down to 60% before spilling out of their panel (`style.min_squash`; CJK text stops at 80%).
+  Two-line translations in small name tags are no longer cut in half.
 - **Debug recording**: record 60 fps video of what the user sees through the debug channel (used for promo footage).
 
 ## 1.0.0（2026-10-06）

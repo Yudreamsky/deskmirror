@@ -70,23 +70,60 @@ class RenderTest(unittest.TestCase):
         self.assertFalse(_breaks_word("Captain Mina", [(0, 8), (8, 4)]))      # Captain / Mina
         self.assertFalse(_breaks_word("船长米娜", [(0, 2), (2, 2)]), "中文本来就能在字之间换行")
 
-    def test_label_in_panel_shrinks_instead_of_spilling_below(self) -> None:
-        # 游戏面板里的倒计时：一行放不下时，下面是面板边框（不是空白）就再缩小一点排成一行，不伸出面板；
-        # 下面是空白（比如网页标题下面）才照旧向下排成两行
+    @staticmethod
+    def _box_for(text: str, px: int, frac: float, h: int = 45):
+        """宽度正好让 text 在字号 px、横向压到 frac 时放得下的单行原文框。"""
         from PySide6.QtGui import QFont, QFontMetricsF
-        text, base = "Time left 02:06", round(45 * 0.9 * 0.74)
         f = QFont(StyleConfig().font_family)
-        f.setPixelSize(round(base * 0.68))               # 比最小比例（75%）小、比六成大的字号正好放得下
-        rect = (100, 100, 100 + int(QFontMetricsF(f).horizontalAdvance(text)) + 2, 145)
+        f.setPixelSize(px)
+        return (100, 100, 100 + int(QFontMetricsF(f).horizontalAdvance(text) * frac) + 2, 100 + h)
+
+    def test_mild_squash_before_shrinking(self) -> None:
+        # 英文比原文长一点：先横向压扁一点（八成以内几乎看不出来），字号不变
+        text, base = "Time left 02:06", round(45 * 0.9 * 0.74)
+        r = Renderer(StyleConfig()).get(item(text, self._box_for(text, base, 0.86)))
+        self.assertEqual(r.font_px, base)
+        self.assertTrue(0.8 <= r.squash < 1.0, r.squash)
+        self.assertEqual(r.height, 45 + 4)
+
+    def test_label_in_panel_squashes_instead_of_spilling_below(self) -> None:
+        # 面板里的名牌、倒计时：缩到最小比例、压到八成还放不下时，下面是面板边框（不是空白）就再压扁一些（最扁六成），
+        # 不伸出面板；下面是空白（比如网页标题下面）才照旧向下排成两行、不压那么扁
+        text, base = "Time left 02:06", round(45 * 0.9 * 0.74)
+        rect = self._box_for(text, base, 0.52)
         room = (rect[0], rect[1], rect[2], 145 + 90)
         spill = Renderer(StyleConfig()).get(item(text, rect, room))
         self.assertGreater(spill.height, 45 + 4, "下面是空白：照旧向下排")
+        self.assertGreaterEqual(spill.squash, 0.8)
         it = DrawItem(1, 1, rect, room, (rect,), text, (255, 255, 255), (0, 0, 0), 45, 1, 45 * 0.9, soft=145 + 3)
         r = Renderer(StyleConfig()).get(it)
         self.assertEqual(r.height, 45 + 4, "下面是边框：不伸出去")
         self.assertFalse(r.truncated)
-        self.assertLess(r.font_px, round(base * 0.75))
-        self.assertGreaterEqual(r.font_px, round(base * 0.6))
+        self.assertTrue(0.6 <= r.squash < 0.8, r.squash)
+        self.assertGreaterEqual(r.font_px, round(base * 0.75) - 1)
+
+    def test_cjk_squashed_at_most_to_80_percent(self) -> None:
+        # 中日韩文字压扁了难看：最多压到八成，再不行就缩字号
+        text = "剩余时间还有很多很多"
+        rect = self._box_for(text, round(45 * 0.9 * 0.74), 0.5)
+        it = DrawItem(1, 1, rect, (rect[0], rect[1], rect[2], 235), (rect,), text, (255, 255, 255), (0, 0, 0), 45, 1,
+                      45 * 0.9, soft=148)
+        self.assertGreaterEqual(Renderer(StyleConfig()).get(it).squash, 0.8)
+
+    def test_two_lines_in_one_line_box_stay_inside_the_plate(self) -> None:
+        # 识别框比字高的单行原文（小名牌）：译文缩小排成两行塞进原来的高度时整段竖直居中，第二行不能掉出底板被裁掉
+        from PySide6.QtGui import QFont, QFontMetricsF
+        f = QFont(StyleConfig().font_family)
+        f.setPixelSize(22)
+        rect = (100, 100, 100 + int(QFontMetricsF(f).horizontalAdvance("Captain") * 1.05) + 2, 160)
+        it = DrawItem(1, 1, rect, rect, (rect,), "Captain Mina", (255, 255, 255), (0, 0, 0), 60, 1, 30)
+        r = Renderer(StyleConfig()).get(it)
+        self.assertEqual(r.height, 60 + 4)
+        ink = [y for y in range(r.height) if any(r.image.pixelColor(x, y).red() < 128 for x in range(r.width))]
+        self.assertTrue(ink, "画了字")
+        self.assertGreater(min(ink), 1)
+        self.assertLess(max(ink), r.height - 2, "最后一行的字没被底板下边裁掉")
+        self.assertLess(abs(min(ink) - (r.height - 1 - max(ink))), 12, "整段大致竖直居中")
 
     def test_long_word_widens_plate_instead_of_splitting(self) -> None:
         rect = (100, 100, 160, 134)                 # “装備”两个字那么宽，右边不是纯色空白
