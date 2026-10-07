@@ -3,6 +3,7 @@
 ## 未发布 / Unreleased
 
 - **漫画气泡更干净**：竖排气泡的底板只盖原来的每一个字（以前按检测框铺一整块，检测框常把气泡的弧形边框框进去，一列下端又常是窄的“！”，方底板的角会盖掉边框），气泡边框和边框外的网点纸都完整保留；译文字号按原文字的实际宽度估，和原文一样大（以前长的一列会大一圈）；英文译文在气泡里每行居中。识别时也不再把框进来的边框当成字（句末的“！”不会被认成长音）。
+- **说明有六种语言**：README 有英文（GitHub 首页默认）、简体中文、繁體中文、日本語、한국어、Bahasa Indonesia，每种都配了实录截图和开头的动图；使用说明、新手指南加了英文版。发行包里带上各语言的 README。
 
 - **Cleaner comic bubbles**: in vertical speech bubbles the plate now covers just the original characters (it used to
   fill the whole detection box, which often took in part of the curved outline, and its corners stuck out past a
@@ -10,6 +11,9 @@
   font size follows the actual width of the original characters (long columns used to come out a size larger), and
   English is centered line by line. The outline is no longer mistaken for text either (a final "!" is no longer read
   as a long vowel mark).
+- **Docs in six languages**: the README in English (the default on GitHub), Simplified Chinese, Traditional Chinese,
+  Japanese, Korean and Indonesian, each with real screenshots and an animation at the top; English versions of the
+  user guide and the quick start. The release zip includes the README in every language.
 
 ## 1.1.0（2026-10-07）
 

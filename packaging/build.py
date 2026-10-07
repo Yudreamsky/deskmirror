@@ -123,7 +123,8 @@ def main() -> None:
                     "--clean", "--log-level", "WARN", "--distpath", str(DIST), "--workpath", str(BUILD / "pyinstaller")],
                    check=True, env=env)
     app = DIST / "DeskMirror"
-    for name in ("LICENSE", "THIRD-PARTY-NOTICES.md", "README.md"):
+    # 说明的各语言版本都带上（README.md 是英文，README.zh-CN.md 等是其他语言；里面的图在 GitHub 上看）
+    for name in ("LICENSE", "THIRD-PARTY-NOTICES.md", *sorted(p.name for p in ROOT.glob("README*.md"))):
         shutil.copy2(ROOT / name, app / name)
     print("许可证：", ", ".join(copy_licenses(app)))
     zpath = DIST / f"{NAME}.zip"
