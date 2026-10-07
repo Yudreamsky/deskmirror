@@ -1,3 +1,4 @@
-# 只在打包 exe 时用（python packaging\build.py）；运行魔镜不需要
+# Only for building the exe (python packaging\build.py); not needed to run DeskMirror.
+# Keep this file ASCII: pip reads it with the system code page.
 pyinstaller==6.22.3
 pyinstaller-hooks-contrib==2026.8

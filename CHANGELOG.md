@@ -1,5 +1,12 @@
 # 更新记录 / Changelog
 
+## 未发布
+
+- **中文 Windows 上从源码安装不再失败**：依赖清单的注释改成英文，setup.bat、start.bat 让 Python 按 UTF-8 读写（以前 pip 按 GBK 读依赖清单就报错退出）。（#1）
+
+- **Installing from source on Chinese Windows**: the requirements files are plain ASCII now, and setup.bat and
+  start.bat run Python in UTF-8 mode (pip used to fail reading the requirements file as GBK). (#1)
+
 ## 1.1.1（2026-10-07）
 
 漫画气泡更干净：竖排气泡的底板只盖原来的字，不再盖掉气泡的边框，译文和原文一样大；说明有了六种语言。

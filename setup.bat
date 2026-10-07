@@ -3,6 +3,8 @@ chcp 65001 >nul
 rem 桌面魔镜：第一次使用前运行一次，创建 .venv 并安装依赖（需要联网）。
 setlocal
 cd /d "%~dp0"
+rem 按 UTF-8 读写文件：中文 Windows 默认按 GBK 读，pip 读依赖清单会出错
+set "PYTHONUTF8=1"
 rem pip 缓存放在项目自己的 .cache 里（不占系统盘）；已经另外指定了就沿用
 if not defined PIP_CACHE_DIR set "PIP_CACHE_DIR=%~dp0.cache\pip"
 set "PY="
