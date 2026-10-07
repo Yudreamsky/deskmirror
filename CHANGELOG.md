@@ -1,5 +1,16 @@
 # 更新记录 / Changelog
 
+## 未发布 / Unreleased
+
+- **漫画气泡更干净**：竖排气泡的底板只盖原来的每一个字（以前按检测框铺一整块，检测框常把气泡的弧形边框框进去，一列下端又常是窄的“！”，方底板的角会盖掉边框），气泡边框和边框外的网点纸都完整保留；译文字号按原文字的实际宽度估，和原文一样大（以前长的一列会大一圈）；英文译文在气泡里每行居中。识别时也不再把框进来的边框当成字（句末的“！”不会被认成长音）。
+
+- **Cleaner comic bubbles**: in vertical speech bubbles the plate now covers just the original characters (it used to
+  fill the whole detection box, which often took in part of the curved outline, and its corners stuck out past a
+  narrow "!" at the end of a column), so bubble outlines and the screentone around them stay intact. The translation's
+  font size follows the actual width of the original characters (long columns used to come out a size larger), and
+  English is centered line by line. The outline is no longer mistaken for text either (a final "!" is no longer read
+  as a long vowel mark).
+
 ## 1.1.0（2026-10-07）
 
 游戏、视频字幕、漫画用起来更顺：倒计时不闪、字幕换句不空不露原文、漫画竖排气泡直接翻；加了“翻译聊天软件”开关。

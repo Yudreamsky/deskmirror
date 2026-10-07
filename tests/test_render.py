@@ -154,6 +154,29 @@ class RenderTest(unittest.TestCase):
             Renderer(StyleConfig()).get(bubble("Wait! The ship is leaving!"))
             self.assertEqual(spy.call_count, 1, "英文不竖着排")
 
+    def test_vertical_bubble_plate_covers_only_columns_and_text(self) -> None:
+        # 两列长短不一（右边一列短）：底板只盖原来的两列和译文，不铺满两列合起来的方块——
+        # 方块右下角在椭圆气泡外面，铺满会盖掉气泡的弧形边框
+        rect, cols = (0, 0, 81, 204), ((44, 0, 81, 124), (0, 2, 37, 204))
+
+        def bubble(text: str) -> DrawItem:
+            return DrawItem(9, 1, rect, rect, (rect,), text, (255, 255, 255), (0, 0, 0), 65, 1, 37 * 0.95, src="x",
+                            vertical=True, cols=cols)
+
+        def alpha(r, x: int, y: int) -> int:          # 原文块坐标 → 图片坐标
+            return r.image.pixelColor(x - r.dx, y - r.dy).alpha()
+
+        for text in ("等等！船要开了！", "Go!"):
+            r = Renderer(StyleConfig()).get(bubble(text))
+            self.assertEqual(alpha(r, 78, 200), 0, f"{text}：短的那列下面、方块的角上不画底板")
+            self.assertGreater(alpha(r, 60, 120), 0, f"{text}：原文的右列盖住")
+            self.assertGreater(alpha(r, 18, 200), 0, f"{text}：原文的左列盖住")
+        img = r.image                                 # 横排的译文（英文）：在气泡里左右居中
+        ink = [x for x in range(img.width()) for y in range(img.height())
+               if img.pixelColor(x, y).alpha() > 200 and img.pixelColor(x, y).red() < 100]
+        self.assertTrue(ink)
+        self.assertLess(abs((min(ink) + max(ink)) / 2 - img.width() / 2), 4, "横排的译文在气泡里居中")
+
     def test_long_word_widens_plate_instead_of_splitting(self) -> None:
         rect = (100, 100, 160, 134)                 # “装備”两个字那么宽，右边不是纯色空白
         r = Renderer(StyleConfig()).get(item("Equipment", rect, (100, 100, 160, 200), stretch=700))

@@ -1141,6 +1141,8 @@ def main() -> int:
                             d["room"] = list(it.room)
                             d["font_px"] = img.font_px
                             d["squash"] = img.squash
+                            d["em"] = round(it.em, 1)
+                            d["cols"] = [list(c) for c in it.cols]     # 竖排各列字的墨迹（相对原文块）
                         if req.get("refs") and it.ref is not None:
                             import base64
                             import cv2
@@ -1193,7 +1195,7 @@ def main() -> int:
                                 "text": b.text[:40] if req.get("text") else ""})
                 return {"n": len(out), "blocks": out[:50]}
             if cmd == "composite":
-                return self._composite(req["path"], tuple(req.get("region") or self.state.mirror))
+                return self._composite(req["path"], tuple(req.get("region") or self.state.mirror), bool(req.get("orig")))
             if cmd == "record_start":
                 # 按用户看到的样子录视频（演示、宣传片的实录素材）；见 recorder.py
                 from .recorder import Recorder
@@ -1280,9 +1282,10 @@ def main() -> int:
                 sw.setStyleSheet(style)
             self._record_styles.clear()
 
-        def _composite(self, path: str, region: tuple) -> dict:
-            """用户此刻看到的画面（截屏 + 译文 + 边框），测试看效果用。"""
-            self._grab_region(region, translated=True, with_frame=True).save(path)
+        def _composite(self, path: str, region: tuple, orig: bool = False) -> dict:
+            """用户此刻看到的画面（截屏 + 译文 + 边框），测试看效果用；orig 时只要屏幕原样（排查识别用）。"""
+            (self._grab_region(region, translated=False) if orig else
+             self._grab_region(region, translated=True, with_frame=True)).save(path)
             return {"ok": True, "path": path}
 
         def shutdown(self) -> None:

@@ -2004,8 +2004,12 @@ class Engine(threading.Thread):
         content = canvas.to_content(r_now)
         dx, dy = content[0] - r0[0], content[1] - r0[1]
         lines = [(geom.shift(ln.rect, dx, dy), ln.text) for ln in ob.lines]
+        cols: list[Rect] = []
         if ob.vertical:
-            lines = [(content, text)]    # 竖排（漫画气泡）：几列合成一行，译文横着排在这几列占的地方
+            # 竖排（漫画气泡）：几列合成一行，译文排在这几列占的地方；记下每个字的墨迹（相对块左上角），底板只盖这些字和译文
+            cols = [(c[0] - content[0], c[1] - content[1], c[2] - content[0], c[3] - content[1])
+                    for ln in ob.lines for c in (geom.shift(q, dx, dy) for q in (ln.ink or [ln.rect]))]
+            lines = [(content, text)]
         key = textutil.cache_key(text)
         # 这次的结果只是把已有的块重新分了组（几行合成一段、一段拆成几行，或者只识别到其中一部分），
         # 而这些块的像素都没变：原样保留，不换块、不重新翻译。含有已有块没盖住的新行时才按新的分组替换
@@ -2088,12 +2092,18 @@ class Engine(threading.Thread):
         ems = sorted(font_em(Line(lr, t)) for lr, t in lines)
         line_h, em = hs[len(hs) // 2], ems[(len(ems) - 1) // 2]
         if ob.vertical:
-            # 竖排一列的宽度就是一个字的大小：字号按列宽算（按框高算会大得离谱）
+            # 竖排一列的宽度就是一个字的大小：字号按列宽算（按框高算会大得离谱）。
+            # 检测框左右多出的那截随列长短变（长的一列多出好几像素，译文会比原文大一圈）：有墨迹宽度时
+            # 也按墨迹估（一个汉字的墨迹约占字号的九成多），取两者小的
             col_w = sorted(ln.rect[2] - ln.rect[0] for ln in ob.lines)[len(ob.lines) // 2]
             line_h, em = round(col_w * 1.25), col_w * 0.95
+            ink_w = sorted(max(q[2] for q in ln.ink) - min(q[0] for q in ln.ink) - 2 for ln in ob.lines if ln.ink)
+            if ink_w:
+                em = min(em, ink_w[len(ink_w) // 2] / 0.92 / 0.74)
         b = Block(canvas, content, lines, text, key, ref, bg, fg, line_h, em,
                   job_id=st.job.job_id, lum_fg=fg, lum_bg=bg)
         b.vertical = ob.vertical
+        b.cols = cols
         b.ok_rect = verified
         b.room_bottom = content[3]
         win = canvas.window()
@@ -2820,7 +2830,7 @@ class Engine(threading.Thread):
                                               b.line_h, len(b.lines), b.em, b.ref, b.text,
                                               stretch=sr[2] + b.extra_max if b.extra_max else 0,
                                               soft=sr[3] + b.plain_below if b.plain_below >= 0 else None,
-                                              vertical=b.vertical))
+                                              vertical=b.vertical, cols=tuple(b.cols)))
                     elif any(geom.overlaps(c, sr) for c in clips):
                         # 只报露出来的：被别的窗口整块挡住的不算“在翻译”（范围外的窗口永远不会翻译）
                         pending.append((sr, clips, b.state == "failed"))

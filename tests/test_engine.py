@@ -589,6 +589,35 @@ class VerticalBlockTest(unittest.TestCase):
         self.assertEqual(b.lines, [(b.rect, b.text)], "两列合成一行")
         self.assertAlmostEqual(b.em, 52 * 0.95)
         self.assertEqual(b.line_h, round(52 * 1.25))
+        self.assertEqual(b.cols, [(56, 0, 108, 160), (0, 2, 52, 260)], "各列的位置（相对块左上角）：底板只盖这几列")
+
+    def test_vertical_plates_and_size_follow_the_ink(self) -> None:
+        # 检测框左右多出好几像素（长的一列更多）：底板只盖各列字的墨迹，字号也按墨迹宽度估（不比按框宽估的大）
+        from deskmirror.ocr_worker import OcrBlockOut, OcrLineOut
+        page = text_page(3000, W, 6)
+        eng, m, win, sc = make_engine(page[0:H])
+        eng.visible = {1: [(0, 0, W, H)]}
+        eng.set_mirrors([(0, 0, W, H)])
+        m.bgra = np.dstack([m.cur] * 3 + [np.full_like(m.cur, 255)])
+        eng.win_canvas[1], eng.win_rects[1], eng.z_order = win, (0, 0, W, H), [1]
+        jobs = []
+
+        class Ocr:
+            def submit(self, job) -> None:
+                jobs.append(job)
+
+        eng.ocr, eng.ocr_state = Ocr(), "ready"
+        right, left = (460, 200, 512, 360), (404, 202, 456, 460)
+        ob = OcrBlockOut((404, 200, 512, 460),
+                         [OcrLineOut(right, "待って！", 0.9, ink=[(470, 204, 500, 240), (480, 330, 490, 356)]),
+                          OcrLineOut(left, "船が出ちゃう！", 0.98, ink=[(412, 206, 444, 240), (424, 420, 432, 456)])],
+                         "待って！船が出ちゃう！", vertical=True)
+        eng._submit_ocr(m, (380, 180, 540, 480))
+        eng._accept_block(eng.jobs[jobs[-1].job_id], ob)
+        b = next(b for b in eng.blocks.values() if b.text == "待って！船が出ちゃう！")
+        self.assertEqual(b.cols, [(66, 4, 96, 40), (76, 130, 86, 156), (8, 6, 40, 40), (20, 220, 28, 256)],
+                         "每个字的墨迹（相对块左上角）")
+        self.assertAlmostEqual(b.em, 30 / 0.92 / 0.74, msg="整列墨迹宽 30（去掉两边各留的 1 像素），比按框宽估的 52×0.95 小")
 
 
 class ChatSwitchTest(unittest.TestCase):

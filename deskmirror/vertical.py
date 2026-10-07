@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import cv2
 import numpy as np
 
 from .geom import Rect
@@ -71,12 +72,47 @@ def _runs(on: np.ndarray) -> list[list[int]]:
     return out
 
 
-def column_cells(crop: np.ndarray) -> tuple[list[np.ndarray], list[bool], int]:
-    """一列字的截图（BGR）→ 单字方格、每格是不是一整条竖线（已转成横的）、底色。"""
+def _beyond(line: np.ndarray, far: bool, upright: bool) -> np.ndarray:
+    """气泡边框的一笔连同它外侧的整片：横的弧线外侧是它下面（far）或上面，竖的弧线外侧是它右边（far）或左边。"""
+    h, w = line.shape
+    ys, xs = np.nonzero(line)
+    if upright:
+        ys, xs, h, w = xs, ys, w, h                  # 竖的按行看：每行从弧线往外
+    if far:
+        edge = np.full(w, h)
+        np.minimum.at(edge, xs, ys)
+        out = np.arange(h)[:, None] >= edge[None, :]
+    else:
+        edge = np.full(w, -1)
+        np.maximum.at(edge, xs, ys)
+        out = np.arange(h)[:, None] <= edge[None, :]
+    return out.T if upright else out
+
+
+def column_cells(crop: np.ndarray) -> tuple[list[np.ndarray], list[bool], int, list[Rect]]:
+    """一列字的截图（BGR）→ 单字方格、每格是不是一整条竖线（已转成横的）、底色、
+    每个字的墨迹范围（相对截图；不含框进来的气泡边框，含“！”的点这类小点）。"""
     gray = crop.mean(axis=2)
     h, w = gray.shape
     bg = int(np.median(np.concatenate([gray[0], gray[-1], gray[:, 0], gray[:, -1]])))
     ink = np.abs(gray - bg) > 60
+    # 字离气泡边框近时，检测框常把一段弧形边框框进去：从上下边伸进来、横跨大半列宽（或从角上斜穿过去）、
+    # 或者左右横穿整列的细线是边框，连同它外侧（气泡外面的网点纸、背景）整片不要；贴着框边的零星几个像素（碎点）也不要。
+    # 按连通的笔画算，和字分开：贴着边框的“！”的点还在。列靠近气泡左右两侧时弧线较陡，按线细不细判断
+    n, lab, stats, _ = cv2.connectedComponentsWithStats(ink.astype(np.uint8), connectivity=8)
+    drop = np.zeros_like(ink)
+    for i in range(1, n):
+        x, y, bw, bh, area = (int(v) for v in stats[i])
+        thin = bh < 0.3 * w or area < 0.15 * w * max(bw, bh)
+        at_tb, at_lr = y == 0 or y + bh == h, x == 0 or x + bw == w
+        if thin and ((at_tb and (bw > 0.6 * w or at_lr)) or (x == 0 and bw == w)):
+            drop |= _beyond(lab == i, x + bw / 2 > w / 2 if bh > bw else y + bh / 2 > h / 2, bh > bw)
+        elif (at_tb or at_lr) and area <= max(2, 0.003 * w * w):
+            drop |= lab == i
+    if drop.any():
+        ink &= ~drop
+        crop = crop.copy()                           # 别改动调用方的整张截图
+        crop[drop] = bg
     segs = []
     for a, b in _runs(ink.any(axis=1)):
         g = ink[a:b]
@@ -127,7 +163,17 @@ def column_cells(crop: np.ndarray) -> tuple[list[np.ndarray], list[bool], int]:
         cell[oy:oy + bh, ox:ox + bw] = g
         cells.append(cell)
         bars.append(bar)
-    return cells, bars, bg
+    # 每个字的墨迹范围：底板按字盖（一列两头常是窄的“！”“…”，按整列最宽的字画方底板，角会伸到弯进来的气泡边框上）。
+    # 挨着的小点也算上：太小、切字时当杂点丢掉的“！”的点、“。”也要被底板盖住
+    lo, hi = (segs[0][0] - 0.5 * w, segs[-1][1] + 0.5 * w) if segs else (0, 0)
+    spare = [r for r in _runs(ink.any(axis=1))
+             if r[1] > lo and r[0] < hi and not any(s[0] <= r[0] and r[1] <= s[1] for s in segs)]
+    boxes: list[Rect] = []
+    for a, b in sorted(segs + spare):
+        xs = np.flatnonzero(ink[a:b].any(axis=0))
+        if xs.size:
+            boxes.append((int(xs[0]), a, int(xs[-1]) + 1, b))
+    return cells, bars, bg, boxes
 
 
 def row_image(cells: list[np.ndarray], bg: int) -> np.ndarray:

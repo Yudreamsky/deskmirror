@@ -39,6 +39,7 @@ class OcrLineOut:
     rect: Rect                   # 虚拟桌面坐标
     text: str
     score: float
+    ink: list[Rect] | None = None   # 竖排的一列：每个字的墨迹范围（底板按字盖，字号按整列墨迹的宽度估）
 
 
 @dataclass
@@ -150,9 +151,18 @@ def _vertical_blocks(engine, img: np.ndarray, cols: list[Rect], ox: int, oy: int
 
     groups = group_columns(cols)
     cols_cells = []
+    tight: list[Rect] = []
+    inks: list[list[Rect]] = []
     for g in groups:
         for r in g:
-            cols_cells.append(column_cells(img[r[1]:r[3], r[0]:r[2]]))
+            cells, bars, bg, boxes = column_cells(img[r[1]:r[3], r[0]:r[2]])
+            cols_cells.append((cells, bars, bg))
+            # 检测框四周常多出好几像素，还会框进气泡的边框：每列上下只取字占的那一段（左右留着检测框的宽度排译文），
+            # 另记下每个字的墨迹（底板按字盖、字号按它估），按检测框画底板会盖掉边框
+            top, bottom = (min(q[1] for q in boxes), max(q[3] for q in boxes)) if boxes else (0, r[3] - r[1])
+            tight.append((r[0], r[1] + max(0, top - 1), r[2], min(r[3], r[1] + bottom + 1)))
+            inks.append([(r[0] + max(0, q[0] - 1), r[1] + max(0, q[1] - 1), min(r[2], r[0] + q[2] + 1),
+                          min(r[3], r[1] + q[3] + 1)) for q in boxes])
     rows = [row_image(cells, bg) for cells, _bars, bg in cols_cells if cells]
     res = iter(_recognize_images(engine, rows) if rows else [])
     texts: list[tuple[str, float] | None] = []
@@ -181,15 +191,16 @@ def _vertical_blocks(engine, img: np.ndarray, cols: list[Rect], ox: int, oy: int
     k = 0
     for g in groups:
         lines, kinds = [], []
-        for r in g:
-            got = texts[k]
+        for _r in g:
+            got, r, ink = texts[k], tight[k], inks[k]
             k += 1
             if got is None:
                 continue
             text, score = fix_ocr(got[0]), got[1]
             kind = line_kind(text, score)
             if kind:
-                lines.append(OcrLineOut((r[0] + ox, r[1] + oy, r[2] + ox, r[3] + oy), text, score))
+                lines.append(OcrLineOut((r[0] + ox, r[1] + oy, r[2] + ox, r[3] + oy), text, score,
+                                        ink=[(q[0] + ox, q[1] + oy, q[2] + ox, q[3] + oy) for q in ink] or None))
                 kinds.append(kind)
         if lines:
             rect = (min(ln.rect[0] for ln in lines), min(ln.rect[1] for ln in lines),

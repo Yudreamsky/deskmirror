@@ -8,13 +8,16 @@
 （不超过相邻文字块）→ 再压扁（最扁 min_squash，中日韩文字最多八成）放进原来的高度 → 下面是边框、图片、在动的画面时
 再缩小一些（最小到原字号的六成），还不行才盖过去 → 仍放不下就截断并在末尾标“…”，鼠标停留时显示全文。
 借来的地方用多少占多少，底板只比最长的一行宽一点。
+竖排的漫画气泡：底板只盖原来的每个字和译文实际占的地方（不铺满整块，免得方角伸出椭圆气泡、盖掉边框），
+横排的译文每行居中。
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter, QTextLayout, QTextOption
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter, QRegion, QTextLayout, QTextOption
 
 from ..config import StyleConfig
 from ..scene import DrawItem
@@ -89,6 +92,24 @@ def _vertical_columns(text: str, per_col: int) -> list[list[str]]:
                     cols.append([])
                 cols[-1].append(c)
     return [c for c in cols if c]
+
+
+def _fill_plates(p: QPainter, rects: list[tuple[float, float, float, float]], color: QColor) -> None:
+    """几块底板合成一块再填色：重叠的地方不会因为半透明叠了两层而更深。"""
+    region = QRegion()
+    for x0, y0, x1, y1 in rects:
+        l, t, r, b = math.floor(x0), math.floor(y0), math.ceil(x1), math.ceil(y1)
+        if r > l and b > t:
+            region = region.united(QRegion(l, t, r - l, b - t))
+    p.save()
+    p.setClipRegion(region)
+    p.fillRect(QRectF(0, 0, p.device().width(), p.device().height()), color)
+    p.restore()
+
+
+def _col_plates(item: DrawItem) -> list[tuple[float, float, float, float]]:
+    """竖排原文每个字的底板（图片坐标：图片左上角在原文块左上角往外 PAD 处），四边各多盖 PAD。"""
+    return [(c[0], c[1], c[2] + 2 * PAD, c[3] + 2 * PAD) for c in item.cols]
 
 
 def _squashes(lo: float) -> list[float]:
@@ -177,16 +198,24 @@ class Renderer:
             p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
             bg = QColor(*item.bg)
             bg.setAlphaF(st.plate_opacity)
-            p.fillRect(QRectF(0, 0, img.width(), img.height()), bg)
-            p.setFont(font)
-            p.setPen(QColor(*item.fg))
             right = PAD + (w + need_w) / 2 - px              # 最右一列的左边（几列在原文的地方左右居中）
+            glyphs = []
             for i, col in enumerate(cols):
                 x = right - i * col_w
-                y = PAD
-                for ch in col:
-                    p.drawText(QPointF(x + (px - fm.horizontalAdvance(ch)) / 2, y + (step - fm.height()) / 2 + fm.ascent()), ch)
-                    y += step
+                for j, ch in enumerate(col):
+                    glyphs.append((ch, x + (px - fm.horizontalAdvance(ch)) / 2,
+                                   PAD + j * step + (step - fm.height()) / 2 + fm.ascent()))
+            if item.cols:
+                # 底板只盖原文的字和译文的字（各自的墨迹）
+                ink = [(gx, gy, fm.boundingRect(ch)) for ch, gx, gy in glyphs]
+                _fill_plates(p, _col_plates(item) + [(gx + br.left() - PAD, gy + br.top() - PAD, gx + br.right() + PAD,
+                                                      gy + br.bottom() + PAD) for gx, gy, br in ink], bg)
+            else:
+                p.fillRect(QRectF(0, 0, img.width(), img.height()), bg)
+            p.setFont(font)
+            p.setPen(QColor(*item.fg))
+            for ch, gx, gy in glyphs:
+                p.drawText(QPointF(gx, gy), ch)
             p.end()
             return Rendered(img, -PAD, -PAD, img.width(), img.height(), False, px)
         return None
@@ -324,7 +353,6 @@ class Renderer:
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         bg = QColor(*item.bg)
         bg.setAlphaF(st.plate_opacity)
-        p.fillRect(QRectF(0, 0, img_w, img_h), bg)
         p.setFont(font)
         p.setPen(QColor(*item.fg))
         # 单行：在原文字块里竖直居中；多行：第一行对齐原文第一行，行距贴近原文。
@@ -336,21 +364,31 @@ class Renderer:
             top = PAD + max(0.0, (h - ((len(spans) - 1) * pitch + fm.height())) / 2)
         else:
             top = PAD + max(0.0, (item.line_h - fm.height()) / 2)
+        drawn = []
         for i, (start, length) in enumerate(spans):
             line = text[start:start + length].rstrip()
             if truncated and i == len(spans) - 1:
                 line = fm.elidedText(line + "……", Qt.TextElideMode.ElideRight, plate_w / sx)
                 if not line.endswith("…"):
                     line = line[:-1] + "…"
-            y = top + i * pitch + fm.ascent()
+            adv = fm.horizontalAdvance(line) * sx
+            x = PAD + max(0.0, (plate_w - adv) / 2) if item.cols else PAD     # 竖排气泡里的横排译文：每行居中
+            drawn.append((line, x, top + i * pitch, adv))
+        if item.cols:
+            _fill_plates(p, _col_plates(item) + [(x - PAD, y0 - PAD, x + adv + PAD, y0 + fm.height() + PAD)
+                                                 for _line, x, y0, adv in drawn], bg)
+        else:
+            p.fillRect(QRectF(0, 0, img_w, img_h), bg)
+        for line, x, y0, _adv in drawn:
+            y = y0 + fm.ascent()
             if sx < 1.0:
                 p.save()
-                p.translate(PAD, y)
+                p.translate(x, y)
                 p.scale(sx, 1.0)                    # 横向压扁（字高不变）
                 p.drawText(QPointF(0, 0), line)
                 p.restore()
             else:
-                p.drawText(QPointF(PAD, y), line)
+                p.drawText(QPointF(x, y), line)
         if truncated:
             # 右下角小三角：这块没显示全，鼠标停在上面可以看全文
             c = QColor(*item.fg)
