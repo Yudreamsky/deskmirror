@@ -93,6 +93,27 @@ https://github.com/user-attachments/assets/949fc01b-9277-44ab-8253-7a7a5162d22c
 | 이미지 번역(만화, 장식 글꼴, 그림 속 글자) | Ctrl+Alt+V 또는 탭의 'Image' |
 | 설정 | 탭의 ⚙ 또는 트레이 아이콘을 오른쪽 클릭 |
 
+## AI에게 설정 맡기기
+
+모든 설정은 명령줄에서도 바꿀 수 있어서, Claude Code나 Codex 같은 AI 어시스턴트가 처음부터 끝까지 설정해 줄 수 있습니다. 실행 중인 DeskMirror는 바뀐 설정을 1초 안에 반영합니다.
+
+- 다운로드 버전: DeskMirror 폴더의 `DeskMirrorCLI.exe`. 소스에서 실행할 때: `.venv\Scripts\python -m deskmirror`.
+- `config keys`는 모든 설정의 설명과 가능한 값을 보여 주고, `config list`, `config get`, `config set`, `config reset`으로 확인하고 바꿉니다. `service`, `models`, `test`로 번역 서비스를 바꾸고, 모델 목록을 보고, 작동하는지 확인합니다. `--json`을 붙이면 JSON으로 출력합니다.
+- API 키는 표준 입력으로 읽습니다(`config set llm.api_key -`). 명령줄에 남지 않습니다. Windows 계정으로 암호화해 저장하고, 언제나 `sk-…1234`처럼만 표시합니다.
+
+예를 들어 DeepSeek으로 바꾸고 한국어로 번역하려면:
+
+```bat
+DeskMirrorCLI.exe service deepseek
+DeskMirrorCLI.exe config set llm.api_key -
+DeskMirrorCLI.exe config set target_lang ko first_run_tip false
+DeskMirrorCLI.exe test
+```
+
+(두 번째 줄에서 API 키를 붙여 넣으라고 묻습니다. 입력하는 내용은 표시되지 않습니다.) AI 어시스턴트에게 이렇게 부탁해도 됩니다:
+
+> DeskMirror를 설정해 줘. D:\DeskMirror에 있어. 먼저 `DeskMirrorCLI.exe --help`와 `DeskMirrorCLI.exe config keys --json`으로 설정할 수 있는 항목을 확인해. 번역 서비스는 DeepSeek(API 키는 줄 테니 `config set llm.api_key -`로 넣어 줘), 한국어로 번역하고, 마지막에 `DeskMirrorCLI.exe test`로 확인해 줘.
+
 ## 개인정보
 
 - 클라우드 번역 서비스를 쓰면 화면에서 인식한 글자와 창 제목이 그 서비스로 전송됩니다. 신경 쓰인다면 로컬 Ollama를 쓰거나, 설정에서 미리 번역 범위를 좁히고 번역하지 않을 프로그램을 추가하세요.

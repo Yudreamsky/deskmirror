@@ -591,4 +591,211 @@ EN: dict[str, str] = {
         'original text. Please send the files in the logs folder next to the program to the author.',
     '这台电脑（Windows 10）上底板总是不透明':
         'On this PC (Windows 10) the plates are always opaque',
+    '魔镜的位置：拖魔镜来改':
+        "the mirror's position: drag the mirror to change it",
+    '另外开的魔镜：在魔镜标签上右键来开、关':
+        "extra mirrors: open and close them by right-clicking a mirror's tab",
+    '术语表：用 glossary 命令改':
+        'the glossary: use the glossary command',
+    '当天用量：程序自己记':
+        "today's usage: counted by the program",
+    '原文语言：auto = 自动识别；也可以指定（ko 会换用韩文识别模型）':
+        'Source language: auto = detect; or set one (ko switches to the Korean recognition model)',
+    '译成的语言（你的母语）':
+        'Language to translate into (your native language)',
+    '界面语言：zh、en；空着 = 按译成的语言自动选':
+        'Interface language: zh or en; empty = chosen from the target language',
+    '启动时弹出新手指南（看完自动关掉）':
+        'Show the getting-started guide at startup (turns itself off once you finish it)',
+    '翻译服务的接口：ollama = 本机 Ollama；openai = OpenAI 兼容接口（DeepSeek、通义千问、OpenAI 等）':
+        'Translation service API: ollama = Ollama on this PC; openai = OpenAI-compatible API (DeepSeek, Qwen, OpenAI…)',
+    '翻译服务的地址，比如 https://api.deepseek.com、http://127.0.0.1:11434':
+        'Translation service address, e.g. https://api.deepseek.com or http://127.0.0.1:11434',
+    '翻译用的模型名（models 命令列出服务现有的模型）':
+        'Model used for translation (the models command lists what the service offers)',
+    '翻译服务的 API Key（本机 Ollama 不用填）；用 Windows 账户加密存在本机':
+        'API key of the translation service (not needed for Ollama on this PC); stored on this PC, encrypted with your Windows account',
+    '译文的随机程度，越低越稳定':
+        'How random translations are; lower is steadier',
+    '一次翻译请求最多等多少秒':
+        'How many seconds to wait for one translation request at most',
+    '同时发出的翻译请求数（本机 Ollama 用 1，云端服务 2～4）':
+        'Translation requests in flight at once (1 for Ollama on this PC, 2–4 for cloud services)',
+    '一次请求最多合并多少字':
+        'Most characters combined into one request',
+    '一次请求最多合并多少段文字':
+        'Most pieces of text combined into one request',
+    '关掉模型的“思考”（翻译用不着，更快）':
+        'Turn off the model\'s "thinking" (translation doesn\'t need it; faster)',
+    'Ollama 的上下文长度（和看图翻译用同一个模型时要一样）':
+        "Ollama context length (keep it the same as image translation's when they share a model)",
+    'Ollama 把模型留在显存里多久，比如 30m':
+        'How long Ollama keeps the model in video memory, e.g. 30m',
+    '术语前后一致：附上本窗口里含同样词语的已有译文作参考':
+        'Consistent terms: include earlier translations from the same window that contain the same words',
+    '文字识别用显卡（gpu，DirectML）还是 cpu':
+        'Run text recognition on the graphics card (gpu, DirectML) or the cpu',
+    '用 CPU 识别时的线程数':
+        'Threads used for recognition on the CPU',
+    '按住它在镜框里任意位置拖动就能移动魔镜，比如 Ctrl+Alt':
+        'Hold these to move the mirror by dragging anywhere inside it, e.g. Ctrl+Alt',
+    '按住看原文':
+        'Hold to see the original',
+    '镜框内重新识别、重新翻译':
+        'Recognize and translate the inside of the frame again',
+    '历史面板（回看刚才的字幕、对话）':
+        'History panel (recent subtitles and dialogue)',
+    '译文的字体':
+        'Font for translations',
+    '放不下时字最小缩到多少像素':
+        "Smallest font size (pixels) when a translation doesn't fit",
+    '放不下时最多缩到原字号的多少':
+        "Smallest scale of the original font size when a translation doesn't fit",
+    '放不下时最多横向压扁到原宽的多少':
+        "Narrowest horizontal squash when a translation doesn't fit",
+    '底板不透明度（1 = 完全盖住原文；Windows 10 上总是 1）':
+        'Plate opacity (1 = covers the original completely; always 1 on Windows 10)',
+    '魔镜边框的颜色，比如 #3D8BFD':
+        "Colour of the mirror's border, e.g. #3D8BFD",
+    '区域静止多久后才识别新文字（毫秒）':
+        'How long an area must stay still before new text is recognized (ms)',
+    '视频、游戏画面多久抓拍识别一次（毫秒）':
+        'How often moving pictures (video, games) are snapshotted and recognized (ms)',
+    '字幕换句时旧译文最多留多久（毫秒）':
+        "How long the previous subtitle's translation may stay when the line changes (ms)",
+    '预先翻译时由近到远每一圈多宽（像素）':
+        'Width of each ring when pre-translating outward from the mirror (pixels)',
+    '记住的文字块最多多少个':
+        'Most text blocks kept',
+    '内存里的译文缓存最多多少条':
+        'Most translations cached in memory',
+    '用 DXGI 截屏（更快；关掉改用 GDI）':
+        'Capture the screen with DXGI (faster; off = GDI)',
+    '处理所有屏幕（默认只处理魔镜所在的屏幕）':
+        'Process every screen (by default only the screen with the mirror)',
+    '滚动时用学到的滚轮曲线提前移动译文':
+        'Move translations ahead while scrolling, using the learned wheel curve',
+    '滚动预测的提前量（毫秒）':
+        'How far ahead scrolling is predicted (ms)',
+    '预先翻译的范围：screen = 整块屏幕；window = 魔镜所在的窗口；near = 镜框附近':
+        'What gets pre-translated: screen = the whole screen; window = the window under the mirror; near = around the frame',
+    'near 时镜框外多远以内也预先翻译（像素）':
+        'With near: how far outside the frame to pre-translate (pixels)',
+    '不翻译的程序（exe 文件名，逗号分隔）':
+        'Programs not to translate (exe names, comma-separated)',
+    '窗口标题里带这些字就不翻译（逗号分隔）':
+        "Don't translate windows whose title contains these (comma-separated)",
+    '聊天软件也翻译（默认不翻；密码管理器、网银始终不翻）':
+        'Translate chat apps too (off by default; password managers and online banking are never translated)',
+    '记住译文：加密存在本机，同样的文字下次直接用':
+        'Remember translations: stored encrypted on this PC and reused next time',
+    '看图翻译的接口：ollama 或 openai':
+        'Image translation API: ollama or openai',
+    '看图翻译服务的地址':
+        'Image translation service address',
+    '看图翻译用的模型（要能看图），比如 gemma4:12b':
+        'Model for image translation (must read images), e.g. gemma4:12b',
+    '看图翻译服务的 API Key（本机 Ollama 不用填）':
+        'API key of the image translation service (not needed for Ollama on this PC)',
+    '看图翻译最多等多少秒':
+        'How many seconds to wait for image translation at most',
+    '发图前把长边缩到多少像素':
+        "Shrink the picture's longer side to this many pixels before sending",
+    'Ollama 的上下文长度':
+        'Ollama context length',
+    '本机 Ollama':
+        'Ollama on this PC',
+    '桌面魔镜命令行（{version}）：不打开界面就能看、改设置，改完正在运行的魔镜一秒内自动生效。\n\n  {p} config list                     全部设置\n  {p} config get 名字                  一项设置，比如 llm.model\n  {p} config set 名字 值 [名字 值…]     改设置；值写 - 表示从标准输入读（API Key 这样传，不留在命令行里）\n  {p} config reset 名字                恢复默认值\n  {p} config keys                     每项设置的说明、能取的值\n  {p} config path                     配置文件在哪\n  {p} service [服务名]                 列出预设的翻译服务 / 换成其中一个（deepseek、qwen、openai、ollama…）\n  {p} models [--vision]               翻译服务（或看图翻译服务）现有的模型\n  {p} test                            试一下翻译服务能不能用（会翻译一句很短的话）\n  {p} glossary list | add 原文 译文 [--app 程序.exe] | remove 原文 [--app 程序.exe]\n  {p} version\n\n加 --json 输出 JSON（给程序、AI 助手读）。':
+        'DeskMirror command line ({version}): view and change settings without opening a window; a running mirror picks up changes within a second.\n\n  {p} config list                     all settings\n  {p} config get NAME                 one setting, e.g. llm.model\n  {p} config set NAME VALUE [NAME VALUE…]  change settings; a VALUE of - is read from standard input (use it for API keys so they stay off the command line)\n  {p} config reset NAME               back to the default\n  {p} config keys                     what each setting means and which values it takes\n  {p} config path                     where the settings file is\n  {p} service [NAME]                  list the preset translation services / switch to one (deepseek, qwen, openai, ollama…)\n  {p} models [--vision]               models offered by the translation (or image translation) service\n  {p} test                            check that the translation service works (translates one short sentence)\n  {p} glossary list | add SOURCE TARGET [--app program.exe] | remove SOURCE [--app program.exe]\n  {p} version\n\nAdd --json for JSON output (for programs and AI assistants).',
+    '颜色要写成 #RRGGBB，比如 #3D8BFD':
+        'Write the colour as #RRGGBB, e.g. #3D8BFD',
+    '地址要以 http:// 或 https:// 开头':
+        'The address must start with http:// or https://',
+    '模型名不能为空':
+        "The model name can't be empty",
+    '正在运行的魔镜一秒内会自动载入。':
+        'The running mirror will pick this up within a second.',
+    '魔镜没在运行，下次启动时生效。':
+        "DeskMirror isn't running; this takes effect the next time it starts.",
+    '这个服务没有默认模型：先用 models 命令看看有哪些，再 config set llm.model 名字。':
+        'This service has no default model: list them with the models command, then config set llm.model NAME.',
+    '还要设 API Key：config set llm.api_key -（从标准输入读）。':
+        'Set the API key too: config set llm.api_key - (read from standard input).',
+    '；是不是：{keys}':
+        '; did you mean: {keys}',
+    '没有这项设置：{key}{hint}（config keys 列出全部）':
+        'No such setting: {key}{hint} (config keys lists them all)',
+    '用法：config get 名字':
+        'Usage: config get NAME',
+    '用法：config set 名字 值 [名字 值…]':
+        'Usage: config set NAME VALUE [NAME VALUE…]',
+    '用法：config reset 名字':
+        'Usage: config reset NAME',
+    '翻译服务换成了 {name}（{url}）。':
+        'The translation service is now {name} ({url}).',
+    'API Key 还是原来那个服务的，换了服务商要重新设：config set llm.api_key -。':
+        "The API key is still the previous service's; set the new one: config set llm.api_key -.",
+    '--app 后面要跟程序名，比如 game.exe':
+        '--app needs a program name, e.g. game.exe',
+    '（术语表是空的）':
+        '(the glossary is empty)',
+    '用法：glossary add 原文 译文 [--app 程序.exe]':
+        'Usage: glossary add SOURCE TARGET [--app program.exe]',
+    '术语表最多 500 条':
+        'The glossary holds at most 500 terms',
+    '用法：glossary remove 原文 [--app 程序.exe]':
+        'Usage: glossary remove SOURCE [--app program.exe]',
+    'glossary 没有这个子命令：{sub}':
+        'glossary has no subcommand {sub}',
+    '按回车键关闭':
+        'Press Enter to close',
+    '{key} 不能用命令改（{why}）':
+        "{key} can't be changed here ({why})",
+    '{key} 是开关，只能是 true 或 false':
+        '{key} is a switch: true or false',
+    '{key} 不接受这个值':
+        "{key} doesn't accept this value",
+    '没有标准输入，读不到 {key}':
+        'No standard input to read {key} from',
+    '输入 {key}（输入时不显示）：':
+        'Enter {key} (hidden as you type): ',
+    '{keys} 要重启魔镜才生效。':
+        '{keys} take effect after DeskMirror restarts.',
+    '已恢复默认：{key} = {value}':
+        'Back to default: {key} = {value}',
+    '没有这个预设服务：{sid}（不带参数列出全部）':
+        'No such preset service: {sid} (run it without a name to list them)',
+    '没取到模型列表：{error}':
+        "Couldn't get the model list: {error}",
+    '已加入术语表：{src} → {dst}':
+        'Added to the glossary: {src} → {dst}',
+    '已从术语表删掉：{src}':
+        'Removed from the glossary: {src}',
+    '{key} 只能是：{allowed}':
+        '{key} must be one of: {allowed}',
+    '{key} 要在 {lo} 到 {hi} 之间':
+        '{key} must be between {lo} and {hi}',
+    '（要重启）':
+        ' (needs a restart)',
+    'config 没有这个子命令：{sub}':
+        'config has no subcommand {sub}',
+    '术语表里没有：{src}':
+        'Not in the glossary: {src}',
+    '{key} 要填{what}':
+        '{key} must be {what}',
+    '{key} 要填 JSON 字符串数组，或者用逗号分隔':
+        '{key} takes a JSON array of strings, or a comma-separated list',
+    '已改：{key} = {value}':
+        'Changed: {key} = {value}',
+    '出错了：{error}':
+        'Error: {error}',
+    '整数':
+        'a whole number',
+    '数字':
+        'a number',
+    '没有这个命令：{cmd}':
+        'No such command: {cmd}',
+    '设置已按配置文件更新（命令行或 AI 助手改的）。':
+        'Settings were updated from the settings file (changed from the command line or by an '
+        'AI assistant).',
 }

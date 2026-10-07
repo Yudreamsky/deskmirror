@@ -53,6 +53,15 @@ def _keep(entry) -> bool:
 a.binaries = [b for b in a.binaries if _keep(b)] + \
     [(n, str(SYS32 / n), "BINARY") for n in VC_RUNTIME if (SYS32 / n).exists()]
 
+# 命令行 DeskMirrorCLI.exe（带控制台：看、改设置，给 AI 助手和脚本用）：只用到配置、翻译服务这几个模块，不带 Qt、识别
+cli = Analysis(
+    [str(ROOT / "packaging" / "cli_launcher.py")],
+    pathex=[str(ROOT)],
+    excludes=["tkinter", "matplotlib", "IPython", "PySide6", "shiboken6", "numpy", "cv2", "rapidocr", "onnxruntime",
+              "mss", "PIL"],
+)
+cli.binaries = [b for b in cli.binaries if _keep(b)]
+
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
@@ -65,4 +74,15 @@ exe = EXE(
     version=str(ROOT / "build" / "version_info.txt"),
     upx=False,
 )
-coll = COLLECT(exe, a.binaries, a.datas, name="DeskMirror", upx=False)
+cli_exe = EXE(
+    PYZ(cli.pure),
+    cli.scripts,
+    [],
+    exclude_binaries=True,
+    name="DeskMirrorCLI",
+    console=True,
+    icon=str(ROOT / "packaging" / "deskmirror.ico"),
+    version=str(ROOT / "build" / "version_info.txt"),
+    upx=False,
+)
+coll = COLLECT(exe, a.binaries, a.datas, cli_exe, cli.binaries, cli.datas, name="DeskMirror", upx=False)

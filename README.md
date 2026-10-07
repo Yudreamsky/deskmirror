@@ -114,6 +114,33 @@ Common actions:
 | Image translation (comics, stylized text, text in pictures) | Ctrl+Alt+V, or click "Image" on the tab |
 | Settings | Click ⚙ on the tab, or right-click the tray icon |
 
+## Let an AI assistant set it up
+
+Every setting can also be changed from the command line, so an AI assistant such as Claude Code or Codex can do the
+whole setup for you. A running DeskMirror picks up the changes within a second.
+
+- Download version: `DeskMirrorCLI.exe` in the DeskMirror folder. From source: `.venv\Scripts\python -m deskmirror`.
+- `config keys` lists every setting with what it means and which values it takes; `config list`, `config get`,
+  `config set` and `config reset` read and change them; `service`, `models` and `test` switch the translation
+  service, list its models and check that it works. Add `--json` for JSON output.
+- API keys are read from standard input (`config set llm.api_key -`), so they stay off the command line. They are
+  stored encrypted with your Windows account and only ever shown as `sk-…1234`.
+
+For example, to switch to DeepSeek with English translations:
+
+```bat
+DeskMirrorCLI.exe service deepseek
+DeskMirrorCLI.exe config set llm.api_key -
+DeskMirrorCLI.exe config set target_lang en first_run_tip false
+DeskMirrorCLI.exe test
+```
+
+(The second line asks for the key and doesn't show it as you type.) Or just tell your assistant something like:
+
+> Set up DeskMirror for me. It's in D:\DeskMirror: run `DeskMirrorCLI.exe --help` and
+> `DeskMirrorCLI.exe config keys --json` to see what can be set. Use DeepSeek (I'll give you the API key; pass it
+> with `config set llm.api_key -`), translate into English, and check it with `DeskMirrorCLI.exe test`.
+
 ## Privacy
 
 - With a cloud translation service, the text recognized on screen and the window titles are sent to that service.

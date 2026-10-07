@@ -172,8 +172,8 @@ Changes to the recognition device, the screens and wheel prediction take effect 
 
 ## Default parameters (adjustable in deskmirror.json)
 
-Usually there's no need to change these; quit DeskMirror before editing (it writes its settings back to this file
-when it quits).
+Usually there's no need to change these. You can change them from the command line (see the next section) or edit
+the file directly: a running DeskMirror picks up the changes within a second.
 
 | Parameter | Default | Meaning |
 |---|---|---|
@@ -188,6 +188,28 @@ when it quits).
 | `style.min_font_px` / `min_scale` | 11 / 0.75 | When a translation doesn't fit, it shrinks to at most 11 pixels or 75% of the original size. If there is plain space to the right it borrows it (often needed when Chinese or Japanese turns into English; never past text on the right or over pictures), then takes plain space below. Above a panel border, a picture or moving video it first shrinks a little more (down to 60% of the original size), and only then covers it; if it still doesn't fit, it is cut off and marked. English words are kept whole where possible |
 | `style.min_squash` | 0.6 | When English and similar text doesn't fit, it may be narrowed to 60% of its width: first to 80% (barely visible), then the font shrinks; narrower than that only when the text would otherwise spill out of its panel or shrink further. Chinese, Japanese and Korean text stops at 80% |
 | `style.plate_opacity` | 1.0 | Backing opacity (1 = the original is fully covered) |
+
+## Command line (let an AI assistant set it up)
+
+Every setting can be read and changed from the command line, by scripts or by AI assistants such as Claude Code or
+Codex. With the download version use `DeskMirrorCLI.exe` in the DeskMirror folder; from source use
+`.venv\Scripts\python -m deskmirror`:
+
+| Command | What it does |
+|---|---|
+| `config keys` | What each setting means, which values it takes, and whether it needs a restart |
+| `config list` / `config get NAME` | All settings / one setting (API keys show only their first and last characters) |
+| `config set NAME VALUE [NAME VALUE…]` | Change settings; out-of-range or malformed values are rejected rather than quietly changed. A VALUE of `-` is read from standard input (use it for API keys so they stay off the command line) |
+| `config reset NAME` | Back to the default |
+| `service [NAME]` | List the preset translation services, or switch to one: deepseek, qwen, siliconflow, openai, ollama, ollama-openai, lmstudio |
+| `models [--vision]` | Models offered by the translation (or image translation) service |
+| `test` | Try the translation service with one short sentence |
+| `glossary list` / `add SOURCE TARGET [--app program.exe]` / `remove SOURCE` | Manage the glossary |
+
+Add `--json` for JSON output (ASCII only, for programs; on errors it has `"ok": false` and a non-zero exit code). The
+commands change `deskmirror.json`: a running DeskMirror picks up the changes within a second and says so in a tray
+notification; the recognition device, the capture method, the screens covered and wheel prediction take effect after a
+restart, and the command tells you so.
 
 ## Resetting and uninstalling
 

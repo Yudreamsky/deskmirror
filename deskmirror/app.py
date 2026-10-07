@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ctypes
+import json
 import logging
 import logging.handlers
 import os
@@ -194,6 +195,10 @@ def main() -> int:
             self._usage_saved = (cfg.usage.requests, cfg.usage.chars)
             self._usage_timer = QTimer(self, interval=300_000, timeout=self._save_usage)
             self._usage_timer.start()
+            # 配置文件被别的程序（命令行、AI 助手）改了：停稳一会儿再重新载入（自己存的不算）
+            self._cfg_stamp = self._cfg_seen = self._config_stamp()
+            self._last_cfg_check = 0.0
+            self._reload_timer = QTimer(self, singleShot=True, interval=600, timeout=self._reload_config)
             self.engine.start()
             qapp.aboutToQuit.connect(self.shutdown)
             self.debug = None
@@ -901,45 +906,54 @@ def main() -> int:
             def done(result: int) -> None:
                 if result:
                     new = config.validate(dlg.collect())
-                    langs_changed = (new.source_lang, new.target_lang) != (self.cfg.source_lang, self.cfg.target_lang)
-                    ui_changed = new.ui_lang != i18n.ui_lang()
-                    need_restart = (new.ocr.device != self.cfg.ocr.device
-                                    or new.track.all_monitors != self.cfg.track.all_monitors
-                                    or new.track.wheel_predict != self.cfg.track.wheel_predict)
                     new.mirror_rect = list(self.frame.mirror)
                     new.extra_mirrors = [list(f.mirror) for f in self.frames[1:]]
                     new.usage = self.cfg.usage      # 设置窗口打开期间的用量照样累计
-                    old_terms = {(g["src"], g["dst"], g.get("app", "")) for g in self.cfg.glossary}
-                    new_terms = {(g["src"], g["dst"], g.get("app", "")) for g in new.glossary}
-                    changed = sorted({t[0] for t in old_terms ^ new_terms})
-                    self.cfg.__dict__.update(new.__dict__)
-                    if changed:      # 配置换好之后再通知：重新翻译时一定用新术语表
-                        self.engine.inbox.put(("glossary", changed))
-                    for c, act in self.scope_actions.items():
-                        act.setChecked(c == self.cfg.scope.mode)
-                    self.act_chat.blockSignals(True)
-                    self.act_chat.setChecked(self.cfg.scope.translate_chat)
-                    self.act_chat.blockSignals(False)
-                    self.state.renderer.set_style(self.cfg.style)
-                    self.engine.update_llm(self.cfg)
-                    if dlg.clear_memory_requested:
-                        self.engine.inbox.put(("memory_clear", None))
-                    if langs_changed:
-                        self.engine.set_languages()
-                        for f in self.frames:
-                            f.set_lang_label(self._lang_label())
-                    if ui_changed:
-                        self.apply_ui_lang(self.cfg.ui_lang)
-                    self._register_keys()
-                    self._save()
-                    for o in self.overlays:
-                        o.repaint_mirror()
-                    if need_restart:
-                        self.tray.showMessage(tr("桌面魔镜"), tr("识别设备、屏幕范围和滚动跟随的更改在下次启动时生效。"),
-                                              QSystemTrayIcon.MessageIcon.Information, 5000)
+                    self.apply_config(new, clear_memory=dlg.clear_memory_requested)
                 self._settings = None
             dlg.finished.connect(done)
             dlg.show()
+
+        def apply_config(self, new, save: bool = True, clear_memory: bool = False) -> None:
+            """换上新的设置（设置窗口点了确定，或者配置文件被命令行改了），能马上生效的马上生效。"""
+            if not new.ui_lang:
+                new.ui_lang = i18n.ui_lang_for(new.target_lang)
+            langs_changed = (new.source_lang, new.target_lang) != (self.cfg.source_lang, self.cfg.target_lang)
+            ui_changed = new.ui_lang != i18n.ui_lang()
+            need_restart = any(config.get_key(new, k) != config.get_key(self.cfg, k) for k in config.RESTART_KEYS)
+            old_terms = {(g["src"], g["dst"], g.get("app", "")) for g in self.cfg.glossary}
+            new_terms = {(g["src"], g["dst"], g.get("app", "")) for g in new.glossary}
+            changed = sorted({t[0] for t in old_terms ^ new_terms})
+            self.cfg.__dict__.update(new.__dict__)
+            if changed:      # 配置换好之后再通知：重新翻译时一定用新术语表
+                self.engine.inbox.put(("glossary", changed))
+            for c, act in self.scope_actions.items():
+                act.setChecked(c == self.cfg.scope.mode)
+            self.act_chat.blockSignals(True)
+            self.act_chat.setChecked(self.cfg.scope.translate_chat)
+            self.act_chat.blockSignals(False)
+            self.state.renderer.set_style(self.cfg.style)
+            for f in self.frames:
+                if f.color != QColor(self.cfg.style.border_color):
+                    f.color = QColor(self.cfg.style.border_color)
+                    f.update()
+            self.engine.update_llm(self.cfg)
+            if clear_memory:
+                self.engine.inbox.put(("memory_clear", None))
+            if langs_changed:
+                self.engine.set_languages()
+                for f in self.frames:
+                    f.set_lang_label(self._lang_label())
+            if ui_changed:
+                self.apply_ui_lang(self.cfg.ui_lang)
+            self._register_keys()
+            if save:
+                self._save()
+            for o in self.overlays:
+                o.repaint_mirror()
+            if need_restart:
+                self.tray.showMessage(tr("桌面魔镜"), tr("识别设备、屏幕范围和滚动跟随的更改在下次启动时生效。"),
+                                      QSystemTrayIcon.MessageIcon.Information, 5000)
 
         def _tick(self) -> None:
             now = time.perf_counter()
@@ -949,6 +963,9 @@ def main() -> int:
             for f in self.frames:
                 f.set_grab_mode(mods and (f is under or f._drag is not None))
             self._hover_tip(now)
+            if now - self._last_cfg_check > 1.0:
+                self._last_cfg_check = now
+                self._check_config_file()
             if now - self._last_topmost > 2.0:
                 self._last_topmost = now
                 for o in self.overlays:
@@ -996,10 +1013,49 @@ def main() -> int:
                 self._save()
 
         def _save(self) -> None:
+            stamp = self._config_stamp()
+            if stamp is not None and stamp != self._cfg_stamp:
+                self._reload_config()      # 文件刚被别的程序改过、还没载入：先载入，别把它的改动盖掉
             try:
                 config.save(self.cfg)
             except OSError as e:
                 log.warning("保存配置失败：%s", e)
+            self._cfg_stamp = self._cfg_seen = self._config_stamp()
+
+        @staticmethod
+        def _config_stamp() -> tuple | None:
+            try:
+                st = config.config_path().stat()
+                return st.st_mtime_ns, st.st_size
+            except OSError:
+                return None
+
+        def _check_config_file(self) -> None:
+            stamp = self._config_stamp()
+            if stamp is not None and stamp != self._cfg_stamp and stamp != self._cfg_seen:
+                self._cfg_seen = stamp
+                self._reload_timer.start()          # 还在接着改的话重新计时
+
+        def _reload_config(self) -> None:
+            """配置文件被别的程序改了（命令行 deskmirror config set 等）：重新载入，能马上生效的马上生效。
+            魔镜的位置、当天用量是程序自己记的，用内存里最新的。"""
+            self._reload_timer.stop()
+            try:
+                json.loads(config.config_path().read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                # 正在用编辑器改、还没改完（格式不对）：先不载入，照旧用现在的设置，等它下次存好
+                self._cfg_stamp = self._cfg_seen = self._config_stamp()
+                log.warning("配置文件被改过但格式不对，没有载入")
+                return
+            new = config.load()
+            new.mirror_rect = list(self.frame.mirror)
+            new.extra_mirrors = [list(f.mirror) for f in self.frames[1:]]
+            new.usage = self.cfg.usage
+            self._cfg_stamp = self._cfg_seen = self._config_stamp()
+            log.info("配置文件被别的程序改过，已重新载入")
+            self.apply_config(new, save=False)
+            self.tray.showMessage(tr("桌面魔镜"), tr("设置已按配置文件更新（命令行或 AI 助手改的）。"),
+                                  QSystemTrayIcon.MessageIcon.Information, 4000)
 
         # -------------------------------------------------------------- 调试控制（自动化测试用）
         def _debug_cmd(self, req: dict) -> dict:
@@ -1018,6 +1074,9 @@ def main() -> int:
                         "frame_hwnds": [[int(f.winId()), int(f.visual().winId())] for f in self.frames],
                         "mirrors": [{"rect": list(f.mirror), "bound": f.bound[0] if f.bound else 0,
                                      "suspended": f.suspended, "visible": f.isVisible()} for f in self.frames]}
+            if cmd == "cfg":
+                # 程序此刻用的设置（测热载入用）；API Key 不给
+                return {k: config.get_key(self.cfg, k) for k in req.get("keys", ()) if not k.endswith("api_key")}
             if cmd == "shotmode":
                 self.set_shot_mode(bool(req.get("on", True)))
                 return {"ok": True}

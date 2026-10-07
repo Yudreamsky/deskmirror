@@ -254,40 +254,51 @@ def _decrypt(value: str) -> str:
         return ""
 
 
+# 只能取这几个值的设置：不在里面就恢复默认（命令行改设置时据此报错）
+CHOICES: dict[str, tuple[str, ...]] = {
+    "source_lang": tuple(SOURCE_LANGS), "target_lang": tuple(LANGUAGES), "ui_lang": ("", "zh", "en"),
+    "llm.protocol": ("ollama", "openai"), "vision.protocol": ("ollama", "openai"), "ocr.device": ("gpu", "cpu"),
+    "scope.mode": tuple(SCOPE_MODES),
+}
+# 改了要重启魔镜才生效的设置（启动时就定下来的：识别进程、截屏方式、处理哪些屏幕）
+RESTART_KEYS = ("ocr.device", "ocr.threads", "track.all_monitors", "track.wheel_predict", "track.prefer_dxgi")
+# 数值设置的范围：超出就截到边上
+RANGES: dict[str, tuple[float, float]] = {
+    "llm.concurrency": (1, 8), "llm.timeout_s": (5, 300), "llm.max_batch_chars": (200, 6000),
+    "llm.max_batch_items": (1, 32), "vision.timeout_s": (10, 600), "vision.max_side": (512, 3000),
+    "style.min_font_px": (8, 32), "style.min_scale": (0.4, 1.0), "style.min_squash": (0.5, 1.0),
+    "style.plate_opacity": (0.3, 1.0), "track.stable_ms": (100, 3000), "track.ring_px": (60, 2000),
+    "scope.near_px": (100, 3000),
+}
+
+
+def get_key(cfg: Any, key: str) -> Any:
+    """按 "llm.model" 这样的名字取设置。"""
+    for part in key.split("."):
+        cfg = getattr(cfg, part)
+    return cfg
+
+
+def set_key(cfg: Any, key: str, value: Any) -> None:
+    *parents, last = key.split(".")
+    for part in parents:
+        cfg = getattr(cfg, part)
+    setattr(cfg, last, value)
+
+
 def validate(cfg: AppConfig) -> AppConfig:
-    if cfg.llm.protocol not in ("ollama", "openai"):
-        cfg.llm.protocol = "ollama"
-    if cfg.ocr.device not in ("gpu", "cpu"):
-        cfg.ocr.device = "gpu"
-    if cfg.source_lang not in SOURCE_LANGS:
-        cfg.source_lang = "auto"
-    if cfg.vision.protocol not in ("ollama", "openai"):
-        cfg.vision.protocol = "ollama"
-    cfg.vision.timeout_s = max(10.0, min(600.0, float(cfg.vision.timeout_s)))
-    cfg.vision.max_side = max(512, min(3000, int(cfg.vision.max_side)))
-    if cfg.target_lang not in LANGUAGES:
-        cfg.target_lang = "zh-Hans"
-    if cfg.ui_lang not in ("", "zh", "en"):
-        cfg.ui_lang = ""
-    cfg.llm.concurrency = max(1, min(8, cfg.llm.concurrency))
-    cfg.llm.timeout_s = max(5.0, min(300.0, cfg.llm.timeout_s))
-    cfg.llm.max_batch_chars = max(200, min(6000, cfg.llm.max_batch_chars))
-    cfg.llm.max_batch_items = max(1, min(32, cfg.llm.max_batch_items))
-    cfg.style.min_font_px = max(8, min(32, cfg.style.min_font_px))
-    cfg.style.min_scale = max(0.4, min(1.0, cfg.style.min_scale))
-    cfg.style.min_squash = max(0.5, min(1.0, cfg.style.min_squash))
-    cfg.style.plate_opacity = max(0.3, min(1.0, cfg.style.plate_opacity))
-    cfg.track.stable_ms = max(100, min(3000, cfg.track.stable_ms))
-    cfg.track.ring_px = max(60, min(2000, cfg.track.ring_px))
+    defaults = AppConfig()
+    for key, allowed in CHOICES.items():
+        if get_key(cfg, key) not in allowed:
+            set_key(cfg, key, get_key(defaults, key))
+    for key, (lo, hi) in RANGES.items():
+        set_key(cfg, key, type(get_key(defaults, key))(max(lo, min(hi, get_key(cfg, key)))))
     terms = []
     for g in cfg.glossary if isinstance(cfg.glossary, list) else []:
         if isinstance(g, dict) and str(g.get("src", "")).strip() and str(g.get("dst", "")).strip():
             terms.append({"src": str(g["src"]).strip(), "dst": str(g["dst"]).strip(),
                           "app": str(g.get("app", "")).strip()})
     cfg.glossary = terms[:500]
-    if cfg.scope.mode not in SCOPE_MODES:
-        cfg.scope.mode = "screen"
-    cfg.scope.near_px = max(100, min(3000, cfg.scope.near_px))
     for name in ("exclude_apps", "exclude_titles"):
         seen, out = set(), []
         for v in getattr(cfg.scope, name):
@@ -330,6 +341,6 @@ def save(cfg: AppConfig) -> None:
     data["llm"]["api_key"] = _encrypt(cfg.llm.api_key)
     data["vision"]["api_key"] = _encrypt(cfg.vision.api_key)
     path = config_path()
-    tmp = path.with_suffix(".tmp")
+    tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp")     # 魔镜和命令行可能同时在存：各用各的临时文件
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)

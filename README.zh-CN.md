@@ -88,6 +88,27 @@ https://github.com/user-attachments/assets/3a04cbfd-9331-4180-9e04-9c29c09e237e
 | 看图翻译（漫画、艺术字、图片里的字） | Ctrl+Alt+V，或点标签上的 “看图” |
 | 设置 | 点标签上的 ⚙，或右键托盘图标 |
 
+## 让 AI 帮你设置
+
+所有设置也都能用命令行改，Claude Code、Codex 这类 AI 助手可以替你从头设置好。改完，正在运行的魔镜一秒内自动生效。
+
+- 下载版：DeskMirror 文件夹里的 `DeskMirrorCLI.exe`；源码版：`.venv\Scripts\python -m deskmirror`。
+- `config keys` 列出每项设置的说明和能取的值；`config list`、`config get`、`config set`、`config reset` 查看和修改；`service`、`models`、`test` 换翻译服务、列出模型、试一下能不能用。加 `--json` 输出 JSON。
+- API Key 从标准输入读（`config set llm.api_key -`），不留在命令行里；用 Windows 账户加密保存，任何时候都只显示成 `sk-…1234`。
+
+比如换成 DeepSeek、译成中文：
+
+```bat
+DeskMirrorCLI.exe service deepseek
+DeskMirrorCLI.exe config set llm.api_key -
+DeskMirrorCLI.exe config set target_lang zh-Hans first_run_tip false
+DeskMirrorCLI.exe test
+```
+
+（第二行会请你粘贴 API Key，输入时不显示。）也可以直接对 AI 助手说：
+
+> 帮我设置桌面魔镜：程序在 D:\DeskMirror，先运行 `DeskMirrorCLI.exe --help` 和 `DeskMirrorCLI.exe config keys --json` 看看能设什么。翻译服务用 DeepSeek（API Key 我给你，用 `config set llm.api_key -` 传进去），译成中文，最后用 `DeskMirrorCLI.exe test` 试一下。
+
 ## 隐私
 
 - 用云端翻译服务时，屏幕上识别出的文字和窗口标题会发给该服务。在意的话用本机 Ollama，或在设置里缩小预译范围、添加不翻译的程序。

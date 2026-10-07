@@ -121,6 +121,36 @@ lagi kapan saja dari menu baki sistem). Lihat [panduan singkat](docs/QUICKSTART.
 | Terjemahan gambar (komik, huruf dekoratif, teks di dalam gambar) | Ctrl+Alt+V, atau klik "Image" di tab |
 | Pengaturan | Klik ⚙ di tab, atau klik kanan ikon baki |
 
+## Minta asisten AI mengaturnya
+
+Semua pengaturan juga bisa diubah lewat baris perintah, jadi asisten AI seperti Claude Code atau Codex bisa mengatur
+semuanya untuk Anda. DeskMirror yang sedang berjalan memakai perubahan itu dalam satu detik.
+
+- Versi unduhan: `DeskMirrorCLI.exe` di folder DeskMirror. Dari kode sumber: `.venv\Scripts\python -m deskmirror`.
+- `config keys` menampilkan setiap pengaturan beserta artinya dan nilai yang boleh dipakai; `config list`,
+  `config get`, `config set`, dan `config reset` untuk melihat dan mengubahnya; `service`, `models`, dan `test` untuk
+  mengganti layanan terjemahan, melihat daftar modelnya, dan memeriksa apakah layanannya bekerja. Tambahkan `--json`
+  untuk keluaran JSON.
+- Kunci API dibaca dari input standar (`config set llm.api_key -`), jadi tidak tertinggal di baris perintah. Kunci
+  disimpan terenkripsi dengan akun Windows Anda dan selalu ditampilkan hanya sebagai `sk-…1234`.
+
+Misalnya, untuk beralih ke DeepSeek dengan terjemahan bahasa Indonesia:
+
+```bat
+DeskMirrorCLI.exe service deepseek
+DeskMirrorCLI.exe config set llm.api_key -
+DeskMirrorCLI.exe config set target_lang id first_run_tip false
+DeskMirrorCLI.exe test
+```
+
+(Baris kedua meminta Anda menempelkan kunci API; yang diketik tidak ditampilkan.) Atau cukup katakan kepada asisten
+AI Anda:
+
+> Tolong atur DeskMirror untuk saya. Programnya ada di D:\DeskMirror: jalankan `DeskMirrorCLI.exe --help` dan
+> `DeskMirrorCLI.exe config keys --json` untuk melihat apa saja yang bisa diatur. Pakai DeepSeek (kunci API-nya saya
+> berikan; masukkan dengan `config set llm.api_key -`), terjemahkan ke bahasa Indonesia, lalu periksa dengan
+> `DeskMirrorCLI.exe test`.
+
 ## Privasi
 
 - Dengan layanan terjemahan cloud, teks yang dikenali di layar dan judul jendela dikirim ke layanan tersebut. Jika itu
