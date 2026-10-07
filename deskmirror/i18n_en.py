@@ -434,6 +434,8 @@ EN: dict[str, str] = {
         'Service address',
     '获取模型列表':
         'Fetch models',
+    '点“获取模型列表”选一个，也可以直接手填':
+        'Click "Fetch models" to pick one, or type a name',
     '本地 Ollama 不需要；云端服务填这里。只用 Windows 账户加密保存在本机':
         'Not needed for local Ollama; enter it for cloud services. Stored on this PC, encrypted with your Windows account',
     ' 秒':

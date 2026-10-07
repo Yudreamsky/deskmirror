@@ -17,6 +17,7 @@ from .. import i18n, winapi
 from ..config import LANGUAGES, OPENAI_PRESETS, SCOPE_MODES, AppConfig, LlmConfig
 from ..i18n import tr
 from ..translator import list_models, test_connection
+from .settings import show_models
 
 OLLAMA_URL = "http://127.0.0.1:11434"
 P_LANG, P_WELCOME, P_SERVICE, P_USAGE, P_PRIVACY, P_DONE = range(6)
@@ -251,8 +252,15 @@ class GuideDialog(QDialog):
                 self.preset.addItem(tr(name), (url, model))
         self.preset.currentIndexChanged.connect(self._preset_changed)
         cf.addRow(tr("服务"), self.preset)
-        self.model = QLineEdit()
-        cf.addRow(tr("模型"), self.model)
+        mrow = QHBoxLayout()
+        self.model = QComboBox()              # 能选也能手填；“获取模型列表”列出服务商现有的模型
+        self.model.setEditable(True)
+        self.model.lineEdit().setPlaceholderText(tr("点“获取模型列表”选一个，也可以直接手填"))
+        mrow.addWidget(self.model, 1)
+        self.fetch = QPushButton(tr("获取模型列表"))
+        self.fetch.clicked.connect(self._fetch_models)
+        mrow.addWidget(self.fetch)
+        cf.addRow(tr("模型"), mrow)
         self.key = QLineEdit()
         self.key.setEchoMode(QLineEdit.EchoMode.Password)
         self.key.setPlaceholderText(tr("在服务商网站申请；只用 Windows 账户加密保存在本机"))
@@ -273,7 +281,7 @@ class GuideDialog(QDialog):
                         if self.preset.itemData(i)[0].rstrip("/") == self.llm.base_url.rstrip("/")), -1)
             if idx >= 0:
                 self.preset.setCurrentIndex(idx)
-            self.model.setText(self.llm.model)
+            self.model.setCurrentText(self.llm.model)
             self.key.setText(self.llm.api_key)
         else:
             self._preset_changed(self.preset.currentIndex())
@@ -381,7 +389,8 @@ class GuideDialog(QDialog):
         if self.use_local.isChecked():
             return tr("本机 Ollama（{model}）").format(
                 model=self.llm.model if self.llm.protocol == "ollama" else "gemma4:12b")
-        return tr("{service}（{model}）").format(service=self.preset.currentText(), model=self.model.text().strip())
+        return tr("{service}（{model}）").format(service=self.preset.currentText(),
+                                                 model=self.model.currentText().strip())
 
     def collect_llm(self) -> LlmConfig:
         """按第 3 步的选择得出翻译服务设置（其他参数沿用原来的）。"""
@@ -392,7 +401,7 @@ class GuideDialog(QDialog):
         else:
             url, _model = self.preset.currentData()
             llm.protocol, llm.base_url = "openai", url
-            llm.model = self.model.text().strip()
+            llm.model = self.model.currentText().strip()
             llm.api_key = self.key.text().strip()
             llm.concurrency = max(llm.concurrency, 2)
         return llm
@@ -406,8 +415,9 @@ class GuideDialog(QDialog):
 
     def _preset_changed(self, idx: int) -> None:
         data = self.preset.itemData(idx)
-        if data and data[1]:
-            self.model.setText(data[1])
+        if data:
+            self.model.clear()                # 换了服务：之前的模型列表和模型名都不适用了，换成预设的（可能是空的）
+            self.model.setCurrentText(data[1])
 
     # ------------------------------------------------------------------ 检查
     def _run(self, tag: str, fn) -> None:
@@ -425,6 +435,13 @@ class GuideDialog(QDialog):
         probe = LlmConfig(protocol="ollama", base_url=OLLAMA_URL if self.llm.protocol != "ollama"
                           else self.llm.base_url)
         self._run("local", lambda: (list_models(probe), model))
+
+    def _fetch_models(self) -> None:
+        self.use_cloud.setChecked(True)
+        llm = self.collect_llm()
+        self.fetch.setEnabled(False)
+        self.cloud_status.setText(tr("正在获取模型列表…"))
+        self._run("models", lambda: list_models(llm))
 
     def _test_cloud(self) -> None:
         self.cloud_status.setText(tr("正在测试…"))
@@ -448,6 +465,9 @@ class GuideDialog(QDialog):
             else:
                 ok, msg = res
                 self.cloud_status.setText(("✅ " if ok else "❌ ") + msg)
+        elif tag == "models":
+            self.fetch.setEnabled(True)
+            self.cloud_status.setText(show_models(self.model, res))
 
     def closeEvent(self, ev) -> None:  # noqa: N802
         self.guide_done.emit()

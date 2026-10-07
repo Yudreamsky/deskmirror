@@ -2,8 +2,12 @@
 
 ## 未发布
 
+- **新手指南第 3 步能获取模型列表**：选云端服务时，填好 API Key 点“获取模型列表”，从服务商现有的模型里选，不用手填；换服务时不再留着上一家的模型名。（#3）
 - **中文 Windows 上从源码安装不再失败**：依赖清单的注释改成英文，setup.bat、start.bat 让 Python 按 UTF-8 读写（以前 pip 按 GBK 读依赖清单就报错退出）。（#1）
 
+- **Fetch models in the quick start**: step 3 has a "Fetch models" button for cloud services that lists the models
+  the service offers, so you can pick one instead of typing it; switching services no longer keeps the previous
+  service's model name. (#3)
 - **Installing from source on Chinese Windows**: the requirements files are plain ASCII now, and setup.bat and
   start.bat run Python in UTF-8 mode (pip used to fail reading the requirements file as GBK). (#1)
 

@@ -32,6 +32,22 @@ def _note(text: str) -> QLabel:
     return lbl
 
 
+def show_models(combo: QComboBox, res) -> str:
+    """把“获取模型列表”的结果放进可编辑的模型下拉框（已填的名字不动），返回给用户看的结果。新手指南也用。"""
+    names, err = res if isinstance(res, tuple) else ([], tr("出错了（{name}）").format(name=type(res).__name__))
+    if not names:
+        return tr("没取到模型列表：{error}。也可以直接手填模型名").format(error=err)
+    cur = combo.currentText().strip()
+    combo.clear()
+    combo.addItems(names)
+    combo.setCurrentText(cur)
+    msg = tr("取到 {n} 个模型，已列在下拉框里，点一个即可").format(n=len(names))
+    if cur and cur not in names:
+        msg += tr("；当前填的“{model}”不在列表里，可能填错了").format(model=cur)
+    combo.showPopup()       # 直接展开，免得看起来像没反应
+    return msg
+
+
 class SettingsDialog(QDialog):
     guide_requested = Signal()      # “关于”页上的“打开新手指南”
     def __init__(self, cfg: AppConfig, parent: QWidget | None = None) -> None:
@@ -392,16 +408,4 @@ class SettingsDialog(QDialog):
                 self.test_result.setText(("✅ " if ok else "❌ ") + msg)
         elif tag == "models":
             self.fetch.setEnabled(True)
-            names, err = res if isinstance(res, tuple) else ([], tr("出错了（{name}）").format(name=type(res).__name__))
-            if names:
-                cur = self.model.currentText().strip()
-                self.model.clear()
-                self.model.addItems(names)
-                self.model.setCurrentText(cur)
-                msg = tr("取到 {n} 个模型，已列在下拉框里，点一个即可").format(n=len(names))
-                if cur and cur not in names:
-                    msg += tr("；当前填的“{model}”不在列表里，可能填错了").format(model=cur)
-                self.test_result.setText(msg)
-                self.model.showPopup()       # 直接展开，免得看起来像没反应
-            else:
-                self.test_result.setText(tr("没取到模型列表：{error}。也可以直接手填模型名").format(error=err))
+            self.test_result.setText(show_models(self.model, res))

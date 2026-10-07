@@ -80,11 +80,40 @@ class GuideDialogTest(unittest.TestCase):
         llms = []
         g.apply_llm.connect(llms.append)
         self.assertTrue(g.use_cloud.isChecked())
-        self.assertEqual((g.model.text(), g.key.text()), ("deepseek-flash", "k"))
+        self.assertEqual((g.model.currentText(), g.key.text()), ("deepseek-flash", "k"))
         for _ in range(3):
             g._go(1)
         self.assertEqual(g.pages.currentIndex(), G.P_USAGE)
         self.assertEqual(llms, [], "没改就不动现在的设置")
+        g.close()
+
+    def test_fetch_models_for_cloud(self) -> None:
+        g = G.GuideDialog(AppConfig())
+        g._run = lambda tag, fn: g._on_check_done(tag, fn())      # 同步跑，不开线程
+        orig, seen = G.list_models, []
+        G.list_models = lambda llm: seen.append(llm) or (["deepseek-flash", "deepseek-pro"], "")
+        try:
+            g.preset.setCurrentIndex(0)
+            g.key.setText("test-key")
+            g.model.setCurrentText("deepseek-old")
+            g._fetch_models()
+            self.assertTrue(g.use_cloud.isChecked(), "点了获取模型列表就是要用云端")
+            self.assertEqual((seen[0].protocol, seen[0].api_key), ("openai", "test-key"))
+            self.assertEqual([g.model.itemText(i) for i in range(g.model.count())], ["deepseek-flash", "deepseek-pro"])
+            self.assertEqual(g.model.currentText(), "deepseek-old", "已经填的名字不动")
+            self.assertIn("取到 2 个模型", g.cloud_status.text())
+            self.assertIn("deepseek-old", g.cloud_status.text(), "提醒填的名字不在列表里")
+            self.assertTrue(g.fetch.isEnabled())
+            G.list_models = lambda llm: ([], "还没填 API Key")
+            g._fetch_models()
+            self.assertIn("还没填 API Key", g.cloud_status.text())
+        finally:
+            G.list_models = orig
+        openai = next(i for i in range(g.preset.count()) if g.preset.itemData(i)[0] == "https://api.openai.com/v1")
+        g.preset.setCurrentIndex(openai)                 # 换服务：旧列表和别家的模型名都清掉
+        self.assertEqual((g.model.count(), g.model.currentText()), (0, ""))
+        g.preset.setCurrentIndex(0)
+        self.assertEqual(g.model.currentText(), "deepseek-chat")
         g.close()
 
     def test_pick_language(self) -> None:
