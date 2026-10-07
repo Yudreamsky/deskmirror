@@ -88,8 +88,9 @@ EN: dict[str, str] = {
         'Some hotkeys are unavailable',
     '继续工作，正在核对画面…':
         'Resuming, checking the screen…',
-    '桌面魔镜 · 今天发给翻译服务（{where}）{requests} 次、{chars} 字':
-        'DeskMirror · sent to the translation service ({where}) today: {requests} requests, {chars} characters',
+    '桌面魔镜 · 今天发给翻译服务（{where}）{requests} 次、{chars} 字，↑{tin} ↓{tout} token':
+        'DeskMirror · sent to the translation service ({where}) today: {requests} requests, {chars} characters, '
+        '↑{tin} ↓{tout} tokens',
     '魔镜下面没有找到窗口（或拿不到它的程序名）。':
         "No window found under the mirror (or its program name isn't available).",
     '跟随的窗口已关闭，魔镜不再跟随。':
@@ -536,8 +537,9 @@ EN: dict[str, str] = {
         'Only for program (optional)',
     '翻译时附上这个窗口里含同样词语的已有译文作参考，没写进术语表的词也沿用同样的译法。发给翻译服务的文字会多一些（实测约多 15%）。':
         "Adds earlier translations from the same window that contain the same words as a reference, so terms that aren't in the glossary are also translated consistently. Slightly more text is sent to the translation service (about 15% more in tests).",
-    '今天（{date}）发给翻译服务 {requests} 次请求、{chars} 字（只统计数量，不记录内容）':
-        'Today ({date}): {requests} requests and {chars} characters sent to the translation service (counts only, no content)',
+    '今天（{date}）发给翻译服务 {requests} 次请求、{chars} 字，输入 {tin} token、输出 {tout} token（只统计数量，不记录内容）':
+        'Today ({date}): {requests} requests and {chars} characters sent to the translation service, '
+        '{tin} input and {tout} output tokens (counts only, no content)',
     '按 {key} 或点魔镜标签上的“看图”，把镜框里的画面交给这里的模型来读、来翻，适合漫画、艺术字、图片里的字。默认用本机 Ollama 的 gemma4:12b，画面不出本机；发给云端服务前，每次都会先问你。':
         "Press {key} or click “Image” on the mirror's tab to have this model read and translate the picture inside the frame. Good for comics, stylized lettering and text in pictures. By default it uses gemma4:12b on local Ollama, so the picture never leaves your PC; before anything is sent to a cloud service, you'll be asked every time.",
     '取到 {n} 个模型，已列在下拉框里，点一个即可':
@@ -591,4 +593,106 @@ EN: dict[str, str] = {
         'original text. Please send the files in the logs folder next to the program to the author.',
     '这台电脑（Windows 10）上底板总是不透明':
         'On this PC (Windows 10) the plates are always opaque',
+    '检查更新…':
+        'Check for updates…',
+    '检查更新':
+        'Check for updates',
+    '桌面魔镜 · 更新':
+        'DeskMirror · Update',
+    '以后再说':
+        'Later',
+    '正在更新，装好后自动重启…':
+        'Updating; DeskMirror restarts when it is done…',
+    ' · 你不在：只翻镜框里的（省钱）':
+        " · You're away: translating only inside the mirror (saves tokens)",
+    '正在检查更新…':
+        'Checking for updates…',
+    '桌面魔镜有新版本':
+        'A new version of DeskMirror is available',
+    '更新会拉取最新代码、装好依赖，然后重启魔镜；设置和用量都保留。':
+        'This pulls the latest code, installs the dependencies and restarts DeskMirror; your settings and usage are kept.',
+    '现在更新并重启':
+        'Update and restart',
+    '打开下载页，下载后解压覆盖原来的文件夹即可，设置都保留。':
+        'Opens the download page: unzip the new version over the old folder; your settings are kept.',
+    '打开下载页':
+        'Open download page',
+    '更新没有完成':
+        'The update did not finish',
+    '≈：服务没有报用量的部分是按字数估算的':
+        "≈: where the service didn't report usage, tokens are estimated from the text length",
+    '本机服务不花钱，不受每日上限限制':
+        'Local services cost nothing and have no daily cap',
+    '新版本 {latest}（现在是 {current}）。':
+        'New version {latest} (you have {current}).',
+    ' 右键托盘图标 →“检查更新…”安装。':
+        ' Right-click the tray icon → "Check for updates…" to install it.',
+    '今天（{date}）用掉的 token：输入 {tin}，输出 {tout}':
+        'Tokens used today ({date}): {tin} in, {tout} out',
+    '翻译服务：{where} · {model}':
+        'Translation service: {where} · {model}',
+    '请求 {requests} 次，原文 {chars} 字':
+        '{requests} requests, {chars} characters of source text',
+    '锁屏或屏保中：已停下，回来自动继续':
+        'Screen locked or screensaver on: stopped, resumes when you are back',
+    '今天发给翻译服务的 token 已经用到上限（{limit}），先停止翻译新的文字。可以在 设置 → 范围与隐私 里调高或关掉上限，明天自动恢复。':
+        "Today's tokens sent to the translation service reached the cap ({limit}), so new text is no longer translated. Raise or turn off the cap in Settings → Scope and privacy; it resets tomorrow.",
+    '已经是最新版本（{v}）。':
+        "You're up to date ({v}).",
+    'GitHub 上有 {n} 个新的改动：':
+        '{n} new change(s) on GitHub:',
+    '已更新，但没能自动重启（{error}）：请手动启动。':
+        "Updated, but couldn't restart automatically ({error}): please start it again.",
+    '每日上限 {limit} token，到了就停（设置 → 范围与隐私）':
+        'Daily cap {limit} tokens, then it stops (Settings → Scope and privacy)',
+    '今天的 token 已用到上限，停止翻译新文字（设置里可调）':
+        "Today's token cap reached: new text is not translated (see Settings)",
+    '更新出错：{name}':
+        'Update failed: {name}',
+    '检查更新出错：{name}':
+        'Checking for updates failed: {name}',
+    '账户余额不足（HTTP 402）：到服务商那里充值后点 ⟳ 继续':
+        'Insufficient balance (HTTP 402): top up with the provider, then click ⟳',
+    ' 分钟':
+        ' min',
+    '不管':
+        'Off',
+    '没碰键盘鼠标':
+        'No keyboard/mouse for',
+    '锁屏、屏保时完全停下（不截屏、不识别、不翻译）':
+        'Stop completely while the screen is locked or the screensaver runs (no capture, recognition or translation)',
+    '不限':
+        'Unlimited',
+    '每天最多用':
+        'Daily token cap',
+    '魔镜标签上显示今天用掉的 token（↑ 输入 ↓ 输出）':
+        "Show today's tokens on the mirror tab (↑ input ↓ output)",
+    '每天第一次启动时检查有没有新版本（只访问 GitHub，不发送任何内容）':
+        'Check for a new version on the first start each day (only contacts GitHub, sends nothing)',
+    '超过这么久没碰键盘鼠标，就只翻镜框里的文字，不在后台预译屏幕上别处的（动一下就恢复）。镜框里的字幕照常翻译，看视频不受影响。':
+        'After this long without keyboard or mouse input, only text inside the mirror is translated; the rest of the screen waits until you move the mouse. Subtitles inside the mirror keep being translated, so videos are not affected.',
+    '只限云端服务（本机 Ollama 不花钱、不限）：今天发出去和收回来的 token 加起来到了这个数，就停止翻译新的文字，已有译文照常显示，明天自动恢复。':
+        "Cloud services only (local Ollama is free and unlimited): once today's input plus output tokens reach this number, new text is no longer translated; existing translations still show, and it resets tomorrow.",
+    '没找到 git：源码版更新要用 git':
+        'git not found: updating the source version needs git',
+    '不是源码版：请到发布页下载新版':
+        'Not a source checkout: download the new version from the releases page',
+    '程序文件夹里有改过的文件，自动更新会冲突：请先处理（git status 查看）':
+        'Files in the program folder were changed and would conflict with the update: sort them out first (see git status)',
+    '连不上 GitHub，稍后再试':
+        "Can't reach GitHub; try again later",
+    '已更新到最新：{head}':
+        'Updated to the latest: {head}',
+    'git fetch 失败：{msg}':
+        'git fetch failed: {msg}',
+    'git pull 失败：{msg}':
+        'git pull failed: {msg}',
+    '代码已更新，但安装依赖失败：请运行 setup.bat。{msg}':
+        'The code was updated, but installing dependencies failed: run setup.bat. {msg}',
+    '代码已更新，但安装依赖出错（{name}）：请运行 setup.bat':
+        'The code was updated, but installing dependencies failed ({name}): run setup.bat',
+    '输入里命中服务商缓存 {cached}（{pct}%，按低得多的价格计费）':
+        'Of the input, {cached} hit the provider''s cache ({pct}%, billed at a much lower price)',
+    '每次请求的明细：logs 文件夹里的 usage-*.jsonl（只有数量，没有文字）':
+        'Per-request details: usage-*.jsonl in the logs folder (counts only, no text)',
 }

@@ -113,6 +113,40 @@ Common actions:
 | Translate chat apps (when chatting with friends abroad) | Right-click the tab or the tray icon → "Translate chat apps" |
 | Image translation (comics, stylized text, text in pictures) | Ctrl+Alt+V, or click "Image" on the tab |
 | Settings | Click ⚙ on the tab, or right-click the tray icon |
+| Update to a new version | Right-click the tray icon → "Check for updates…" |
+
+### Usage and cost
+
+- `↑12.3k ↓4.1k` on the mirror tab is today's tokens sent to the translation service (↑ input, ↓ output); hover
+  over it for details, including how much hit the provider's cache.
+- Every request carries about 430 tokens of fixed instructions, so the cheapest thing is fewer tiny requests: while a
+  request is in flight, stray new lines wait a moment and go out together. The "window" or "near the mirror"
+  pre-translation scopes cost much less than "whole screen".
+- After a while without keyboard or mouse input only the text inside the mirror is translated, and everything stops
+  while the screen is locked; cloud services stop at 1,000,000 tokens a day by default. All of this is in
+  Settings → Scope and privacy.
+- Every request is logged to `logs/usage-YYYY-MM.jsonl` (counts and program names only, no screen text).
+  `python -m deskmirror usage --log` sums it up by program, batch size and hour.
+
+### Let an AI assistant set it up
+
+Every setting can be read and changed from the command line, so an AI assistant such as Claude Code or Codex can
+configure DeskMirror for you; a running DeskMirror picks up changes within a second:
+
+```bat
+.venv\Scripts\python.exe -m deskmirror config schema          :: type, default and description of every setting (JSON)
+.venv\Scripts\python.exe -m deskmirror config set llm.protocol openai
+.venv\Scripts\python.exe -m deskmirror config set llm.base_url https://api.deepseek.com
+.venv\Scripts\python.exe -m deskmirror config set llm.api_key --env DEEPSEEK_API_KEY
+.venv\Scripts\python.exe -m deskmirror models                  :: models the service offers
+.venv\Scripts\python.exe -m deskmirror config set llm.model deepseek-chat
+.venv\Scripts\python.exe -m deskmirror test                    :: send a short test translation
+.venv\Scripts\python.exe -m deskmirror usage --log             :: today's usage in detail
+.venv\Scripts\python.exe -m deskmirror update                  :: update to the latest (source install)
+```
+
+Add `--json` for JSON output. API keys are never printed; they can be read from an environment variable (`--env`)
+or from standard input (value `-`), so they don't end up in your shell history.
 
 ## Privacy
 

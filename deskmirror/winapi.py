@@ -401,3 +401,47 @@ def unprotect_bytes(data: bytes) -> bytes:
 
 def current_pid() -> int:
     return os.getpid()
+
+
+# ---------------------------------------------------------------- 用户在不在（省钱保护）
+class LASTINPUTINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wt.UINT), ("dwTime", wt.DWORD)]
+
+
+user32.GetLastInputInfo.argtypes = [ctypes.POINTER(LASTINPUTINFO)]
+user32.GetLastInputInfo.restype = wt.BOOL
+kernel32.GetTickCount.restype = wt.DWORD
+user32.OpenInputDesktop.argtypes = [wt.DWORD, wt.BOOL, wt.DWORD]
+user32.OpenInputDesktop.restype = wt.HANDLE
+user32.GetUserObjectInformationW.argtypes = [wt.HANDLE, ctypes.c_int, ctypes.c_void_p, wt.DWORD,
+                                             ctypes.POINTER(wt.DWORD)]
+user32.CloseDesktop.argtypes = [wt.HANDLE]
+user32.SystemParametersInfoW.argtypes = [wt.UINT, wt.UINT, ctypes.c_void_p, wt.UINT]
+SPI_GETSCREENSAVERRUNNING = 0x0072
+UOI_NAME = 2
+
+
+def idle_seconds() -> float:
+    """多久没碰键盘鼠标了（秒）。"""
+    info = LASTINPUTINFO(ctypes.sizeof(LASTINPUTINFO), 0)
+    if not user32.GetLastInputInfo(ctypes.byref(info)):
+        return 0.0
+    return ((kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000.0
+
+
+def away() -> bool:
+    """锁屏了或者屏保在跑：这时屏幕上的东西没人看。"""
+    running = wt.BOOL(False)
+    if user32.SystemParametersInfoW(SPI_GETSCREENSAVERRUNNING, 0, ctypes.byref(running), 0) and running.value:
+        return True
+    desk = user32.OpenInputDesktop(0, False, 0x0001)      # DESKTOP_READOBJECTS；锁屏时打不开或不是 Default
+    if not desk:
+        return True
+    try:
+        buf = ctypes.create_unicode_buffer(64)
+        need = wt.DWORD(0)
+        if user32.GetUserObjectInformationW(desk, UOI_NAME, buf, ctypes.sizeof(buf), ctypes.byref(need)):
+            return buf.value.lower() != "default"
+        return False
+    finally:
+        user32.CloseDesktop(desk)

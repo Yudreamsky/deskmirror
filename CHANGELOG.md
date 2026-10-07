@@ -2,6 +2,37 @@
 
 ## 未发布
 
+- **标签上显示 token 用量**：像网速监控那样显示今天的 ↑ 输入 ↓ 输出 token，鼠标停上去看明细（服务、模型、请求数、命中缓存的部分）。
+  用量读服务商报回来的数（OpenAI 兼容接口请它在最后报，Ollama 自带），报不了的按字数估算并标“≈”。托盘提示、设置里的用量也有 token。（#6）
+- **省钱保护**：好一会儿（默认 5 分钟）没碰键盘鼠标就只翻镜框里的，不在后台预译屏幕上别处的；锁屏、屏保时完全停下；云端服务一天的
+  token 用到上限（默认 100 万，0 = 不限）就停止翻译新文字。有请求在途时，零星的新文字等一下（最多 0.6 秒）凑成一批再发：
+  每次请求都带约 430 token 的固定说明，一两行字单独发，九成花在说明上。余额不足（HTTP 402）时说清楚、停下等充值。（#7）
+- **用量日志**：每次翻译请求记一行到 `logs/usage-年-月.jsonl`（只有数量和程序名，不记屏幕上的字），`python -m deskmirror usage --log`
+  按程序、批大小、小时汇总，并给出缓存命中率。（#7）
+- **命令行和 AI 助手**：`python -m deskmirror config list/get/set/reset/schema`、`models`、`test`、`usage`、`status`、`update`，
+  能看、能改全部设置，加 `--json` 给程序读；不打印 API Key，Key 可从环境变量或标准输入读。正在运行的魔镜一秒内用上外部改过的配置。（#4）
+- **检查更新**：托盘菜单“检查更新…”；每天第一次启动时在后台看一下（设置里可关）。源码版一键 git pull、装依赖、重启；打包版打开下载页。（#5）
+
+- **Token meter on the tab**: today's ↑ input ↓ output tokens, like a network monitor; hover for details (service,
+  model, requests, cached input). Uses the counts the service reports (OpenAI-compatible services are asked to report
+  them; Ollama always does) and estimates from text length otherwise, marked "≈". The tray tooltip and Settings show
+  tokens too. (#6)
+- **Cost guards**: after a while without keyboard or mouse input (5 minutes by default) only text inside the mirror is
+  translated; everything stops while the screen is locked or the screensaver runs; cloud services stop translating
+  new text at a daily token cap (1,000,000 by default, 0 = unlimited). While a request is in flight, stray new lines
+  wait up to 0.6 s and go out as one batch: every request carries about 430 tokens of fixed instructions. HTTP 402
+  (insufficient balance) is reported clearly and stops until you top up. (#7)
+- **Usage log**: one line per translation request in `logs/usage-YYYY-MM.jsonl` (counts and program names only, no
+  screen text); `python -m deskmirror usage --log` sums it up by program, batch size and hour, with the cache hit
+  rate. (#7)
+- **Command line for people and AI assistants**: `python -m deskmirror config list/get/set/reset/schema`, `models`,
+  `test`, `usage`, `status` and `update` read and change every setting, with `--json` for programs. API keys are never
+  printed and can come from an environment variable or stdin. A running DeskMirror applies outside changes within a
+  second. (#4)
+- **Check for updates**: "Check for updates…" in the tray menu, plus a quiet check on the first start each day (can be
+  turned off). Source installs update with one click (git pull, dependencies, restart); the packaged version opens the
+  download page. (#5)
+
 - **Windows 10 上不再把自己的译文当原文**：Windows 10 不支持让半透明的窗口对截屏隐身，魔镜会截到自己画的译文、又翻一遍（日志里是“SetWindowDisplayAffinity 失败，错误码 8”）。现在启动时先试一下，不支持就改用色键窗口：看起来一样，鼠标操作也一样，只是底板总是不透明（这种电脑上设置里的“底板不透明度”不能调）。（#2）
 - **截图模式**：别的截图、录屏软件截不到魔镜，因为魔镜自己也靠截屏看字，截得到自己就会把译文当原文。现在托盘菜单或右键魔镜标签里可以打开“让截图工具截到魔镜”：期间译文定住不更新，关掉后接着识别、翻译。标签上的“截原图 / 截译图”照样能用。（#2）
 - **新手指南第 3 步能获取模型列表**：选云端服务时，填好 API Key 点“获取模型列表”，从服务商现有的模型里选，不用手填；换服务时不再留着上一家的模型名。（#3）

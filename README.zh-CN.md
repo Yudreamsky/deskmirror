@@ -87,6 +87,34 @@ https://github.com/user-attachments/assets/3a04cbfd-9331-4180-9e04-9c29c09e237e
 | 翻译聊天软件（和外国同事、朋友聊天时） | 右键标签或托盘图标 → 勾选 “翻译聊天软件” |
 | 看图翻译（漫画、艺术字、图片里的字） | Ctrl+Alt+V，或点标签上的 “看图” |
 | 设置 | 点标签上的 ⚙，或右键托盘图标 |
+| 更新到新版本 | 右键托盘图标 →“检查更新…” |
+
+### 用量和省钱
+
+- 魔镜标签上的 `↑12.3k ↓4.1k` 是今天发给翻译服务的 token（↑ 输入、↓ 输出），鼠标停上去看明细，包括命中服务商缓存的部分。
+- 每次请求都会带约 430 token 的固定说明，所以最省的是少发零碎的小请求：有请求在途时，零星的新文字会等一下凑成一批再发；
+  预译范围选“只翻魔镜所在的窗口”或“镜框附近”，比“整块屏幕”省得多。
+- 好一会儿没碰键盘鼠标就只翻镜框里的，锁屏、屏保时完全停下；云端服务默认一天最多用 100 万 token，到了就停。都在 设置 → 范围与隐私 里调。
+- 每次请求记在 `logs/usage-年-月.jsonl`（只有数量和程序名，没有屏幕上的字）。`python -m deskmirror usage --log`
+  按程序、按批大小、按小时汇总，看钱花在哪了。
+
+### 让 AI 助手帮你设置
+
+所有设置都能用命令行查看和修改，Claude Code、Codex 这类 AI 助手可以直接替你配好；正在运行的魔镜一秒内就会用上新设置：
+
+```bat
+.venv\Scripts\python.exe -m deskmirror config schema          :: 每一项的类型、默认值、说明（JSON）
+.venv\Scripts\python.exe -m deskmirror config set llm.protocol openai
+.venv\Scripts\python.exe -m deskmirror config set llm.base_url https://api.deepseek.com
+.venv\Scripts\python.exe -m deskmirror config set llm.api_key --env DEEPSEEK_API_KEY
+.venv\Scripts\python.exe -m deskmirror models                  :: 服务商现有的模型
+.venv\Scripts\python.exe -m deskmirror config set llm.model deepseek-chat
+.venv\Scripts\python.exe -m deskmirror test                    :: 发一句短文测试
+.venv\Scripts\python.exe -m deskmirror usage --log             :: 今天的用量明细
+.venv\Scripts\python.exe -m deskmirror update                  :: 更新到最新（源码版）
+```
+
+加 `--json` 输出 JSON。命令行不会打印 API Key；Key 可以从环境变量（`--env`）或标准输入（值写 `-`）读，不留在命令行历史里。
 
 ## 隐私
 

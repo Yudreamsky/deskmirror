@@ -38,6 +38,15 @@ def _host_of(url: str) -> str:
         return url
 
 
+def _short_num(n: int) -> str:
+    """12345 → 12.3k，像网速那样短。"""
+    if n < 1000:
+        return str(n)
+    if n < 1_000_000:
+        return f"{n / 1000:.1f}k" if n < 100_000 else f"{n // 1000}k"
+    return f"{n / 1_000_000:.2f}M"
+
+
 def _setup_logging() -> None:
     logdir = ROOT / "logs"
     logdir.mkdir(exist_ok=True)
@@ -62,7 +71,25 @@ def _single_instance() -> object | None:
     return handle
 
 
+def _wait_for_exit(pid: int, timeout_ms: int = 20000) -> None:
+    """重启时：等旧进程退出（它占着“只能开一个”的锁），最多等 20 秒。"""
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.restype = ctypes.c_void_p
+    k32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    k32.CloseHandle.argtypes = [ctypes.c_void_p]
+    h = k32.OpenProcess(0x00100000, False, pid)        # SYNCHRONIZE
+    if h:
+        k32.WaitForSingleObject(h, timeout_ms)
+        k32.CloseHandle(h)
+
+
 def main() -> int:
+    if len(sys.argv) > 1 and not sys.argv[1].startswith("-"):
+        from .cli import main as cli_main          # python -m deskmirror config / models / update …（给人和 AI 助手用）
+        return cli_main(sys.argv[1:])
+    wait = os.environ.pop("DESKMIRROR_WAIT_PID", "")
+    if wait.isdigit():
+        _wait_for_exit(int(wait))
     _setup_logging()
     # 跟踪线程有不少 Python 代码；缩短 GIL 切换间隔，界面线程（画译文、拖魔镜）不会被它长时间挡住。
     sys.setswitchinterval(0.002)
@@ -120,10 +147,13 @@ def main() -> int:
         snapshot_ready = Signal(object)
         vision_piece = Signal(str)            # 看图翻译：后台线程拿到的一段译文
         vision_done = Signal(str, float)      # 看图翻译结束：(出错说明, 用时)
+        update_checked = Signal(object, bool)  # 检查更新的结果：(UpdateInfo, 是不是用户点的)
+        update_applied = Signal(bool, str)     # 更新装好了没有：(成功, 说明)
 
         def __init__(self) -> None:
             super().__init__()
             self.cfg = cfg
+            self._cfg_mtime = self._config_mtime()   # 配置文件上次是谁写的：变了就是外部改的（见 _check_config_file）
             self.state = UiState(Renderer(cfg.style, binary=layered.colorkey()))
             mons = winapi.monitors()
             self.overlays = [Overlay(m, self.state) for m in mons]
@@ -165,8 +195,11 @@ def main() -> int:
             self._hover_since = 0.0
             self.tray = QSystemTrayIcon(make_icon())
             self.tray.setToolTip(tr("桌面魔镜"))
-            self._usage_seen = (0, 0)       # 引擎累计的请求数、字数（本次运行）
+            self._usage_seen = (0, 0, 0, 0, 0)   # 引擎累计的请求数、字数、输入 / 输出 / 命中缓存的 token（本次运行）
             self._usage_tip = ""
+            self._budget_hit: bool | None = False   # 今天的 token 用到上限了（None：还没告诉引擎）
+            self._away = False               # 锁屏 / 屏保中：完全停下
+            self._frugal = False             # 好一会儿没碰键盘鼠标：只翻镜框里的
             self._menu: QMenu | None = None
             self._build_menu()
             self.tray.activated.connect(self._on_tray)
@@ -194,7 +227,10 @@ def main() -> int:
             self._usage_saved = (cfg.usage.requests, cfg.usage.chars)
             self._usage_timer = QTimer(self, interval=300_000, timeout=self._save_usage)
             self._usage_timer.start()
+            self._guard_timer = QTimer(self, interval=1000, timeout=self._guard_tick)
+            self._guard_timer.start()
             self.engine.start()
+            self._update_meter()
             qapp.aboutToQuit.connect(self.shutdown)
             self.debug = None
             port = os.environ.get("DESKMIRROR_DEBUG_PORT")
@@ -211,6 +247,12 @@ def main() -> int:
             self.about: AboutDialog | None = None
             if cfg.first_run_tip:
                 QTimer.singleShot(1200, self.open_guide)     # 第一次启动：新手指南（看完或关掉就不再自动打开）
+            self.update_checked.connect(self._on_update_checked)
+            self.update_applied.connect(self._on_update_applied)
+            self._updating = False
+            if cfg.update.auto_check and cfg.update.last_check != time.strftime("%Y-%m-%d") \
+                    and not os.environ.get("DESKMIRROR_DEBUG_PORT"):
+                QTimer.singleShot(20000, lambda: self.check_update(manual=False))
 
         # -------------------------------------------------------------- 托盘菜单、界面语言
         def _build_menu(self) -> None:
@@ -251,6 +293,7 @@ def main() -> int:
             self.act_debug.toggled.connect(self._on_debug)
             menu.addAction(self.act_debug)
             menu.addSeparator()
+            menu.addAction(tr("检查更新…"), self.check_update)
             menu.addAction(tr("关于…"), self.open_about)
             menu.addAction(tr("退出"), self.quit_app)
             old, self._menu = self._menu, menu
@@ -282,7 +325,7 @@ def main() -> int:
             self._usage_tip = ""                 # 托盘提示、标签上的状态按新语言重写
             snap = self.state.snapshot
             if snap is not None:
-                self._count_usage(snap.status)
+                self._count_engine_usage()
                 self._update_status(snap)
             elif self.state.paused:
                 for f in self.frames:
@@ -337,6 +380,7 @@ def main() -> int:
             x = min(base[0] + 60, scr[2] - w - 20)
             y = min(base[1] + 60, scr[3] - h - 20)
             f = self._new_frame((x, y, x + w, y + h))
+            self._update_meter()
             if not self.state.hidden:
                 f.show()
             self._sync_mirrors()
@@ -404,7 +448,7 @@ def main() -> int:
                          "截完在托盘菜单或右键魔镜标签里关掉。")
             else:
                 winapi.set_capture_visible(False)
-                QTimer.singleShot(300, lambda: self.state.shot_mode or self.engine.set_working(not self.state.paused))
+                QTimer.singleShot(300, lambda: self.state.shot_mode or self._apply_working())
                 msg = tr("已关闭截图模式：魔镜重新对截屏隐身，接着识别、翻译。")
                 for f in self.frames:
                     f.set_status(tr("继续工作，正在核对画面…"), "busy")
@@ -528,7 +572,7 @@ def main() -> int:
                 for o in self.overlays:
                     o.repaint_mirror()
             self._update_status(snap)
-            self._count_usage(snap.status)
+            self._count_engine_usage()
             if not self.state.paused:
                 self._feed_history(snap)
 
@@ -636,6 +680,101 @@ def main() -> int:
             self.about.raise_()
             self.about.activateWindow()
 
+        # -------------------------------------------------------------- 更新
+        def check_update(self, manual: bool = True) -> None:
+            """看一下有没有新版本（后台线程，只访问 GitHub）。manual：用户点的，没有新版本也要说一声。"""
+            from . import updater
+            if self._updating:
+                return
+            if not manual:
+                self.cfg.update.last_check = time.strftime("%Y-%m-%d")
+                self._save_timer.start()
+            else:
+                self.tray.showMessage(tr("桌面魔镜"), tr("正在检查更新…"), QSystemTrayIcon.MessageIcon.Information, 3000)
+
+            def work() -> None:
+                try:
+                    info = updater.check()
+                except Exception as e:  # noqa: BLE001
+                    log.exception("检查更新出错")
+                    info = updater.UpdateInfo(kind="git" if updater.is_git_checkout() else "release",
+                                              error=tr("检查更新出错：{name}").format(name=type(e).__name__))
+                self.update_checked.emit(info, manual)
+            threading.Thread(target=work, name="update-check", daemon=True).start()
+
+        def _on_update_checked(self, info, manual: bool) -> None:
+            from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
+            from . import updater
+            if info.error:
+                log.info("检查更新：%s", info.error)
+                if manual:
+                    self.tray.showMessage(tr("检查更新"), info.error, QSystemTrayIcon.MessageIcon.Warning, 6000)
+                return
+            if not info.newer:
+                if manual:
+                    self.tray.showMessage(tr("检查更新"), tr("已经是最新版本（{v}）。").format(v=info.current),
+                                          QSystemTrayIcon.MessageIcon.Information, 4000)
+                return
+            if info.kind == "git":
+                what = tr("GitHub 上有 {n} 个新的改动：").format(n=info.behind) + "\n" + \
+                    "\n".join("· " + c for c in info.commits[:12])
+            else:
+                what = tr("新版本 {latest}（现在是 {current}）。").format(latest=info.latest, current=info.current)
+            if not manual:
+                self.tray.showMessage(tr("桌面魔镜有新版本"),
+                                      what.split("\n")[0] + tr(" 右键托盘图标 →“检查更新…”安装。"),
+                                      QSystemTrayIcon.MessageIcon.Information, 10000)
+                return
+            box = QMessageBox(QMessageBox.Icon.Information, tr("桌面魔镜 · 更新"), what)
+            box.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+            if info.kind == "git":
+                box.setInformativeText(tr("更新会拉取最新代码、装好依赖，然后重启魔镜；设置和用量都保留。"))
+                go = box.addButton(tr("现在更新并重启"), QMessageBox.ButtonRole.AcceptRole)
+            else:
+                box.setInformativeText(tr("打开下载页，下载后解压覆盖原来的文件夹即可，设置都保留。"))
+                go = box.addButton(tr("打开下载页"), QMessageBox.ButtonRole.AcceptRole)
+            box.addButton(tr("以后再说"), QMessageBox.ButtonRole.RejectRole)
+            box.exec()
+            if box.clickedButton() is not go:
+                return
+            if info.kind != "git":
+                QDesktopServices.openUrl(QUrl(updater.RELEASES_PAGE))
+                return
+            self._updating = True
+            self.tray.showMessage(tr("桌面魔镜"), tr("正在更新，装好后自动重启…"), QSystemTrayIcon.MessageIcon.Information, 5000)
+
+            def work() -> None:
+                try:
+                    ok, msg = updater.apply_git()
+                except Exception as e:  # noqa: BLE001
+                    log.exception("更新出错")
+                    ok, msg = False, tr("更新出错：{name}").format(name=type(e).__name__)
+                self.update_applied.emit(ok, msg)
+            threading.Thread(target=work, name="update-apply", daemon=True).start()
+
+        def _on_update_applied(self, ok: bool, msg: str) -> None:
+            self._updating = False
+            if not ok:
+                self.tray.showMessage(tr("更新没有完成"), msg, QSystemTrayIcon.MessageIcon.Warning, 10000)
+                return
+            self.restart()
+
+        def restart(self) -> None:
+            """重启魔镜：先起一个新进程（它等这个进程退出再启动），再退出自己。"""
+            import subprocess
+            from . import updater
+            env = dict(os.environ, DESKMIRROR_WAIT_PID=str(os.getpid()), PYTHONUTF8="1")
+            try:
+                subprocess.Popen(updater.restart_command(), cwd=str(ROOT), env=env,
+                                 creationflags=0x00000008 | 0x00000200)     # DETACHED_PROCESS | NEW_PROCESS_GROUP
+            except OSError as e:
+                self.tray.showMessage(tr("桌面魔镜"), tr("已更新，但没能自动重启（{error}）：请手动启动。").format(error=e),
+                                      QSystemTrayIcon.MessageIcon.Warning, 10000)
+                return
+            log.info("重启")
+            self.quit_app()
+
         def _guide_llm(self, llm) -> None:
             self.cfg.llm = llm
             self.engine.update_llm(self.cfg)
@@ -649,7 +788,7 @@ def main() -> int:
         def toggle_pause(self) -> None:
             """暂停：魔镜框还在，不截屏、不识别、不翻译（不花翻译费用），也不画译文；继续时重新核对画面。"""
             paused = self.state.paused = not self.state.paused
-            self.engine.set_working(not paused and not self.state.shot_mode)
+            self._apply_working()
             self.act_pause.setText(tr("继续翻译") if paused else tr("暂停（框留着，不识别、不翻译）"))
             status = (tr(PAUSED_TEXT), "paused") if paused else (tr("继续工作，正在核对画面…"), "busy")
             for f in self.frames:
@@ -679,26 +818,108 @@ def main() -> int:
                 self.history.raise_()
 
         def _count_usage(self, s: dict) -> None:
-            """当天发给翻译服务的请求数和字数（只有数量），显示在托盘提示里，跨重启累计。"""
-            req, chars = int(s.get("requests", 0)), int(s.get("sent_chars", 0))
-            d_req, d_chars = req - self._usage_seen[0], chars - self._usage_seen[1]
-            if d_req < 0 or d_chars < 0:     # 引擎重建过（换了翻译服务）：从头计
-                d_req, d_chars = max(0, req), max(0, chars)
-            self._usage_seen = (req, chars)
+            """当天发给翻译服务的请求数、字数和 token（只有数量），显示在托盘提示和魔镜标签上，跨重启累计。"""
+            now = (int(s.get("requests", 0)), int(s.get("sent_chars", 0)), int(s.get("tok_in", 0)),
+                   int(s.get("tok_out", 0)), int(s.get("tok_cached", 0)))
+            delta = [a - b for a, b in zip(now, self._usage_seen)]
+            if any(d < 0 for d in delta):    # 引擎重建过：从头计
+                delta = [max(0, a) for a in now]
+            self._usage_seen = now
             u = self.cfg.usage
             today = time.strftime("%Y-%m-%d")
             if u.date != today:
-                u.date, u.requests, u.chars = today, 0, 0
-            if d_req or d_chars:
-                u.requests += d_req
-                u.chars += d_chars
-            host = self.cfg.llm.base_url.split("//")[-1].split("/")[0]
-            where = tr("本机") if host.startswith(("127.0.0.1", "localhost")) else host
-            tip = tr("桌面魔镜 · 今天发给翻译服务（{where}）{requests} 次、{chars} 字").format(
-                where=where, requests=u.requests, chars=u.chars)
+                u.date, u.requests, u.chars, u.estimated = today, 0, 0, False
+                u.tokens_in = u.tokens_out = u.tokens_cached = 0
+            if any(delta):
+                u.requests += delta[0]
+                u.chars += delta[1]
+                u.tokens_in += delta[2]
+                u.tokens_out += delta[3]
+                u.tokens_cached += delta[4]
+            if s.get("tok_est") and delta[2]:
+                u.estimated = True
+            self._check_budget()
+            local = config.is_local_url(self.cfg.llm.base_url)
+            where = tr("本机") if local else _host_of(self.cfg.llm.base_url)
+            tip = tr("桌面魔镜 · 今天发给翻译服务（{where}）{requests} 次、{chars} 字，↑{tin} ↓{tout} token").format(
+                where=where, requests=u.requests, chars=u.chars, tin=_short_num(u.tokens_in),
+                tout=_short_num(u.tokens_out))
             if tip != self._usage_tip:
                 self._usage_tip = tip
                 self.tray.setToolTip(tip)
+            self._update_meter()
+
+        def _update_meter(self) -> None:
+            """魔镜标签上的 token 用量（像网速监控：↑ 输入 ↓ 输出），鼠标停在上面看明细。"""
+            u, g = self.cfg.usage, self.cfg.guard
+            approx = "≈" if u.estimated else ""
+            text = f"{approx}↑{_short_num(u.tokens_in)} ↓{_short_num(u.tokens_out)}" if g.show_meter else ""
+            local = config.is_local_url(self.cfg.llm.base_url)
+            lines = [tr("今天（{date}）用掉的 token：输入 {tin}，输出 {tout}").format(
+                         date=u.date or time.strftime("%Y-%m-%d"), tin=f"{u.tokens_in:,}", tout=f"{u.tokens_out:,}"),
+                     tr("翻译服务：{where} · {model}").format(
+                         where=tr("本机") if local else _host_of(self.cfg.llm.base_url), model=self.cfg.llm.model),
+                     tr("请求 {requests} 次，原文 {chars} 字").format(requests=u.requests, chars=u.chars)]
+            if u.tokens_cached:
+                lines.insert(1, tr("输入里命中服务商缓存 {cached}（{pct}%，按低得多的价格计费）").format(
+                    cached=f"{u.tokens_cached:,}", pct=round(100 * u.tokens_cached / max(1, u.tokens_in))))
+            lines.append(tr("每次请求的明细：logs 文件夹里的 usage-*.jsonl（只有数量，没有文字）"))
+            if u.estimated:
+                lines.append(tr("≈：服务没有报用量的部分是按字数估算的"))
+            if local:
+                lines.append(tr("本机服务不花钱，不受每日上限限制"))
+            elif g.daily_tokens:
+                lines.append(tr("每日上限 {limit} token，到了就停（设置 → 范围与隐私）").format(limit=f"{g.daily_tokens:,}"))
+            tip = "\n".join(lines)
+            for f in self.frames:
+                f.set_meter(text, tip)
+
+        def _check_budget(self) -> None:
+            """云端服务今天的 token 用到上限：停止发新的翻译请求（已有译文照常显示），换天或调高上限后自动恢复。"""
+            u, limit = self.cfg.usage, self.cfg.guard.daily_tokens
+            hit = (limit > 0 and not config.is_local_url(self.cfg.llm.base_url)
+                   and u.date == time.strftime("%Y-%m-%d") and u.tokens_in + u.tokens_out >= limit)
+            if hit == self._budget_hit:
+                return
+            was, self._budget_hit = self._budget_hit, hit
+            self.engine.set_budget_hit(hit)
+            if hit and was is False:          # 改了别的设置重新判断时不重复提示
+                log.warning("今天的 token 已用到上限 %d", limit)
+                self.tray.showMessage(tr("桌面魔镜"), tr(
+                    "今天发给翻译服务的 token 已经用到上限（{limit}），先停止翻译新的文字。"
+                    "可以在 设置 → 范围与隐私 里调高或关掉上限，明天自动恢复。").format(limit=f"{limit:,}"),
+                    QSystemTrayIcon.MessageIcon.Warning, 10000)
+
+        def _apply_working(self) -> None:
+            """截屏、识别、翻译要不要跑：用户暂停、截图模式、锁屏 / 屏保时都停下。"""
+            self.engine.set_working(not self.state.paused and not self.state.shot_mode and not self._away)
+
+        def _guard_tick(self) -> None:
+            """省钱保护：锁屏、屏保时完全停下；一段时间没碰键盘鼠标就只翻镜框里的（不在后台预译别处）。"""
+            g = self.cfg.guard
+            try:
+                away = g.pause_when_locked and winapi.away()
+                idle = winapi.idle_seconds()
+            except OSError:
+                return
+            if away != self._away:
+                self._away = away
+                log.info("锁屏 / 屏保：停下" if away else "回来了：继续")
+                self._apply_working()
+                self._update_status(self.state.snapshot)
+            frugal = g.idle_min > 0 and idle >= g.idle_min * 60
+            if frugal != self._frugal:
+                self._frugal = frugal
+                self.engine.set_frugal(frugal)
+            self._count_engine_usage()
+            self._check_config_file()
+
+        def _count_engine_usage(self) -> None:
+            """直接读引擎的计数（暂停时引擎不发快照，暂停前发出的请求回来了也要记上）。"""
+            svc = self.engine.service
+            self._count_usage({"requests": svc["requests"], "sent_chars": svc.get("chars", 0),
+                               "tok_in": svc["tok_in"], "tok_out": svc["tok_out"], "tok_cached": svc["tok_cached"],
+                               "tok_est": svc["tok_est"]})
 
         def _update_status(self, snap) -> None:
             if self.state.paused:
@@ -708,6 +929,10 @@ def main() -> int:
             if self.state.shot_mode:
                 for f in self.frames:
                     f.set_status(tr("截图模式：译文暂停更新"), "paused")
+                return
+            if self._away:
+                for f in self.frames:
+                    f.set_status(tr("锁屏或屏保中：已停下，回来自动继续"), "paused")
                 return
             if snap is None:
                 return
@@ -727,6 +952,8 @@ def main() -> int:
                 text, level = tr("正在启动文字识别…"), "busy"
             elif s.get("paused"):
                 text, level = tr("翻译已暂停：{msg}（点 ⟳ 重试或改设置）").format(msg=s.get("service_msg")), "error"
+            elif s.get("budget"):
+                text, level = tr("今天的 token 已用到上限，停止翻译新文字（设置里可调）"), "error"
             elif s.get("service") == "error":
                 text, level = tr("翻译服务出错，稍后自动重试：{msg}").format(msg=s.get("service_msg")), "warn"
             elif in_failed:
@@ -739,6 +966,8 @@ def main() -> int:
                 text, level = tr("就绪 · 已翻译 {n} 块").format(n=s.get("done", 0)), "ok"
             if s.get("slow") and level == "ok":
                 text, level = text + tr(" · 服务较慢"), "warn"
+            if s.get("frugal") and level in ("ok", "busy"):
+                text += tr(" · 你不在：只翻镜框里的（省钱）")
             if s.get("chat_in_mirror") and level in ("ok", "busy"):
                 text += tr(" · 聊天窗口默认不翻译（右键标签可打开）")
             elif s.get("excluded_in_mirror") and level in ("ok", "busy"):
@@ -900,46 +1129,83 @@ def main() -> int:
 
             def done(result: int) -> None:
                 if result:
-                    new = config.validate(dlg.collect())
-                    langs_changed = (new.source_lang, new.target_lang) != (self.cfg.source_lang, self.cfg.target_lang)
-                    ui_changed = new.ui_lang != i18n.ui_lang()
-                    need_restart = (new.ocr.device != self.cfg.ocr.device
-                                    or new.track.all_monitors != self.cfg.track.all_monitors
-                                    or new.track.wheel_predict != self.cfg.track.wheel_predict)
-                    new.mirror_rect = list(self.frame.mirror)
-                    new.extra_mirrors = [list(f.mirror) for f in self.frames[1:]]
-                    new.usage = self.cfg.usage      # 设置窗口打开期间的用量照样累计
-                    old_terms = {(g["src"], g["dst"], g.get("app", "")) for g in self.cfg.glossary}
-                    new_terms = {(g["src"], g["dst"], g.get("app", "")) for g in new.glossary}
-                    changed = sorted({t[0] for t in old_terms ^ new_terms})
-                    self.cfg.__dict__.update(new.__dict__)
-                    if changed:      # 配置换好之后再通知：重新翻译时一定用新术语表
-                        self.engine.inbox.put(("glossary", changed))
-                    for c, act in self.scope_actions.items():
-                        act.setChecked(c == self.cfg.scope.mode)
-                    self.act_chat.blockSignals(True)
-                    self.act_chat.setChecked(self.cfg.scope.translate_chat)
-                    self.act_chat.blockSignals(False)
-                    self.state.renderer.set_style(self.cfg.style)
-                    self.engine.update_llm(self.cfg)
-                    if dlg.clear_memory_requested:
-                        self.engine.inbox.put(("memory_clear", None))
-                    if langs_changed:
-                        self.engine.set_languages()
-                        for f in self.frames:
-                            f.set_lang_label(self._lang_label())
-                    if ui_changed:
-                        self.apply_ui_lang(self.cfg.ui_lang)
-                    self._register_keys()
-                    self._save()
-                    for o in self.overlays:
-                        o.repaint_mirror()
-                    if need_restart:
-                        self.tray.showMessage(tr("桌面魔镜"), tr("识别设备、屏幕范围和滚动跟随的更改在下次启动时生效。"),
-                                              QSystemTrayIcon.MessageIcon.Information, 5000)
+                    self._apply_config(dlg.collect(), clear_memory=dlg.clear_memory_requested)
                 self._settings = None
             dlg.finished.connect(done)
             dlg.show()
+
+        def _apply_config(self, new, clear_memory: bool = False, keep_mirrors: bool = True) -> None:
+            """换上一份新配置并立即生效：设置窗口点“保存”、别的程序（命令行、AI 助手）改了配置文件都走这里。"""
+            new = config.validate(new)
+            langs_changed = (new.source_lang, new.target_lang) != (self.cfg.source_lang, self.cfg.target_lang)
+            ui_changed = new.ui_lang != i18n.ui_lang()
+            need_restart = (new.ocr.device != self.cfg.ocr.device
+                            or new.track.all_monitors != self.cfg.track.all_monitors
+                            or new.track.wheel_predict != self.cfg.track.wheel_predict)
+            if keep_mirrors:
+                new.mirror_rect = list(self.frame.mirror)
+                new.extra_mirrors = [list(f.mirror) for f in self.frames[1:]]
+            new.usage = self.cfg.usage          # 用量一直在累计，以程序里的为准
+            new.update.last_check = self.cfg.update.last_check
+            new.first_run_tip = self.cfg.first_run_tip and new.first_run_tip
+            old_terms = {(g["src"], g["dst"], g.get("app", "")) for g in self.cfg.glossary}
+            new_terms = {(g["src"], g["dst"], g.get("app", "")) for g in new.glossary}
+            changed = sorted({t[0] for t in old_terms ^ new_terms})
+            self.cfg.__dict__.update(new.__dict__)
+            if changed:      # 配置换好之后再通知：重新翻译时一定用新术语表
+                self.engine.inbox.put(("glossary", changed))
+            for c, act in self.scope_actions.items():
+                act.setChecked(c == self.cfg.scope.mode)
+            self.act_chat.blockSignals(True)
+            self.act_chat.setChecked(self.cfg.scope.translate_chat)
+            self.act_chat.blockSignals(False)
+            self.state.renderer.set_style(self.cfg.style)
+            self.engine.update_llm(self.cfg)
+            if clear_memory:
+                self.engine.inbox.put(("memory_clear", None))
+            if langs_changed:
+                self.engine.set_languages()
+                for f in self.frames:
+                    f.set_lang_label(self._lang_label())
+            if ui_changed:
+                self.apply_ui_lang(self.cfg.ui_lang)
+            self._register_keys()
+            self._budget_hit = None             # 上限可能改了：重新判断，并且一定告诉引擎
+            self._check_budget()
+            self._update_meter()
+            self._save()
+            for o in self.overlays:
+                o.repaint_mirror()
+            if need_restart:
+                self.tray.showMessage(tr("桌面魔镜"), tr("识别设备、屏幕范围和滚动跟随的更改在下次启动时生效。"),
+                                      QSystemTrayIcon.MessageIcon.Information, 5000)
+
+        def _check_config_file(self) -> None:
+            """别的程序（命令行 python -m deskmirror config set …、AI 助手）改了配置文件：读进来立即生效。"""
+            mtime = self._config_mtime()
+            if mtime is None or mtime == self._cfg_mtime:
+                return
+            self._cfg_mtime = mtime
+            try:
+                new = config.load()
+            except Exception:  # noqa: BLE001
+                log.exception("读取外部修改的配置失败")
+                return
+            log.info("配置文件被外部修改，已重新载入")
+            # 镜框位置也可以由外部改；没改就沿用（文件里的和现在的一样）
+            moved = list(new.mirror_rect) != list(self.frame.mirror) and new.mirror_rect
+            self._apply_config(new, keep_mirrors=not moved)
+            if moved:
+                rect = tuple(new.mirror_rect)
+                self.frame.set_mirror(rect)
+                self._on_rect(rect, True)
+
+        @staticmethod
+        def _config_mtime() -> float | None:
+            try:
+                return config.config_path().stat().st_mtime
+            except OSError:
+                return None
 
         def _tick(self) -> None:
             now = time.perf_counter()
@@ -960,9 +1226,21 @@ def main() -> int:
                             winapi.keep_topmost(int(f.visual().winId()))
 
         def _hover_tip(self, now: float) -> None:
-            """鼠标停在被截断的译文上时，显示全文。"""
+            """鼠标停在被截断的译文上时，显示全文；停在标签上的 token 用量上时，显示明细。"""
             snap = self.state.snapshot
             x, y = winapi.cursor_pos()
+            meter = next((f for f in self._active_frames() if f.meter_hovered and f.isVisible()), None)
+            if meter is not None:
+                if self._tip_bid != -1:
+                    self._tip_bid = -1
+                    self.tip.setText(meter.meter_tip)
+                    self.tip.adjustSize()
+                    self.tip.move(x + 16, y + 20)
+                    self.tip.show()
+                return
+            if self._tip_bid == -1:
+                self._tip_bid = 0
+                self.tip.hide()
             target = None
             if snap is not None and not self.state.peek and not self.state.hidden and not self.state.paused \
                     and self._frame_at(x, y) is not None:
@@ -996,10 +1274,14 @@ def main() -> int:
                 self._save()
 
         def _save(self) -> None:
+            if self._cfg_mtime is not None and self._config_mtime() not in (None, self._cfg_mtime):
+                self._check_config_file()       # 先收下外部的改动，免得被这次保存盖掉（它会再调回这里）
+                return
             try:
                 config.save(self.cfg)
             except OSError as e:
                 log.warning("保存配置失败：%s", e)
+            self._cfg_mtime = self._config_mtime()
 
         # -------------------------------------------------------------- 调试控制（自动化测试用）
         def _debug_cmd(self, req: dict) -> dict:
@@ -1345,6 +1627,8 @@ def main() -> int:
         def shutdown(self) -> None:
             log.info("正在退出")
             self.timer.stop()
+            self._guard_timer.stop()
+            self._count_engine_usage()
             self.hotkeys.unregister_all()
             self.cfg.mirror_rect = list(self.frame.mirror)
             self.cfg.extra_mirrors = [list(f.mirror) for f in self.frames[1:]]

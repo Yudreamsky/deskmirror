@@ -73,6 +73,8 @@ class LlmConfig:
     num_ctx: int = 4096               # Ollama 每次必须一致，否则会重新加载模型
     keep_alive: str = "30m"
     consistency: bool = True          # 术语前后一致：附上本窗口里含同样词语的已有译文作参考（请求会长一些）
+    gather_ms: int = 600              # 已有请求在途时，零星的新文字最多等这么久凑成一批再发（每次请求都要带约 430 token
+                                      # 的固定说明，一两行字单独发很不划算）；0 = 不等
 
 
 @dataclass
@@ -174,10 +176,29 @@ class MemoryConfig:
 
 @dataclass
 class UsageConfig:
-    """当天发给翻译服务的请求数和字数（只有数量，不含任何文字）。"""
+    """当天发给翻译服务的请求数、字数和 token（只有数量，不含任何文字）。"""
     date: str = ""
     requests: int = 0
     chars: int = 0
+    tokens_in: int = 0                # 输入 token（发过去的：提示词、原文、参考译文）
+    tokens_out: int = 0               # 输出 token（模型写的译文）
+    tokens_cached: int = 0            # 输入里命中服务商缓存的（便宜得多）
+    estimated: bool = False           # 其中有服务没报用量、按字数估算的
+
+
+@dataclass
+class GuardConfig:
+    """省钱保护：人不在电脑前时少发请求，一天的 token 用到上限就停。"""
+    idle_min: int = 5                 # 这么多分钟没碰键盘鼠标：只翻镜框里的，不在后台预译别处；0 = 不管
+    pause_when_locked: bool = True    # 锁屏、屏保时完全停下（不截屏、不识别、不翻译）
+    daily_tokens: int = 1_000_000     # 云端服务一天最多用这么多 token（输入 + 输出），到了就停；0 = 不限。本机服务不限
+    show_meter: bool = True           # 魔镜标签上显示今天用掉的 token（↑ 输入 ↓ 输出）
+
+
+@dataclass
+class UpdateConfig:
+    auto_check: bool = True           # 每天第一次启动时在后台看一下有没有新版本（只访问 GitHub，不发任何内容）
+    last_check: str = ""              # 上次自动检查的日期
 
 
 @dataclass
@@ -198,6 +219,15 @@ class AppConfig:
     vision: VisionConfig = field(default_factory=VisionConfig)
     glossary: list[dict] = field(default_factory=list)   # [{src, dst, app}]，用户填写的术语表
     usage: UsageConfig = field(default_factory=UsageConfig)
+    guard: GuardConfig = field(default_factory=GuardConfig)
+    update: UpdateConfig = field(default_factory=UpdateConfig)
+
+
+def is_local_url(base_url: str) -> bool:
+    """服务地址是不是本机（本机服务不花钱、不受 token 上限限制；看图翻译发本机也不用每次问）。"""
+    from urllib.parse import urlparse
+    host = (urlparse(base_url.strip() if "://" in base_url else "http://" + base_url.strip()).hostname or "").lower()
+    return host in ("127.0.0.1", "localhost", "::1") or host.endswith(".localhost")
 
 
 def config_path() -> Path:
@@ -273,12 +303,15 @@ def validate(cfg: AppConfig) -> AppConfig:
     cfg.llm.timeout_s = max(5.0, min(300.0, cfg.llm.timeout_s))
     cfg.llm.max_batch_chars = max(200, min(6000, cfg.llm.max_batch_chars))
     cfg.llm.max_batch_items = max(1, min(32, cfg.llm.max_batch_items))
+    cfg.llm.gather_ms = max(0, min(5000, cfg.llm.gather_ms))
     cfg.style.min_font_px = max(8, min(32, cfg.style.min_font_px))
     cfg.style.min_scale = max(0.4, min(1.0, cfg.style.min_scale))
     cfg.style.min_squash = max(0.5, min(1.0, cfg.style.min_squash))
     cfg.style.plate_opacity = max(0.3, min(1.0, cfg.style.plate_opacity))
     cfg.track.stable_ms = max(100, min(3000, cfg.track.stable_ms))
     cfg.track.ring_px = max(60, min(2000, cfg.track.ring_px))
+    cfg.guard.idle_min = max(0, min(240, cfg.guard.idle_min))
+    cfg.guard.daily_tokens = max(0, cfg.guard.daily_tokens)
     terms = []
     for g in cfg.glossary if isinstance(cfg.glossary, list) else []:
         if isinstance(g, dict) and str(g.get("src", "")).strip() and str(g.get("dst", "")).strip():

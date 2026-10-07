@@ -24,7 +24,7 @@ from typing import Callable
 import cv2
 import numpy as np
 
-from . import geom, pixels, textutil, winapi
+from . import geom, pixels, textutil, usagelog, winapi
 from .capture import open_capture
 from .config import CHAT_APPS, CHAT_TITLES, AppConfig, ocr_lang_for
 from .geom import Rect
@@ -128,6 +128,7 @@ class JobState:
 class Inflight:
     batch: Batch
     received: set[int] = field(default_factory=set)
+    dynamic: bool = False          # 这批里有一直在变的内容（字幕、计数器、视频画面里的字）
 
 
 def _term_in(term: str, text: str) -> bool:
@@ -184,7 +185,9 @@ class Engine(threading.Thread):
         self._batch_ids = 0
         self.retry_single: set[str] = set()   # 漏译半句的原文：下次单独重译一次
         self.service = {"state": "idle", "message": "", "fails": 0, "until": 0.0, "paused": False,
-                        "last_ok": 0.0, "requests": 0, "slow": False}
+                        "last_ok": 0.0, "requests": 0, "slow": False, "budget": False,
+                        "tok_in": 0, "tok_out": 0, "tok_cached": 0, "tok_est": False}
+        self.frugal = False                   # 用户离开了：只翻镜框里的，不在后台预译别处（省钱）
         self._dirty = True
         self._last_publish = 0.0
         self._last_windows = 0.0
@@ -247,6 +250,14 @@ class Engine(threading.Thread):
 
     def pause_translation(self, on: bool) -> None:
         self.inbox.put(("pause", on))
+
+    def set_frugal(self, on: bool) -> None:
+        """省钱模式（用户离开电脑时）：只翻镜框里露出来的文字，别处等用户回来再预译。"""
+        self.inbox.put(("frugal", on))
+
+    def set_budget_hit(self, on: bool) -> None:
+        """今天的 token 用到上限：停止发新的翻译请求（缓存里有的照常显示）。"""
+        self.inbox.put(("budget", on))
 
     def stop(self) -> None:
         self._stop_evt.set()
@@ -523,6 +534,16 @@ class Engine(threading.Thread):
                 if not msg[1]:
                     self.service["until"] = 0.0
                 self._dirty = True
+            elif kind == "frugal":
+                if bool(msg[1]) != self.frugal:
+                    self.frugal = bool(msg[1])
+                    log.info("用户离开，只翻镜框里的" if self.frugal else "用户回来了，恢复预译范围")
+                    self._dirty = True
+            elif kind == "budget":
+                if bool(msg[1]) != self.service["budget"]:
+                    self.service["budget"] = bool(msg[1])
+                    log.info("今天的 token 用到上限，停止发翻译请求" if msg[1] else "token 上限解除，继续翻译")
+                    self._dirty = True
 
     # ------------------------------------------------------------------ 窗口
     def _refresh_windows(self) -> None:
@@ -647,6 +668,8 @@ class Engine(threading.Thread):
         hwnd = win.hwnd if win is not None else 0
         if hwnd in self._excluded:
             return False
+        if self.frugal:
+            return any(geom.overlaps(sr, mr) for mr in self._mirrors)
         mode = self.cfg.scope.mode
         if mode == "near":
             return any(geom.overlaps(sr, geom.expand(mr, self.cfg.scope.near_px)) for mr in self._mirrors)
@@ -2258,7 +2281,7 @@ class Engine(threading.Thread):
             return
         svc = self.service
         now = time.perf_counter()
-        if svc["paused"] or now < svc["until"]:
+        if svc["paused"] or svc["budget"] or now < svc["until"]:
             return
         if len(self.inflight) >= self.cfg.llm.concurrency:
             return
@@ -2296,23 +2319,34 @@ class Engine(threading.Thread):
         win = cands[0][2].canvas.window()
         hwnd = win.hwnd if win is not None else 0
         texts, keys, chars = [], [], 0
-        dynamic = False
+        dynamic = single = full = False
+        youngest = oldest = 0.0
         for _o, _d, b in cands:
             bw = b.canvas.window()
             if (bw.hwnd if bw is not None else 0) != hwnd:
                 continue
             if b.key in keys:
                 continue
-            dynamic = dynamic or b.born_dynamic
             single = b.key in self.retry_single
             full = chars + len(b.text) > self.cfg.llm.max_batch_chars or len(texts) >= self.cfg.llm.max_batch_items
             if texts and (single or full):
                 break
+            dynamic = dynamic or b.born_dynamic
+            age = now - b.created
+            youngest = age if not texts else min(youngest, age)
+            oldest = max(oldest, age)
             texts.append(b.text)
             keys.append(b.key)
             chars += len(b.text)
             if single:
                 break  # 需要单独重译的一块自己一批
+        gather = self.cfg.llm.gather_ms / 1000.0
+        if (gather and self.inflight and not single and not full and chars < self.cfg.llm.max_batch_chars // 3
+                and youngest < gather and oldest < gather * 3):
+            # 已经有请求在途、新冒出来的只有零星几行：再等一下凑成一批。每次请求都带约 430 token 的固定说明，
+            # 一两行字单独发，九成花在说明上。最老的一块等太久就照发，不会一直拖着。
+            self.metrics["gather_wait"] += 1
+            return
         for key in keys:
             for bid in self.by_key.get(key, ()):
                 b = self.blocks.get(bid)
@@ -2325,7 +2359,7 @@ class Engine(threading.Thread):
         batch = Batch(self._batch_ids, texts, keys, self.cfg.target_lang, context,
                       self._glossary_terms(hwnd, texts), refs, hwnd, app, self.cfg.source_lang,
                       self._dialog_context(hwnd, keys) if dynamic else [])
-        self.inflight[batch.batch_id] = Inflight(batch)
+        self.inflight[batch.batch_id] = Inflight(batch, dynamic=dynamic)
         svc["requests"] += 1
         svc["chars"] = svc.get("chars", 0) + chars
         svc["state"] = "busy"
@@ -2379,13 +2413,30 @@ class Engine(threading.Thread):
                     self._retire_replaced(b)
             self._dirty = True
         elif kind == "batch_done":
-            _k, batch_id, err, secs = ev
+            _k, batch_id, err, secs = ev[:4]
+            usage = ev[4] if len(ev) > 4 else None
             inf = self.inflight.pop(batch_id, None)
             if inf is None:
                 return
             svc = self.service
             now = time.perf_counter()
             missing = [k for i, k in enumerate(inf.batch.keys) if i not in inf.received]
+            if usage is not None:
+                svc["tok_in"] += usage.tokens_in
+                svc["tok_out"] += usage.tokens_out
+                svc["tok_cached"] += usage.cached
+                if not usage.exact:
+                    svc["tok_est"] = True
+                # 每次请求记一行（只有数量，不记文字）：排查“钱花在哪了”
+                b = inf.batch
+                log.info("翻译请求 #%d：%d 段 %d 字，参考 %d 条，上下文 %d 句，%s ↑%d（缓存命中 %d）↓%d token%s，%.1f 秒",
+                         batch_id, len(b.texts), sum(len(t) for t in b.texts), len(b.refs), len(b.dialog),
+                         "动态" if inf.dynamic else "静态", usage.tokens_in, usage.cached, usage.tokens_out,
+                         "" if usage.exact else "（估算）", secs)
+                usagelog.write(model=self.cfg.llm.model, host=usagelog.host_of(self.cfg.llm.base_url), app=b.app,
+                               segments=len(b.texts), chars=sum(len(t) for t in b.texts), refs=len(b.refs),
+                               dialog=len(b.dialog), dynamic=inf.dynamic, tokens_in=usage.tokens_in,
+                               tokens_out=usage.tokens_out, cached=usage.cached, exact=usage.exact, secs=secs)
             if err is None:
                 svc.update(fails=0, state="ok", message="", last_ok=now, slow=secs > 8)
                 msg = tr("模型漏掉了这段")
@@ -2853,6 +2904,9 @@ class Engine(threading.Thread):
             "scrolls": int(self.metrics["scrolls"]), "cache_hits": int(self.metrics["cache_hits"]),
             "monitors": [m.info.device for m in self.mons],
             "sent_chars": svc.get("chars", 0),
+            "tok_in": svc["tok_in"], "tok_out": svc["tok_out"], "tok_cached": svc["tok_cached"],
+            "tok_est": svc["tok_est"],
+            "budget": svc["budget"], "frugal": self.frugal,
             "memory_count": self.memory.count() if self.memory is not None else None,
             "excluded_in_mirror": any(geom.overlaps(v, mr) for mr in self._mirrors
                                       for hwnd in self._excluded for v in self.visible.get(hwnd, ())),

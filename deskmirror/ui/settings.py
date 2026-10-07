@@ -202,9 +202,37 @@ class SettingsDialog(QDialog):
         f.addRow("", _note(tr("会把屏幕上识别出的原文和译文存进本机文件（只有当前 Windows 账户能解开）。"
                               "只有数字不同的文字（计时器、进度、血量）不管开不开，都会套用已有译文、不再请求翻译。")))
         u = self.cfg.usage
-        self.usage_label = QLabel(tr("今天（{date}）发给翻译服务 {requests} 次请求、{chars} 字（只统计数量，不记录内容）")
-                                  .format(date=u.date or "—", requests=u.requests, chars=u.chars))
+        self.usage_label = QLabel(tr("今天（{date}）发给翻译服务 {requests} 次请求、{chars} 字，"
+                                     "输入 {tin} token、输出 {tout} token（只统计数量，不记录内容）")
+                                  .format(date=u.date or "—", requests=u.requests, chars=u.chars,
+                                          tin=f"{u.tokens_in:,}", tout=f"{u.tokens_out:,}"))
+        self.usage_label.setWordWrap(True)
         f.addRow(tr("用量"), self.usage_label)
+        g = self.cfg.guard
+        self.idle_min = QSpinBox()
+        self.idle_min.setRange(0, 240)
+        self.idle_min.setValue(g.idle_min)
+        self.idle_min.setSuffix(tr(" 分钟"))
+        self.idle_min.setSpecialValueText(tr("不管"))
+        f.addRow(tr("没碰键盘鼠标"), self.idle_min)
+        f.addRow("", _note(tr("超过这么久没碰键盘鼠标，就只翻镜框里的文字，不在后台预译屏幕上别处的（动一下就恢复）。"
+                              "镜框里的字幕照常翻译，看视频不受影响。")))
+        self.pause_locked = QCheckBox(tr("锁屏、屏保时完全停下（不截屏、不识别、不翻译）"))
+        self.pause_locked.setChecked(g.pause_when_locked)
+        f.addRow("", self.pause_locked)
+        self.daily_tokens = QSpinBox()
+        self.daily_tokens.setRange(0, 2_000_000_000)
+        self.daily_tokens.setSingleStep(100_000)
+        self.daily_tokens.setGroupSeparatorShown(True)
+        self.daily_tokens.setValue(g.daily_tokens)
+        self.daily_tokens.setSuffix(" token")
+        self.daily_tokens.setSpecialValueText(tr("不限"))
+        f.addRow(tr("每天最多用"), self.daily_tokens)
+        f.addRow("", _note(tr("只限云端服务（本机 Ollama 不花钱、不限）：今天发出去和收回来的 token 加起来到了这个数，"
+                              "就停止翻译新的文字，已有译文照常显示，明天自动恢复。")))
+        self.show_meter = QCheckBox(tr("魔镜标签上显示今天用掉的 token（↑ 输入 ↓ 输出）"))
+        self.show_meter.setChecked(g.show_meter)
+        f.addRow("", self.show_meter)
         return page
 
     def _glossary_tab(self) -> QWidget:
@@ -295,6 +323,9 @@ class SettingsDialog(QDialog):
             self.opacity.setToolTip(tr("这台电脑（Windows 10）上底板总是不透明"))
         lf.addRow(tr("底板不透明度"), self.opacity)
         lay.addWidget(look)
+        self.auto_update = QCheckBox(tr("每天第一次启动时检查有没有新版本（只访问 GitHub，不发送任何内容）"))
+        self.auto_update.setChecked(self.cfg.update.auto_check)
+        lay.addWidget(self.auto_update)
         lay.addStretch(1)
         return page
 
@@ -354,6 +385,11 @@ class SettingsDialog(QDialog):
         c.scope.exclude_titles = _lines(self.ex_titles)
         c.scope.translate_chat = self.translate_chat.isChecked()
         c.memory.enabled = self.memory_on.isChecked()
+        c.guard.idle_min = self.idle_min.value()
+        c.guard.pause_when_locked = self.pause_locked.isChecked()
+        c.guard.daily_tokens = self.daily_tokens.value()
+        c.guard.show_meter = self.show_meter.isChecked()
+        c.update.auto_check = self.auto_update.isChecked()
         terms = []
         for r in range(self.gloss.rowCount()):
             vals = [(self.gloss.item(r, k).text().strip() if self.gloss.item(r, k) else "") for k in range(3)]
