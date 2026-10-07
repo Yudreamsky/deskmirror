@@ -14,6 +14,10 @@ dijalankan), lalu [panduan pengguna](docs/GUIDE.en.md). Keduanya dalam bahasa In
 
 ## Contoh tampilan
 
+Video perkenalan 2,5 menit (versi bahasa Inggris):
+
+https://github.com/user-attachments/assets/949fc01b-9277-44ab-8253-7a7a5162d22c
+
 DeskMirror yang dijalankan pada halaman uji proyek ini (layanan terjemahan: DeepSeek). Terjemahan di gambar berbahasa
 Inggris; bila Anda memilih bahasa Indonesia sebagai bahasa ibu, terjemahannya tampil dalam bahasa Indonesia.
 

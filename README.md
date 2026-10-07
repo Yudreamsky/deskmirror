@@ -13,7 +13,11 @@ New here? Start with the [quick start](docs/QUICKSTART.en.md) (the same guide op
 
 ## What it looks like
 
-DeskMirror running on the project's test pages (translation service: DeepSeek).
+A 2½-minute tour:
+
+https://github.com/user-attachments/assets/949fc01b-9277-44ab-8253-7a7a5162d22c
+
+Screenshots of DeskMirror running on the project's test pages (translation service: DeepSeek):
 
 | Web pages | Video subtitles |
 |---|---|
