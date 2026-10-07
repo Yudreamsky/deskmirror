@@ -51,6 +51,7 @@ def show_models(combo: QComboBox, res) -> str:
 
 class SettingsDialog(QDialog):
     guide_requested = Signal()      # “关于”页上的“打开新手指南”
+    update_requested = Signal()     # “关于”页上的“检查更新”
     def __init__(self, cfg: AppConfig, parent: QWidget | None = None) -> None:
         super().__init__(parent, Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
         self.setWindowTitle(tr("桌面魔镜 · 设置"))
@@ -205,6 +206,10 @@ class SettingsDialog(QDialog):
         self.usage_label = QLabel(tr("今天（{date}）发给翻译服务 {requests} 次请求、{chars} 字（只统计数量，不记录内容）")
                                   .format(date=u.date or "—", requests=u.requests, chars=u.chars))
         f.addRow(tr("用量"), self.usage_label)
+        self.update_check = QCheckBox(tr("启动后检查有没有新版本（一天最多一次，只访问 GitHub 取版本号，不发送屏幕内容；"
+                                         "有新版只提示，点了才下载）"))
+        self.update_check.setChecked(self.cfg.update.check_on_start)
+        f.addRow(tr("检查更新"), self.update_check)
         return page
 
     def _glossary_tab(self) -> QWidget:
@@ -318,6 +323,7 @@ class SettingsDialog(QDialog):
     def _about_tab(self) -> QWidget:
         page = AboutPage()
         page.guide_requested.connect(self.guide_requested.emit)
+        page.update_requested.connect(self.update_requested.emit)
         return page
 
     # ------------------------------------------------------------------ 动作
@@ -353,6 +359,7 @@ class SettingsDialog(QDialog):
         c.scope.exclude_apps = _lines(self.ex_apps)
         c.scope.exclude_titles = _lines(self.ex_titles)
         c.scope.translate_chat = self.translate_chat.isChecked()
+        c.update.check_on_start = self.update_check.isChecked()
         c.memory.enabled = self.memory_on.isChecked()
         terms = []
         for r in range(self.gloss.rowCount()):

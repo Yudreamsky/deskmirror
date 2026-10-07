@@ -13,7 +13,7 @@ import time
 
 os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "0")  # 全程用物理像素，和截屏坐标一致
 
-from . import ROOT, config, geom, i18n, winapi  # noqa: E402
+from . import ROOT, __version__, config, geom, i18n, winapi  # noqa: E402
 from .i18n import N_, tr  # noqa: E402
 
 log = logging.getLogger("deskmirror")
@@ -54,6 +54,13 @@ def _setup_logging() -> None:
         root.addHandler(sh)
 
 
+_k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+_k32.CreateEventW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_wchar_p]
+_k32.CreateEventW.restype = ctypes.c_void_p
+_k32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+_k32.WaitForSingleObject.restype = ctypes.c_uint32
+
+
 def _single_instance() -> object | None:
     k32 = ctypes.WinDLL("kernel32", use_last_error=True)
     k32.CreateMutexW.restype = ctypes.c_void_p
@@ -84,6 +91,8 @@ def main() -> int:
     from .ui.history import HistoryPanel
     from .ui.vision import VisionPanel
     from .ui.settings import SettingsDialog
+    from .ui.update import UpdateDialog
+    from . import updater
 
     qapp = QApplication(sys.argv)
     qapp.setQuitOnLastWindowClosed(False)
@@ -121,6 +130,7 @@ def main() -> int:
         snapshot_ready = Signal(object)
         vision_piece = Signal(str)            # 看图翻译：后台线程拿到的一段译文
         vision_done = Signal(str, float)      # 看图翻译结束：(出错说明, 用时)
+        update_found = Signal(object)         # 启动后自动检查查到了新版本（updater.Release）
 
         def __init__(self) -> None:
             super().__init__()
@@ -171,7 +181,9 @@ def main() -> int:
             self._menu: QMenu | None = None
             self._build_menu()
             self.tray.activated.connect(self._on_tray)
-            self.tray.messageClicked.connect(self._open_last_shot)
+            self._message_action = None         # 点托盘提示时做什么（截图后打开文件夹、有新版本时打开检查更新）
+            self._message_until = 0.0
+            self.tray.messageClicked.connect(self._on_message_clicked)
             self.tray.show()
             self._register_keys()
             for o in self.overlays:
@@ -199,6 +211,10 @@ def main() -> int:
             self._cfg_stamp = self._cfg_seen = self._config_stamp()
             self._last_cfg_check = 0.0
             self._reload_timer = QTimer(self, singleShot=True, interval=600, timeout=self._reload_config)
+            # 命令行 update 会用这个事件请正在运行的魔镜退出
+            self._quit_event = _k32.CreateEventW(None, True, False, updater.QUIT_EVENT)
+            self.update_dialog: UpdateDialog | None = None
+            self._start_update_checks()
             self.engine.start()
             qapp.aboutToQuit.connect(self.shutdown)
             self.debug = None
@@ -256,6 +272,7 @@ def main() -> int:
             self.act_debug.toggled.connect(self._on_debug)
             menu.addAction(self.act_debug)
             menu.addSeparator()
+            menu.addAction(tr("检查更新…"), lambda: self.open_update())
             menu.addAction(tr("关于…"), self.open_about)
             menu.addAction(tr("退出"), self.quit_app)
             old, self._menu = self._menu, menu
@@ -637,6 +654,7 @@ def main() -> int:
             if self.about is None:
                 self.about = AboutDialog()
                 self.about.page.guide_requested.connect(self.open_guide)
+                self.about.page.update_requested.connect(lambda: self.open_update())
             self.about.show()
             self.about.raise_()
             self.about.activateWindow()
@@ -849,11 +867,89 @@ def main() -> int:
             if saved:
                 self._last_shot = str(path)
                 log.info("已保存截图：%s", path)
+                self._on_click_message(self._open_last_shot)
                 self.tray.showMessage(title, tr("已复制到剪贴板，并保存到 {path}（点这条提示打开文件夹）").format(path=path),
                                       QSystemTrayIcon.MessageIcon.Information, 4000)
             else:
                 self.tray.showMessage(title, tr("已复制到剪贴板；保存到 {folder} 失败。").format(folder=folder),
                                       QSystemTrayIcon.MessageIcon.Warning, 5000)
+
+        def _on_click_message(self, action) -> None:
+            """接下来这条托盘提示被点了做什么（只在它显示的这一会儿有效）。"""
+            self._message_action, self._message_until = action, time.monotonic() + 20
+
+        def _on_message_clicked(self) -> None:
+            if self._message_action is not None and time.monotonic() < self._message_until:
+                self._message_action()
+
+        # -------------------------------------------------------------- 更新
+        def _start_update_checks(self) -> None:
+            """启动后：报一下刚才的更新结果，过一会儿清掉更新留下的文件，按设置在后台查一次新版本。"""
+            done = updater.take_result()
+            if done:
+                log.info("已从 %s 更新到 %s", done.get("from"), done.get("to"))
+                QTimer.singleShot(2000, lambda: self.tray.showMessage(tr("桌面魔镜"), tr(
+                    "已更新到 {new}（原来是 {old}）。").format(new=done.get("to", ""), old=done.get("from", "")),
+                    QSystemTrayIcon.MessageIcon.Information, 6000))
+            QTimer.singleShot(30_000, lambda: threading.Thread(target=updater.cleanup, daemon=True).start())
+            self.update_found.connect(self._on_update_found)
+            QTimer.singleShot(15_000, self._auto_check_update)
+
+        def _auto_check_update(self) -> None:
+            """一天最多查一次；有新版本只在托盘提示，点了才打开检查更新的窗口（下载要用户再点）。"""
+            today = time.strftime("%Y-%m-%d")
+            if not self.cfg.update.check_on_start or self.cfg.update.last_check == today:
+                return
+            self.cfg.update.last_check = today
+            self._save_timer.start()
+            skip = self.cfg.update.skip_version
+
+            def work() -> None:
+                try:
+                    rel = updater.latest_release()
+                except updater.UpdateError as e:
+                    log.info("自动检查更新没成功：%s", e)
+                    return
+                if updater.is_newer(rel.version) and rel.version != skip:
+                    self.update_found.emit(rel)
+            threading.Thread(target=work, daemon=True).start()
+
+        def _on_update_found(self, rel) -> None:
+            log.info("有新版本 %s", rel.version)
+            self._on_click_message(lambda: self.open_update(rel))
+            self.tray.showMessage(tr("桌面魔镜"), tr("有新版本 {new}（现在是 {old}）：点这条提示看看更新了什么。").format(
+                new=rel.version, old=__version__), QSystemTrayIcon.MessageIcon.Information, 10_000)
+
+        def open_update(self, release=None, auto_start: bool = False) -> None:
+            if self.update_dialog is not None and self.update_dialog.isVisible():
+                self.update_dialog.raise_()
+                self.update_dialog.activateWindow()
+                return
+            dlg = UpdateDialog(release)
+            dlg.auto_start = auto_start
+            dlg.install_ready.connect(self._install_update)
+            dlg.skip_requested.connect(self._skip_update)
+            self.update_dialog = dlg
+            dlg.show()
+            dlg.raise_()
+            dlg.activateWindow()
+            if auto_start and dlg.release is not None:
+                dlg._show_release()
+
+        def _install_update(self, new_app) -> None:
+            """下载、解压好了（源码版是用户确认了）：起助手进程，自己退出，由它换上新版本再打开。"""
+            try:
+                updater.start_helper(new_app, os.getpid(), restart=True)
+            except OSError as e:
+                log.exception("起不来更新助手")
+                QMessageBox.warning(None, tr("桌面魔镜"), tr("没法开始更新：{error}").format(error=e))
+                return
+            log.info("交给更新助手换新版本，退出")
+            QTimer.singleShot(300, self.quit_app)
+
+        def _skip_update(self, version: str) -> None:
+            self.cfg.update.skip_version = version
+            self._save_timer.start()
 
         def _open_last_shot(self) -> None:
             if self._last_shot and os.path.exists(self._last_shot):
@@ -901,6 +997,7 @@ def main() -> int:
                 return
             dlg = SettingsDialog(self.cfg)
             dlg.guide_requested.connect(self.open_guide)
+            dlg.update_requested.connect(lambda: self.open_update())
             self._settings = dlg
 
             def done(result: int) -> None:
@@ -966,6 +1063,9 @@ def main() -> int:
             if now - self._last_cfg_check > 1.0:
                 self._last_cfg_check = now
                 self._check_config_file()
+                if self._quit_event and _k32.WaitForSingleObject(self._quit_event, 0) == 0:
+                    log.info("命令行请魔镜退出（要更新）")
+                    self.quit_app()
             if now - self._last_topmost > 2.0:
                 self._last_topmost = now
                 for o in self.overlays:
@@ -1077,6 +1177,10 @@ def main() -> int:
             if cmd == "cfg":
                 # 程序此刻用的设置（测热载入用）；API Key 不给
                 return {k: config.get_key(self.cfg, k) for k in req.get("keys", ()) if not k.endswith("api_key")}
+            if cmd == "update":
+                # 打开检查更新的窗口；auto：查到新版本就直接下载、安装（测试用）
+                self.open_update(auto_start=bool(req.get("auto")))
+                return {"ok": True}
             if cmd == "shotmode":
                 self.set_shot_mode(bool(req.get("on", True)))
                 return {"ok": True}

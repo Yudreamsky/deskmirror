@@ -6,6 +6,7 @@
 - **截图模式**：别的截图、录屏软件截不到魔镜，因为魔镜自己也靠截屏看字，截得到自己就会把译文当原文。现在托盘菜单或右键魔镜标签里可以打开“让截图工具截到魔镜”：期间译文定住不更新，关掉后接着识别、翻译。标签上的“截原图 / 截译图”照样能用。（#2）
 - **新手指南第 3 步能获取模型列表**：选云端服务时，填好 API Key 点“获取模型列表”，从服务商现有的模型里选，不用手填；换服务时不再留着上一家的模型名。（#3）
 - **命令行改设置，AI 助手能替你设置好**：`DeskMirrorCLI.exe`（源码版 `python -m deskmirror`）能查看、修改全部设置（`config list / get / set / reset / keys`），换翻译服务（`service deepseek` 等）、列出模型、测试连接、管理术语表；加 `--json` 输出 JSON。超出范围、格式不对的值直接报错；API Key 从标准输入读、只显示前后几位。正在运行的魔镜一秒内自动载入改动（以前直接改配置文件要先退出魔镜），说明里加了“让 AI 帮你设置”一节。（#4）
+- **程序内更新**：托盘菜单、设置 → 关于里“检查更新”；启动后每天最多自动查一次（可以关掉，只向 GitHub 查版本号），有新版本在托盘提示。点“下载并更新”：下载、核对 SHA256，魔镜退出后换上新版本、自动重新打开，设置都留着，出错就换回旧版本。源码版用 git pull 更新。命令行 `update --check`、`update --yes`。（#5）
 - **中文 Windows 上从源码安装不再失败**：依赖清单的注释改成英文，setup.bat、start.bat 让 Python 按 UTF-8 读写（以前 pip 按 GBK 读依赖清单就报错退出）。（#1）
 
 - **No more translating its own translations on Windows 10**: Windows 10 can't hide translucent windows from screen
@@ -26,6 +27,11 @@
   add `--json` for JSON output. Out-of-range or malformed values are rejected; API keys are read from standard input
   and only shown in part. A running DeskMirror picks up the changes within a second (editing the settings file used to
   require quitting it first), and the README has a new "Let an AI assistant set it up" section. (#4)
+- **Updating from inside the app**: "Check for updates" in the tray menu and in Settings → About; after starting,
+  DeskMirror checks at most once a day (can be turned off; it only asks GitHub for the version number) and announces a
+  new version in the tray. "Download and update" downloads and verifies it (SHA256), then DeskMirror quits, switches
+  to the new version and reopens with your settings intact; if anything goes wrong the previous version is put back.
+  From source it updates with git pull. Command line: `update --check`, `update --yes`. (#5)
 - **Installing from source on Chinese Windows**: the requirements files are plain ASCII now, and setup.bat and
   start.bat run Python in UTF-8 mode (pip used to fail reading the requirements file as GBK). (#1)
 

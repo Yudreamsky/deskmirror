@@ -13,9 +13,12 @@ import ctypes
 import difflib
 import getpass
 import json
+import os
 import re
 import sys
+import time
 from dataclasses import fields, is_dataclass
+from pathlib import Path
 
 from . import __version__, config, i18n, keys
 from .config import OPENAI_PRESETS, AppConfig, LlmConfig
@@ -28,6 +31,7 @@ READONLY = {
     "extra_mirrors": N_("另外开的魔镜：在魔镜标签上右键来开、关"),
     "glossary": N_("术语表：用 glossary 命令改"),
     "usage": N_("当天用量：程序自己记"),
+    "update.last_check": N_("上次自动检查更新的日期：程序自己记"),
 }
 DOCS = {
     "source_lang": N_("原文语言：auto = 自动识别；也可以指定（ko 会换用韩文识别模型）"),
@@ -84,6 +88,8 @@ DOCS = {
     "vision.timeout_s": N_("看图翻译最多等多少秒"),
     "vision.max_side": N_("发图前把长边缩到多少像素"),
     "vision.num_ctx": N_("Ollama 的上下文长度"),
+    "update.check_on_start": N_("启动后检查有没有新版本（一天最多一次，只访问 GitHub；有新版只提示）"),
+    "update.skip_version": N_("自动检查时不再提示的版本号（检查更新窗口里点了“跳过这个版本”）"),
 }
 # service 命令的服务名 → 预设（显示名、接口、地址、默认模型）；OpenAI 兼容的从 config.OPENAI_PRESETS 取
 _PRESET_IDS = {"deepseek": "DeepSeek", "qwen": N_("通义千问（阿里云百炼）"), "siliconflow": N_("硅基流动"),
@@ -115,6 +121,7 @@ def usage() -> str:
         "  {p} models [--vision]               翻译服务（或看图翻译服务）现有的模型\n"
         "  {p} test                            试一下翻译服务能不能用（会翻译一句很短的话）\n"
         "  {p} glossary list | add 原文 译文 [--app 程序.exe] | remove 原文 [--app 程序.exe]\n"
+        "  {p} update [--check] [--yes]        检查新版本 / 下载并换上新版本（正在运行的魔镜会自动退出、重新打开）\n"
         "  {p} version\n\n"
         "加 --json 输出 JSON（给程序、AI 助手读）。"
     ).format(version=__version__, p=_prog())
@@ -132,7 +139,7 @@ def all_keys(obj: object | None = None, prefix: str = "") -> list[str]:
 
 
 def _readonly(key: str) -> str:
-    return READONLY.get(key.split(".")[0], "")
+    return READONLY.get(key) or READONLY.get(key.split(".")[0], "")
 
 
 def settable_keys() -> list[str]:
@@ -441,13 +448,103 @@ def cmd_glossary(cfg: AppConfig, args: list[str], as_json: bool) -> int:
     raise CliError(tr("glossary 没有这个子命令：{sub}").format(sub=sub), 2)
 
 
+def _option(args: list[str], name: str) -> str:
+    if name not in args or args.index(name) + 1 >= len(args):
+        raise CliError(tr("{name} 后面要跟一个值").format(name=name), 2)
+    return args[args.index(name) + 1]
+
+
+def _helper_logging(folder: Path) -> None:
+    """助手进程没有窗口：过程记到 logs\\update.log。"""
+    import logging
+    (folder / "logs").mkdir(exist_ok=True)
+    handler = logging.FileHandler(folder / "logs" / "update.log", encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logging.getLogger().addHandler(handler)
+    logging.getLogger().setLevel(logging.INFO)
+
+
+def _wait_closed(seconds: float = 30.0) -> bool:
+    end = time.monotonic() + seconds
+    while _running():
+        if time.monotonic() > end:
+            return False
+        time.sleep(0.3)
+    return True
+
+
+def cmd_update(cfg: AppConfig, args: list[str], as_json: bool) -> int:
+    from . import updater
+    if "--apply" in args or "--apply-source" in args:           # 助手进程（由旧版本启动，没有窗口）
+        restart, old_version = "--restart" in args, _option(args, "--from")
+        wait_pid = int(_option(args, "--wait"))
+        try:
+            if "--apply" in args:
+                target = Path(_option(args, "--apply"))
+                _helper_logging(target)
+                updater.apply_package(Path(sys.executable).resolve().parent, target, wait_pid, restart, old_version)
+            else:
+                _helper_logging(updater.program_dir())
+                updater.apply_source(updater.program_dir(), wait_pid, restart, old_version)
+        except updater.UpdateError as e:
+            updater.message_box(str(e))
+            return 1
+        return 0
+    try:
+        rel = updater.latest_release()
+    except updater.UpdateError as e:
+        raise CliError(str(e))
+    method, reason = updater.install_method()
+    newer = updater.is_newer(rel.version)
+    info = {"current": __version__, "latest": rel.version, "newer": newer, "method": method, "reason": reason,
+            "page": rel.page, "notes": rel.notes}
+    if not newer or "--check" in args:
+        if not newer:
+            text = tr("已经是最新版本（{version}）。").format(version=__version__)
+        else:
+            text = tr("有新版本 {latest}（现在 {current}）。").format(latest=rel.version, current=__version__)
+            text += "\n" + (tr("自动更新：{p} update --yes").format(p=_prog()) if method != "manual" else
+                            tr("{reason}。请到发布页下载：{page}").format(reason=reason, page=rel.page))
+            text += "\n\n" + rel.notes.strip()
+        _emit(as_json, info, text)
+        return 0
+    if method == "manual":
+        raise CliError(tr("{reason}。请到发布页下载：{page}").format(reason=reason, page=rel.page))
+    if "--yes" not in args:
+        if as_json or sys.stdin is None or not sys.stdin.isatty():
+            raise CliError(tr("确认要更新就加上 --yes"), 2)
+        if input(tr("更新到 {version}？[y/N] ").format(version=rel.version)).strip().lower() not in ("y", "yes"):
+            return 1
+    running = _running()
+    try:
+        new_app = None
+        if method == "package":
+            def progress(done: int, total: int) -> None:
+                if not as_json and sys.stdout.isatty() and total:
+                    print(f"\r{done * 100 // total:3d}%  {done / 1e6:.0f} / {total / 1e6:.0f} MB", end="", flush=True)
+            zip_path = updater.download(rel, updater.stage(), progress)
+            if not as_json and sys.stdout.isatty():
+                print()
+            new_app = updater.extract(zip_path, updater.stage() / "new")
+    except updater.UpdateError as e:
+        raise CliError(str(e))
+    if running:
+        updater.request_quit()
+        if not _wait_closed():
+            raise CliError(tr("魔镜没有退出，没法更新：请在托盘图标上右键 → 退出，再试一次"))
+    updater.start_helper(new_app, os.getpid(), restart=running)
+    _emit(as_json, {**info, "restart": running}, tr("正在换上 {version}，几秒后完成{tail}（结果记在 logs\\update.log）。").format(
+        version=rel.version, tail=tr("，魔镜会自动重新打开") if running else ""))
+    return 0
+
+
 def cmd_version(cfg: AppConfig, args: list[str], as_json: bool) -> int:
     _emit(as_json, {"version": __version__}, __version__)
     return 0
 
 
 COMMANDS = {"config": cmd_config, "service": cmd_service, "models": cmd_models, "test": cmd_test,
-            "glossary": cmd_glossary, "version": cmd_version}
+            "glossary": cmd_glossary, "update": cmd_update, "version": cmd_version}
 
 
 def _own_console() -> bool:

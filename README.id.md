@@ -60,7 +60,7 @@ Inggris; bila Anda memilih bahasa Indonesia sebagai bahasa ibu, terjemahannya ta
   membaca gambar (secara bawaan gemma4:12b di Ollama). Cocok untuk huruf dekoratif, efek suara, dan teks di dalam
   gambar.
 - Juga: panel riwayat, menyunting terjemahan, beberapa cermin sekaligus, cermin yang mengikuti jendela, jeda, tangkapan
-  layar.
+  layar, pembaruan dari dalam aplikasi.
 
 ## Pemasangan
 
@@ -161,6 +161,9 @@ AI Anda:
   dinyalakan, terjemahan disimpan terenkripsi di PC ini.
 - Terjemahan gambar mengirim tangkapan layar isi bingkai ke model gambar yang diatur di Settings. Secara bawaan itu
   Ollama di PC Anda, jadi gambarnya tidak keluar; dengan layanan cloud, Anda selalu ditanya dulu sebelum gambar dikirim.
+- Pemeriksaan pembaruan menanyakan nomor versi terbaru dan catatan rilis ke GitHub, paling banyak sekali sehari
+  setelah DeskMirror dijalankan; tidak ada isi layar yang dikirim, dan tidak ada yang diunduh sebelum Anda
+  mengekliknya. Bisa dimatikan di Settings → Scope and privacy.
 
 ## Keterbatasan yang diketahui
 

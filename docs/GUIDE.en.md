@@ -211,6 +211,22 @@ commands change `deskmirror.json`: a running DeskMirror picks up the changes wit
 notification; the recognition device, the capture method, the screens covered and wheel prediction take effect after a
 restart, and the command tells you so.
 
+## Updating to a new version
+
+- Tray menu → "Check for updates…", or Settings → About → "Check for updates": if there's a new version you see its
+  release notes. Click "Download and update" to download and verify it (SHA256); DeskMirror then quits, switches to
+  the new version and reopens. Settings, logs, the learned wheel curve and remembered translations stay. If anything
+  goes wrong, the previous version is put back.
+- After starting, DeskMirror checks at most once a day (it only asks GitHub for the version number and release notes,
+  and sends no screen content); a new version is announced in a tray notification that opens the update window when
+  clicked. Turn this off in Settings → Scope and privacy, or click "Skip this version" in the update window.
+- From source (cloned with git): click "Update (git pull)"; after DeskMirror quits it pulls the new code, reinstalls
+  the packages and reopens. Local code changes stop it from updating automatically.
+- Command line: `update --check` looks for a new version, `update --yes` downloads and installs it (a running mirror
+  quits and reopens by itself).
+- If DeskMirror is in a folder it can't write to (such as Program Files), it can't update itself: download the new
+  version from the release page and unzip it over the old one.
+
 ## Resetting and uninstalling
 
 - **Reset to default settings**: quit DeskMirror, delete `deskmirror.json` in the program folder (the unzipped folder,

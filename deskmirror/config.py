@@ -181,6 +181,14 @@ class UsageConfig:
 
 
 @dataclass
+class UpdateConfig:
+    """检查新版本：只访问 GitHub 取最新版本号和更新说明，不发送任何屏幕内容。"""
+    check_on_start: bool = True       # 启动后在后台查一次（一天最多一次）；有新版只提示，点了才下载
+    last_check: str = ""              # 上次自动检查的日期
+    skip_version: str = ""            # 点了“跳过这个版本”的版本号：自动检查不再提示它
+
+
+@dataclass
 class AppConfig:
     source_lang: str = "auto"
     target_lang: str = "zh-Hans"
@@ -198,6 +206,7 @@ class AppConfig:
     vision: VisionConfig = field(default_factory=VisionConfig)
     glossary: list[dict] = field(default_factory=list)   # [{src, dst, app}]，用户填写的术语表
     usage: UsageConfig = field(default_factory=UsageConfig)
+    update: UpdateConfig = field(default_factory=UpdateConfig)
 
 
 def config_path() -> Path:

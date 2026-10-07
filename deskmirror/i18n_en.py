@@ -705,8 +705,8 @@ EN: dict[str, str] = {
         'Ollama context length',
     '本机 Ollama':
         'Ollama on this PC',
-    '桌面魔镜命令行（{version}）：不打开界面就能看、改设置，改完正在运行的魔镜一秒内自动生效。\n\n  {p} config list                     全部设置\n  {p} config get 名字                  一项设置，比如 llm.model\n  {p} config set 名字 值 [名字 值…]     改设置；值写 - 表示从标准输入读（API Key 这样传，不留在命令行里）\n  {p} config reset 名字                恢复默认值\n  {p} config keys                     每项设置的说明、能取的值\n  {p} config path                     配置文件在哪\n  {p} service [服务名]                 列出预设的翻译服务 / 换成其中一个（deepseek、qwen、openai、ollama…）\n  {p} models [--vision]               翻译服务（或看图翻译服务）现有的模型\n  {p} test                            试一下翻译服务能不能用（会翻译一句很短的话）\n  {p} glossary list | add 原文 译文 [--app 程序.exe] | remove 原文 [--app 程序.exe]\n  {p} version\n\n加 --json 输出 JSON（给程序、AI 助手读）。':
-        'DeskMirror command line ({version}): view and change settings without opening a window; a running mirror picks up changes within a second.\n\n  {p} config list                     all settings\n  {p} config get NAME                 one setting, e.g. llm.model\n  {p} config set NAME VALUE [NAME VALUE…]  change settings; a VALUE of - is read from standard input (use it for API keys so they stay off the command line)\n  {p} config reset NAME               back to the default\n  {p} config keys                     what each setting means and which values it takes\n  {p} config path                     where the settings file is\n  {p} service [NAME]                  list the preset translation services / switch to one (deepseek, qwen, openai, ollama…)\n  {p} models [--vision]               models offered by the translation (or image translation) service\n  {p} test                            check that the translation service works (translates one short sentence)\n  {p} glossary list | add SOURCE TARGET [--app program.exe] | remove SOURCE [--app program.exe]\n  {p} version\n\nAdd --json for JSON output (for programs and AI assistants).',
+    '桌面魔镜命令行（{version}）：不打开界面就能看、改设置，改完正在运行的魔镜一秒内自动生效。\n\n  {p} config list                     全部设置\n  {p} config get 名字                  一项设置，比如 llm.model\n  {p} config set 名字 值 [名字 值…]     改设置；值写 - 表示从标准输入读（API Key 这样传，不留在命令行里）\n  {p} config reset 名字                恢复默认值\n  {p} config keys                     每项设置的说明、能取的值\n  {p} config path                     配置文件在哪\n  {p} service [服务名]                 列出预设的翻译服务 / 换成其中一个（deepseek、qwen、openai、ollama…）\n  {p} models [--vision]               翻译服务（或看图翻译服务）现有的模型\n  {p} test                            试一下翻译服务能不能用（会翻译一句很短的话）\n  {p} glossary list | add 原文 译文 [--app 程序.exe] | remove 原文 [--app 程序.exe]\n  {p} update [--check] [--yes]        检查新版本 / 下载并换上新版本（正在运行的魔镜会自动退出、重新打开）\n  {p} version\n\n加 --json 输出 JSON（给程序、AI 助手读）。':
+        'DeskMirror command line ({version}): view and change settings without opening a window; a running mirror picks up changes within a second.\n\n  {p} config list                     all settings\n  {p} config get NAME                 one setting, e.g. llm.model\n  {p} config set NAME VALUE [NAME VALUE…]  change settings; a VALUE of - is read from standard input (use it for API keys so they stay off the command line)\n  {p} config reset NAME               back to the default\n  {p} config keys                     what each setting means and which values it takes\n  {p} config path                     where the settings file is\n  {p} service [NAME]                  list the preset translation services / switch to one (deepseek, qwen, openai, ollama…)\n  {p} models [--vision]               models offered by the translation (or image translation) service\n  {p} test                            check that the translation service works (translates one short sentence)\n  {p} glossary list | add SOURCE TARGET [--app program.exe] | remove SOURCE [--app program.exe]\n  {p} update [--check] [--yes]        check for a new version / download and switch to it (a running mirror quits and reopens by itself)\n  {p} version\n\nAdd --json for JSON output (for programs and AI assistants).',
     '颜色要写成 #RRGGBB，比如 #3D8BFD':
         'Write the colour as #RRGGBB, e.g. #3D8BFD',
     '地址要以 http:// 或 https:// 开头':
@@ -798,4 +798,120 @@ EN: dict[str, str] = {
     '设置已按配置文件更新（命令行或 AI 助手改的）。':
         'Settings were updated from the settings file (changed from the command line or by an '
         'AI assistant).',
+    '检查更新…':
+        'Check for updates…',
+    '有新版本 {new}（现在是 {old}）：点这条提示看看更新了什么。':
+        "Version {new} is available (you have {old}): click here to see what's new.",
+    '没法开始更新：{error}':
+        "Couldn't start the update: {error}",
+    '已更新到 {new}（原来是 {old}）。':
+        'Updated to {new} (was {old}).',
+    '上次自动检查更新的日期：程序自己记':
+        'the date of the last automatic update check: kept by the program',
+    '启动后检查有没有新版本（一天最多一次，只访问 GitHub；有新版只提示）':
+        'Check for a new version after starting (at most once a day, GitHub only; it just tells you)',
+    '自动检查时不再提示的版本号（检查更新窗口里点了“跳过这个版本”）':
+        'Version the automatic check no longer mentions ("Skip this version" in the update window)',
+    '确认要更新就加上 --yes':
+        'Add --yes to confirm the update',
+    '魔镜没有退出，没法更新：请在托盘图标上右键 → 退出，再试一次':
+        "DeskMirror didn't quit, so it can't be updated: right-click the tray icon → Quit, then try again",
+    '正在换上 {version}，几秒后完成{tail}（结果记在 logs\\update.log）。':
+        'Switching to {version}; this takes a few seconds{tail} (the result goes to logs\\update.log).',
+    '{name} 后面要跟一个值':
+        '{name} needs a value',
+    '已经是最新版本（{version}）。':
+        'You have the latest version ({version}).',
+    '有新版本 {latest}（现在 {current}）。':
+        'Version {latest} is available (you have {current}).',
+    '{reason}。请到发布页下载：{page}':
+        '{reason}. Download it from the release page: {page}',
+    '，魔镜会自动重新打开':
+        ', and DeskMirror reopens by itself',
+    '自动更新：{p} update --yes':
+        'To update automatically: {p} update --yes',
+    '更新到 {version}？[y/N] ':
+        'Update to {version}? [y/N] ',
+    '检查更新':
+        'Check for updates',
+    '启动后检查有没有新版本（一天最多一次，只访问 GitHub 取版本号，不发送屏幕内容；有新版只提示，点了才下载）':
+        'Check for a new version after starting (at most once a day; only asks GitHub for the version number and sends no screen content; it just tells you, and downloads only when you click)',
+    '桌面魔镜 · 检查更新':
+        'DeskMirror · Updates',
+    '跳过这个版本':
+        'Skip this version',
+    '正在查 GitHub 上的最新版本…':
+        'Checking GitHub for the latest version…',
+    '重试':
+        'Try again',
+    '（没有更新说明）':
+        '(no release notes)',
+    '马上退出魔镜，更新源码、装好依赖后再自动打开（要一两分钟）…':
+        'DeskMirror will quit now, update the source code and its packages, then reopen (takes a minute or two)…',
+    '下载好了，也核对过了。马上退出魔镜、换上新版本，再自动打开…':
+        'Downloaded and verified. DeskMirror will quit now, switch to the new version and reopen…',
+    '<b>有新版本 {latest}</b>（现在是 {current}）。更新说明：':
+        "<b>Version {latest} is available</b> (you have {current}). What's new:",
+    '更新（git pull）':
+        'Update (git pull)',
+    '打开下载页面':
+        'Open the download page',
+    '正在下载 {version}…':
+        'Downloading {version}…',
+    '出错了：{name}':
+        'Something went wrong: {name}',
+    '下载并更新 {size}':
+        'Download and update {size}',
+    '{reason}，请到 {link} 下载。':
+        '{reason}; please download it from the {link}.',
+    '发布页':
+        'release page',
+    '这份源码不是用 git 下载的，没法自动更新':
+        "This copy of the source wasn't downloaded with git, so it can't update itself",
+    '没找到 git，没法自动更新':
+        "git isn't installed, so it can't update itself",
+    '源码改动过（git 工作区不干净），自动更新会冲突；请自己 git pull':
+        "The source code has local changes (the git working tree isn't clean); please run git pull yourself",
+    '这个版本没有发行包':
+        'This version has no download package',
+    '这个版本没有校验文件，没法确认下载完整':
+        "This version has no checksum file, so the download can't be verified",
+    '下载的文件和校验值对不上（可能没下载完整），已删掉，请重试':
+        "The download doesn't match its checksum (it may be incomplete), so it was deleted; please try again",
+    '发行包里缺少 DeskMirror.exe 或 DeskMirrorCLI.exe':
+        'The package is missing DeskMirror.exe or DeskMirrorCLI.exe',
+    '连 GitHub 超时（国内网络可能要开代理）':
+        'GitHub timed out (in mainland China you may need a proxy)',
+    '连不上 GitHub（国内网络可能要开代理）':
+        "Can't reach GitHub (in mainland China you may need a proxy)",
+    '魔镜放在不能写入的文件夹里（比如 Program Files），没法自动更新':
+        "DeskMirror is in a folder it can't write to (such as Program Files), so it can't update itself",
+    'git 用不了，没法自动更新':
+        "git doesn't work here, so it can't update itself",
+    '下载超时（国内网络可能要开代理）':
+        'The download timed out (in mainland China you may need a proxy)',
+    '下载失败（国内网络可能要开代理）':
+        'The download failed (in mainland China you may need a proxy)',
+    'GitHub 上还没有发布过版本':
+        'No version has been released on GitHub yet',
+    '这一小时查 GitHub 的次数用完了，过一会儿再试':
+        "GitHub's hourly limit for checks is used up; try again later",
+    'GitHub 上的版本号看不懂：{tag}':
+        "Can't read the version number on GitHub: {tag}",
+    '磁盘空间不够：更新要大约 {mb} MB':
+        'Not enough disk space: the update needs about {mb} MB',
+    '校验文件的格式不对':
+        'The checksum file is malformed',
+    'GitHub 返回错误（HTTP {code}）':
+        'GitHub returned an error (HTTP {code})',
+    '换新版本时出错，已经换回旧版本：{error}':
+        'Switching to the new version failed, so the previous version was put back: {error}',
+    'git pull 失败：{error}':
+        'git pull failed: {error}',
+    '装依赖失败：{error}':
+        'Installing the packages failed: {error}',
+    '发行包里有不安全的路径：{name}':
+        'The package contains an unsafe path: {name}',
+    '已取消':
+        'Cancelled',
 }

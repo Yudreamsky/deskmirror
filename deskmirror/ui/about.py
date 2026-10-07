@@ -22,6 +22,7 @@ def _link(url: str, text: str = "") -> str:
 
 class AboutPage(QWidget):
     guide_requested = Signal()      # “打开新手指南”
+    update_requested = Signal()     # “检查更新”
 
     def __init__(self) -> None:
         super().__init__()
@@ -50,6 +51,9 @@ class AboutPage(QWidget):
         guide = QPushButton(tr("打开新手指南"))
         guide.clicked.connect(self.guide_requested.emit)
         grow.addWidget(guide)
+        check = QPushButton(tr("检查更新"))
+        check.clicked.connect(self.update_requested.emit)
+        grow.addWidget(check)
         grow.addStretch(1)
         lay.addLayout(grow)
         lic = QLabel(tr("开源许可：GPL-3.0。可以免费使用、修改；修改后再发布也要以同样的许可开源。"))

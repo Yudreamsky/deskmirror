@@ -54,7 +54,8 @@ Screenshots of DeskMirror running on the project's test pages (translation servi
   vertically in place, and English is centered in the bubble.
 - **Image translation**: press Ctrl+Alt+V or click "Image" on the tab to send the frame to a vision model (gemma4:12b
   on Ollama by default). Good for stylized lettering, sound effects and text in pictures.
-- Also: a history panel, editing translations, several mirrors, mirrors that follow a window, pause, screenshots.
+- Also: a history panel, editing translations, several mirrors, mirrors that follow a window, pause, screenshots,
+  updating from inside the app.
 
 ## Installation
 
@@ -151,6 +152,9 @@ DeskMirrorCLI.exe test
   translations are stored encrypted on this PC.
 - Image translation sends a screenshot of the frame to the vision model set in Settings. By default that's Ollama on
   your PC, so the picture stays local; with a cloud service you are asked each time before a picture is sent.
+- Checking for updates asks GitHub for the latest version number and release notes, at most once a day after
+  starting; no screen content is sent, and nothing is downloaded until you click. Turn it off in Settings → Scope and
+  privacy.
 
 ## Known limitations
 
