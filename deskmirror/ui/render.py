@@ -13,14 +13,17 @@
 """
 from __future__ import annotations
 
+import dataclasses
 import math
 from dataclasses import dataclass
 
+import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter, QRegion, QTextLayout, QTextOption
 
 from ..config import StyleConfig
 from ..scene import DrawItem
+from .layered import KEY
 
 PAD = 2
 _EASY_SQUASH = 0.8   # 横向压扁到八成几乎看不出来：先压扁，再缩字号
@@ -149,13 +152,35 @@ def _breaks_word(text: str, spans: list[tuple[int, int]]) -> bool:
     return False
 
 
+def _binarize(img: QImage) -> QImage:
+    """色键窗口用：每个像素要么全透明、要么不透明（半透明的边按一半为界），碰上色键颜色的挪开一点。"""
+    w, h = img.width(), img.height()
+    if not w or not h:
+        return img
+    a = np.frombuffer(img.constBits(), np.uint8).reshape(h, img.bytesPerLine())[:, :w * 4].reshape(h, w, 4)
+    alpha = a[..., 3].astype(np.uint32)
+    keep = alpha >= 128
+    out = np.zeros((h, w, 4), np.uint8)
+    for ch in range(3):          # 预乘过的颜色还原成原色
+        c = a[..., ch].astype(np.uint32)
+        out[..., ch] = np.where(keep, np.minimum(255, (c * 255 + alpha // 2) // np.maximum(alpha, 1)), 0)
+    out[..., 3] = np.where(keep, 255, 0)
+    hit = keep & (out[..., 0] == KEY[2]) & (out[..., 1] == KEY[1]) & (out[..., 2] == KEY[0])    # 内存里是 BGRA
+    out[..., 0][hit] = KEY[2] - 1
+    return QImage(out.data, w, h, w * 4, QImage.Format.Format_ARGB32_Premultiplied).copy()
+
+
 class Renderer:
-    def __init__(self, style: StyleConfig) -> None:
-        self.style = style
+    def __init__(self, style: StyleConfig, binary: bool = False) -> None:
+        self.binary = binary         # 色键窗口（Windows 10）：图片只要全透明或不透明，底板总是不透明
+        self.style = self._effective(style)
         self._cache: dict[int, tuple[int, tuple, Rendered]] = {}
 
+    def _effective(self, style: StyleConfig) -> StyleConfig:
+        return dataclasses.replace(style, plate_opacity=1.0) if self.binary else style
+
     def set_style(self, style: StyleConfig) -> None:
-        self.style = style
+        self.style = self._effective(style)
         self._cache.clear()
 
     def get(self, item: DrawItem) -> Rendered:
@@ -165,6 +190,8 @@ class Renderer:
         if hit is not None and hit[0] == item.version and hit[1] == sig:
             return hit[2]
         r = self._render(item)
+        if self.binary:
+            r.image = _binarize(r.image)
         self._cache[item.bid] = (item.version, sig, r)
         return r
 

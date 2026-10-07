@@ -40,6 +40,7 @@ SWP_NOOWNERZORDER = 0x0200
 GW_HWNDNEXT = 2
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
 DWMWA_CLOAKED = 14
+LWA_COLORKEY = 0x1
 LWA_ALPHA = 0x2
 
 user32.GetWindowLongPtrW.argtypes = [wt.HWND, ctypes.c_int]
@@ -64,6 +65,8 @@ user32.GetWindowThreadProcessId.argtypes = [wt.HWND, ctypes.POINTER(wt.DWORD)]
 user32.GetWindowThreadProcessId.restype = wt.DWORD
 user32.GetClassNameW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
 user32.GetWindowTextW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
+user32.SetLayeredWindowAttributes.argtypes = [wt.HWND, wt.DWORD, ctypes.c_ubyte, wt.DWORD]
+user32.SetLayeredWindowAttributes.restype = wt.BOOL
 user32.GetLayeredWindowAttributes.argtypes = [wt.HWND, ctypes.POINTER(wt.DWORD), ctypes.POINTER(ctypes.c_ubyte),
                                               ctypes.POINTER(wt.DWORD)]
 user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
@@ -132,12 +135,53 @@ def monitors() -> list[Monitor]:
     return found
 
 
+_excluded: set[int] = set()       # 设过对截屏隐身的窗口（截图模式时暂时放开，关掉时恢复）
+_capture_visible = False          # 截图模式：本程序的窗口暂时让截图、录屏软件截得到
+capture_failures: list[int] = []  # 没设上隐身的错误码（启动后提示用户）
+
+
 def exclude_from_capture(hwnd: int) -> bool:
-    """窗口只在显示器上可见，截屏和录屏里没有（Windows 10 2004 起）；防止把自己的译文当原文识别。"""
+    """窗口只在显示器上可见，截屏和录屏里没有（Windows 10 2004 起）；防止把自己的译文当原文识别。
+    Windows 10 不支持逐像素半透明的分层窗口（报错码 8，其实不是内存不够），这时界面改用色键窗口，见 ui/layered.py。"""
+    _excluded.add(hwnd)
+    if _capture_visible:
+        return True
     if user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE):
         return True
-    log.warning("SetWindowDisplayAffinity 失败，错误码 %s", ctypes.get_last_error())
+    err = ctypes.get_last_error()
+    capture_failures.append(err)
+    log.warning("SetWindowDisplayAffinity 失败，错误码 %s", err)
     return False
+
+
+def can_exclude(hwnd: int) -> bool:
+    """试一下这个窗口能不能对截屏隐身（不记失败、不写日志；试完恢复原样）。"""
+    if not user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE):
+        return False
+    user32.SetWindowDisplayAffinity(hwnd, WDA_NONE)
+    return True
+
+
+def set_capture_visible(on: bool) -> None:
+    """截图模式：本程序的窗口都暂时让截图、录屏软件截得到；关掉时恢复隐身。之后新建的窗口照此办理。"""
+    global _capture_visible
+    _capture_visible = on
+    me = os.getpid()
+    pid = wt.DWORD()
+    for hwnd in list(_excluded):
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if not user32.IsWindow(hwnd) or pid.value != me:
+            _excluded.discard(hwnd)      # 关掉了的窗口（句柄可能已经给了别的窗口）
+            continue
+        user32.SetWindowDisplayAffinity(hwnd, WDA_NONE if on else WDA_EXCLUDEFROMCAPTURE)
+
+
+def set_color_key(hwnd: int, rgb: tuple[int, int, int], alpha: int | None = None) -> bool:
+    """色键窗口：rgb 这个颜色的像素完全透明、鼠标穿过去，其余像素不透明（给了 alpha 就整体按这个透明度）。"""
+    set_exstyle(hwnd, add=WS_EX_LAYERED)
+    key = rgb[0] | (rgb[1] << 8) | (rgb[2] << 16)
+    return bool(user32.SetLayeredWindowAttributes(hwnd, key, 0 if alpha is None else alpha,
+                                                  LWA_COLORKEY | (0 if alpha is None else LWA_ALPHA)))
 
 
 def include_in_capture(hwnd: int) -> bool:

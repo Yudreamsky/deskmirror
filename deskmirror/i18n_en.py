@@ -576,4 +576,19 @@ EN: dict[str, str] = {
         'The connection to the image translation service dropped',
     '模型 {model} 不能看图，请在设置里换一个能看图的模型':
         "The model {model} can't read images; choose one that can in Settings",
+    '让截图工具截到魔镜（期间译文不更新）':
+        'Let screenshot tools capture the mirror (translations pause meanwhile)',
+    '截图模式：译文暂停更新':
+        'Screenshot mode: translations paused',
+    '截图模式：现在截图、录屏软件能截到魔镜和译文了。这期间译文不会更新，截完在托盘菜单或右键魔镜标签里关掉。':
+        'Screenshot mode: screenshot and screen recording tools can now capture the mirror and its translations. '
+        "Translations don't update meanwhile; when you're done, turn it off in the tray menu or by right-clicking "
+        "the mirror's tab.",
+    '已关闭截图模式：魔镜重新对截屏隐身，接着识别、翻译。':
+        'Screenshot mode is off: the mirror is hidden from screen capture again and carries on translating.',
+    '这台电脑上魔镜没能对截屏隐身，可能会把自己画的译文又当成原文识别。麻烦把程序文件夹里 logs 下的日志发给作者。':
+        "On this PC the mirror couldn't hide itself from screen capture, so it may read its own translations as "
+        'original text. Please send the files in the logs folder next to the program to the author.',
+    '这台电脑（Windows 10）上底板总是不透明':
+        'On this PC (Windows 10) the plates are always opaque',
 }

@@ -1,7 +1,7 @@
 """覆盖层：每个显示器一个铺满屏幕的透明窗口，只在魔镜矩形内画译文。
 
 窗口本身不随魔镜移动（译文锚定在屏幕上），移动魔镜只改变裁剪范围并重画进出的区域。
-窗口鼠标穿透、不抢焦点、对截屏隐身（不会把自己的译文当原文识别）。
+窗口鼠标穿透、不抢焦点、对截屏隐身（不会把自己的译文当原文识别）。Windows 10 上是色键窗口，见 layered.py。
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QWidget
 from .. import geom, winapi
 from ..geom import Rect
 from ..scene import Snapshot
+from . import layered
 from .render import Renderer
 
 
@@ -29,6 +30,7 @@ class UiState:
         self.peek = False           # 按住看原文
         self.hidden = False         # 魔镜隐藏
         self.paused = False         # 用户暂停：框还在，不画译文（画面没在跟踪，留着会错位）
+        self.shot_mode = False      # 截图模式：截图工具截得到魔镜，识别、翻译停下，译文定住
         self.debug = False          # 画出识别到的滚动画布边界
         self.hover_bid = 0
         # 调试统计：快照发出到画完的耗时、每次绘制耗时（毫秒）
@@ -45,16 +47,23 @@ class Overlay(QWidget):
         super().__init__(None, flags)
         self.mon = mon
         self.state = state
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.colorkey = layered.colorkey()
+        if not self.colorkey:
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
         l, t, r, b = mon.rect
         # 比显示器矮 1 像素：避免被系统当成全屏程序（会影响任务栏和通知）。
         self.setGeometry(l, t, r - l, b - t - 1)
         self.winId()
+        if self.colorkey:
+            layered.apply(self)
         winapi.exclude_from_capture(int(self.winId()))
         winapi.set_exstyle(int(self.winId()), add=winapi.WS_EX_NOACTIVATE | winapi.WS_EX_TRANSPARENT
                            | winapi.WS_EX_TOOLWINDOW)
+
+    def _color(self, c: QColor) -> QColor:
+        return layered.solid(c) if self.colorkey else c
 
     def local(self, r: Rect) -> QRect:
         l, t, _r, _b = self.mon.rect
@@ -81,6 +90,8 @@ class Overlay(QWidget):
         t0 = time.perf_counter()
         try:
             self._paint(event)
+            if self.colorkey:
+                layered.painted(self)
         finally:
             st = self.state
             now = time.perf_counter()
@@ -91,9 +102,12 @@ class Overlay(QWidget):
 
     def _paint(self, event) -> None:
         p = QPainter(self)
-        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
-        p.fillRect(event.rect(), Qt.GlobalColor.transparent)
-        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+        if self.colorkey:
+            p.fillRect(event.rect(), layered.key_color())
+        else:
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+            p.fillRect(event.rect(), Qt.GlobalColor.transparent)
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
         st = self.state
         snap = st.snapshot
         if snap is None or st.hidden or st.paused:
@@ -143,7 +157,7 @@ class Overlay(QWidget):
             for sr, clips, failed in snap.pending:
                 if not geom.overlaps(sr, mirror):
                     continue
-                pen = QPen(QColor(220, 60, 60, 200) if failed else QColor(61, 139, 253, 170))
+                pen = QPen(self._color(QColor(220, 60, 60, 200) if failed else QColor(61, 139, 253, 170)))
                 pen.setWidth(2)
                 pen.setStyle(Qt.PenStyle.DotLine)
                 p.setPen(pen)
@@ -155,7 +169,7 @@ class Overlay(QWidget):
         if st.debug:
             p.setClipRect(self.local(mirror))
             for _cid, clip, axis in snap.status.get("canvases", ()):
-                pen = QPen(QColor(255, 140, 0, 220) if axis == "v" else QColor(170, 60, 255, 220))
+                pen = QPen(self._color(QColor(255, 140, 0, 220) if axis == "v" else QColor(170, 60, 255, 220)))
                 pen.setWidth(2)
                 pen.setStyle(Qt.PenStyle.DashLine)
                 p.setPen(pen)

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
                                QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from .. import winapi
+from . import layered
 from .about import AboutPage
 from ..config import (DEFAULT_EXCLUDE_APPS, DEFAULT_EXCLUDE_TITLES, LANGUAGES, OPENAI_PRESETS, SCOPE_MODES,
                       SOURCE_LANGS, AppConfig)
@@ -289,6 +290,9 @@ class SettingsDialog(QDialog):
         self.opacity.setRange(0.3, 1.0)
         self.opacity.setSingleStep(0.05)
         self.opacity.setValue(self.cfg.style.plate_opacity)
+        if layered.colorkey():
+            self.opacity.setEnabled(False)             # 色键窗口画不了半透明，见 layered.py
+            self.opacity.setToolTip(tr("这台电脑（Windows 10）上底板总是不透明"))
         lf.addRow(tr("底板不透明度"), self.opacity)
         lay.addWidget(look)
         lay.addStretch(1)

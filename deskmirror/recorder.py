@@ -22,6 +22,7 @@ from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen
 
 from . import geom
 from .geom import Rect
+from .ui import layered
 
 log = logging.getLogger(__name__)
 CREATE_NO_WINDOW = 0x08000000
@@ -86,7 +87,8 @@ class Recorder(QObject):
             if geom.empty(c):
                 continue
             # 译文层、魔镜边框是透明窗口：先画到透明图上再叠，别把底下的画面擦掉
-            p.drawPixmap(c[0] - l, c[1] - t, w.grab(QRect(c[0] - wr[0], c[1] - wr[1], c[2] - c[0], c[3] - c[1])))
+            p.drawPixmap(c[0] - l, c[1] - t, layered.grab(w, QRect(c[0] - wr[0], c[1] - wr[1], c[2] - c[0],
+                                                                    c[3] - c[1])))
         if self.cursor is not None:
             self._paint_cursor(p, self.cursor[0] - l, self.cursor[1] - t)
         p.end()

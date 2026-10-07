@@ -74,6 +74,7 @@ def main() -> int:
 
     from .engine import Engine
     from .hotkeys import HoldShortcut, HotkeyManager, modifiers_down, parse_modifiers
+    from .ui import layered
     from .ui.mirror import MirrorFrame
     from .ui.overlay import Overlay, UiState
     from .ui.render import Renderer
@@ -123,7 +124,7 @@ def main() -> int:
         def __init__(self) -> None:
             super().__init__()
             self.cfg = cfg
-            self.state = UiState(Renderer(cfg.style))
+            self.state = UiState(Renderer(cfg.style, binary=layered.colorkey()))
             mons = winapi.monitors()
             self.overlays = [Overlay(m, self.state) for m in mons]
             rect = tuple(cfg.mirror_rect) if cfg.mirror_rect else self._default_rect(mons)
@@ -176,6 +177,12 @@ def main() -> int:
                 o.show()
             for f in self.frames:
                 f.show()
+            if winapi.capture_failures:
+                log.warning("有 %d 个窗口没能对截屏隐身（错误码 %s）", len(winapi.capture_failures),
+                            sorted(set(winapi.capture_failures)))
+                QTimer.singleShot(3000, lambda: self.tray.showMessage(tr("桌面魔镜"), tr(
+                    "这台电脑上魔镜没能对截屏隐身，可能会把自己画的译文又当成原文识别。"
+                    "麻烦把程序文件夹里 logs 下的日志发给作者。"), QSystemTrayIcon.MessageIcon.Warning, 15000))
             self.timer = QTimer(self)
             self.timer.setInterval(16)
             self.timer.timeout.connect(self._tick)
@@ -219,6 +226,8 @@ def main() -> int:
             menu.addAction(tr("新建一个魔镜"), self.add_mirror)
             menu.addAction(tr("截原图（镜框内原样）"), lambda: self.take_shot("orig"))
             menu.addAction(tr("截译图（镜框内带译文）"), lambda: self.take_shot("trans"))
+            self.act_shotmode = self._shotmode_action(menu)
+            menu.addAction(self.act_shotmode)
             menu.addAction(tr("看图翻译（把镜框里的画面交给能看图的模型）"), self.look)
             menu.addSeparator()
             scope_menu = menu.addMenu(tr("预译范围"))
@@ -359,6 +368,7 @@ def main() -> int:
                 menu.addAction(tr("取消跟随窗口"), lambda: self.unbind_mirror(f))
             menu.addAction(tr("新建一个魔镜"), self.add_mirror)
             menu.addAction(self._chat_action(menu))
+            menu.addAction(self._shotmode_action(menu))
             if f is not self.frame:
                 menu.addAction(tr("关闭这个魔镜"), lambda: self.close_mirror(f))
             menu.exec(pos)
@@ -369,6 +379,37 @@ def main() -> int:
             act.setChecked(self.cfg.scope.translate_chat)
             act.toggled.connect(self.set_translate_chat)
             return act
+
+        def _shotmode_action(self, parent) -> QAction:
+            act = QAction(tr("让截图工具截到魔镜（期间译文不更新）"), parent)
+            act.setCheckable(True)
+            act.setChecked(self.state.shot_mode)
+            act.toggled.connect(self.set_shot_mode)
+            return act
+
+        def set_shot_mode(self, on: bool) -> None:
+            """截图模式：魔镜和译文暂时让截图、录屏软件截得到。魔镜自己也靠截屏看字，这期间看到的会是自己画的译文，
+            所以先停下识别和翻译、译文定住不动，等一下再放开隐身；关掉时先恢复隐身，等一下再接着识别（重新核对画面）。"""
+            if on == self.state.shot_mode:
+                return
+            self.state.shot_mode = on
+            if self.act_shotmode.isChecked() != on:
+                self.act_shotmode.blockSignals(True)
+                self.act_shotmode.setChecked(on)
+                self.act_shotmode.blockSignals(False)
+            if on:
+                self.engine.set_working(False)
+                QTimer.singleShot(250, lambda: self.state.shot_mode and winapi.set_capture_visible(True))
+                msg = tr("截图模式：现在截图、录屏软件能截到魔镜和译文了。这期间译文不会更新，"
+                         "截完在托盘菜单或右键魔镜标签里关掉。")
+            else:
+                winapi.set_capture_visible(False)
+                QTimer.singleShot(300, lambda: self.state.shot_mode or self.engine.set_working(not self.state.paused))
+                msg = tr("已关闭截图模式：魔镜重新对截屏隐身，接着识别、翻译。")
+                for f in self.frames:
+                    f.set_status(tr("继续工作，正在核对画面…"), "busy")
+            self._update_status(None)
+            self.tray.showMessage(tr("桌面魔镜"), msg, QSystemTrayIcon.MessageIcon.Information, 6000)
 
         def set_translate_chat(self, on: bool) -> None:
             """聊天软件默认不翻（私人聊天不发出去）；和外国同事聊天时打开，聊完关掉。密码管理器、网银始终不翻。"""
@@ -608,7 +649,7 @@ def main() -> int:
         def toggle_pause(self) -> None:
             """暂停：魔镜框还在，不截屏、不识别、不翻译（不花翻译费用），也不画译文；继续时重新核对画面。"""
             paused = self.state.paused = not self.state.paused
-            self.engine.set_working(not paused)
+            self.engine.set_working(not paused and not self.state.shot_mode)
             self.act_pause.setText(tr("继续翻译") if paused else tr("暂停（框留着，不识别、不翻译）"))
             status = (tr(PAUSED_TEXT), "paused") if paused else (tr("继续工作，正在核对画面…"), "busy")
             for f in self.frames:
@@ -663,6 +704,12 @@ def main() -> int:
             if self.state.paused:
                 for f in self.frames:
                     f.set_status(tr(PAUSED_TEXT), "paused")
+                return
+            if self.state.shot_mode:
+                for f in self.frames:
+                    f.set_status(tr("截图模式：译文暂停更新"), "paused")
+                return
+            if snap is None:
                 return
             for f in self._active_frames():
                 f.set_status(*self._status_for(snap, f.mirror))
@@ -821,7 +868,7 @@ def main() -> int:
             arr = np.frombuffer(shot.bgra, np.uint8).reshape(b - t, r - l, 4).copy()
             img = QImage(arr.data, r - l, b - t, (r - l) * 4, QImage.Format.Format_RGB32).copy()
             widgets = (list(self.overlays) if translated else []) + \
-                ([fr for fr in self.frames if fr.isVisible()] if with_frame else [])
+                ([fr.visual() for fr in self.frames if fr.isVisible()] if with_frame else [])
             if widgets:
                 p = QPainter(img)
                 for w in widgets:
@@ -830,7 +877,7 @@ def main() -> int:
                     c = geom.inter(wr, region)
                     if geom.empty(c):
                         continue
-                    pm = w.grab(QRect(c[0] - wr[0], c[1] - wr[1], c[2] - c[0], c[3] - c[1]))
+                    pm = layered.grab(w, QRect(c[0] - wr[0], c[1] - wr[1], c[2] - c[0], c[3] - c[1]))
                     p.drawPixmap(c[0] - l, c[1] - t, pm)
                 p.end()
             return img
@@ -909,6 +956,8 @@ def main() -> int:
                 if not self.state.hidden:
                     for f in self._active_frames():
                         winapi.keep_topmost(int(f.winId()))
+                        if f.visual() is not f:                  # 色键窗口：看得见的那层压在接鼠标的那层上面
+                            winapi.keep_topmost(int(f.visual().winId()))
 
         def _hover_tip(self, now: float) -> None:
             """鼠标停在被截断的译文上时，显示全文。"""
@@ -965,8 +1014,13 @@ def main() -> int:
                         "items": len(snap.items) if snap else 0, "pending": len(snap.pending) if snap else 0,
                         "stamp": snap.stamp if snap else 0, "peek": self.state.peek,
                         "hidden": self.state.hidden, "paused": self.state.paused, "grab": self.frame.grab_mode,
+                        "shot_mode": self.state.shot_mode, "colorkey": layered.colorkey(),
+                        "frame_hwnds": [[int(f.winId()), int(f.visual().winId())] for f in self.frames],
                         "mirrors": [{"rect": list(f.mirror), "bound": f.bound[0] if f.bound else 0,
                                      "suspended": f.suspended, "visible": f.isVisible()} for f in self.frames]}
+            if cmd == "shotmode":
+                self.set_shot_mode(bool(req.get("on", True)))
+                return {"ok": True}
             if cmd == "mirror":
                 rect = tuple(int(v) for v in req["rect"])
                 self.frame.set_mirror(rect)
@@ -1268,7 +1322,7 @@ def main() -> int:
 
         def _record_layers(self) -> list:
             """录制时叠在屏幕画面上的窗口，从下到上：译文层、魔镜边框、打开着的窗口、提示框。"""
-            wins = list(self.overlays) + [f for f in self.frames if f.isVisible()]
+            wins = list(self.overlays) + [f.visual() for f in self.frames if f.isVisible()]
             for w in (self.vision_panel, self.history, self.guide, self.about, self._settings, self.tip):
                 if w is not None and w.isVisible() and int(w.winId()) not in self._record_native:
                     wins.append(w)

@@ -3,6 +3,7 @@
 框内完全透明（逐像素透明 = 鼠标点击、选中、滚轮都落到下面的软件）；只有细边框和
 上方的小标签接收鼠标：拖标签移动，拖边框或四角调整大小；标签右侧是截原图、截译图、
 刷新、设置、隐藏按钮。按住拖动键（默认 Ctrl+Alt）时框内临时变成可拖动区域，松开即恢复穿透。
+Windows 10 上用色键窗口（见 layered.py）：这个窗口看不见、只接鼠标，看得见的边线和标签画在跟着它的 _Chrome 上。
 """
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import QWidget
 from .. import geom, winapi
 from ..geom import Rect
 from ..i18n import N_, tr
+from . import layered
 
 BAND = 7          # 边框可抓取的宽度（像素）
 LINE = 2          # 可见边线宽度
@@ -56,7 +58,9 @@ class MirrorFrame(QWidget):
         flags = (Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool
                  | Qt.WindowType.WindowDoesNotAcceptFocus | Qt.WindowType.NoDropShadowWindowHint)
         super().__init__(None, flags)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._chrome: _Chrome | None = None   # 色键窗口时看得见的那一层
+        if not layered.colorkey():
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setMouseTracking(True)
         self.color = QColor(color)
@@ -74,6 +78,9 @@ class MirrorFrame(QWidget):
         self.paused = False                  # 用户点了“暂停”：按钮显示“继续”
         self.lang_label = ""                 # 语言按钮上的字，如“自动→中”（由程序按设置更新）
         self.winId()
+        if layered.colorkey():
+            layered.apply(self, alpha=1)       # 整体 1/255 不透明：看不见，但不是色键的地方接得住鼠标
+            self._chrome = _Chrome(self, flags)
         winapi.exclude_from_capture(int(self.winId()))
         winapi.set_exstyle(int(self.winId()), add=winapi.WS_EX_NOACTIVATE | winapi.WS_EX_TOOLWINDOW)
         self._layout()
@@ -100,8 +107,30 @@ class MirrorFrame(QWidget):
         self._origin = (full[0], full[1])
         self._tab = tab
         self.setGeometry(full[0], full[1], full[2] - full[0], full[3] - full[1])
+        if self._chrome is not None:
+            self._chrome.setGeometry(self.geometry())
         self._place_buttons()
         self.update()
+
+    def visual(self) -> QWidget:
+        """看得见的那个窗口（截译图时叠到截屏上的是它）。"""
+        return self._chrome or self
+
+    def showEvent(self, e) -> None:  # noqa: N802
+        super().showEvent(e)
+        if self._chrome is not None:
+            self._chrome.setGeometry(self.geometry())
+            self._chrome.show()
+
+    def hideEvent(self, e) -> None:  # noqa: N802
+        super().hideEvent(e)
+        if self._chrome is not None:
+            self._chrome.hide()
+
+    def closeEvent(self, e) -> None:  # noqa: N802
+        if self._chrome is not None:
+            self._chrome.close()
+        super().closeEvent(e)
 
     def _local(self, r: Rect) -> QRect:
         return QRect(r[0] - self._origin[0], r[1] - self._origin[1], r[2] - r[0], r[3] - r[1])
@@ -168,46 +197,66 @@ class MirrorFrame(QWidget):
     # ------------------------------------------------------------------ 绘制
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
-        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
-        p.fillRect(event.rect(), Qt.GlobalColor.transparent)
-        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+        if self._chrome is None:
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+            p.fillRect(event.rect(), Qt.GlobalColor.transparent)
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+            self._paint_grab(p, QColor(0, 0, 0, 1))      # 几乎透明（alpha=1）：看不见，但能接住鼠标
+            self._paint_chrome(p)
+        else:
+            # 色键窗口：这个窗口本身看不见，不是色键的地方接鼠标；看得见的画在 _Chrome 上（同一块跟着重画）
+            p.fillRect(event.rect(), layered.key_color())
+            black = QColor(0, 0, 0)
+            self._paint_grab(p, black)
+            inner = self._local(self.mirror)
+            for cx, cy in ((inner.left(), inner.top()), (inner.right(), inner.top()), (inner.left(), inner.bottom()),
+                           (inner.right(), inner.bottom())):
+                p.fillRect(QRect(cx - 4, cy - 4, 9, 9), black)
+            p.fillRect(self._local(self._tab), black)
+            self._chrome.update(event.rect())
+        p.end()
+
+    def _paint_grab(self, p: QPainter, color: QColor) -> None:
+        """抓取带（框外一圈，拖它调整大小）；按住拖动键时连框内一起。"""
         inner = self._local(self.mirror)
         outer = self._local(geom.expand(self.mirror, BAND))
-        # 抓取带：几乎透明（alpha=1），看不见但能接住鼠标
-        grab = QColor(0, 0, 0, 1)
-        p.fillRect(QRect(outer.left(), outer.top(), outer.width(), BAND), grab)
-        p.fillRect(QRect(outer.left(), inner.bottom() + 1, outer.width(), BAND), grab)
-        p.fillRect(QRect(outer.left(), inner.top(), BAND, inner.height()), grab)
-        p.fillRect(QRect(inner.right() + 1, inner.top(), BAND, inner.height()), grab)
+        p.fillRect(QRect(outer.left(), outer.top(), outer.width(), BAND), color)
+        p.fillRect(QRect(outer.left(), inner.bottom() + 1, outer.width(), BAND), color)
+        p.fillRect(QRect(outer.left(), inner.top(), BAND, inner.height()), color)
+        p.fillRect(QRect(inner.right() + 1, inner.top(), BAND, inner.height()), color)
         if self.grab_mode:
-            p.fillRect(inner, QColor(0, 0, 0, 1))
+            p.fillRect(inner, color)
+
+    def _paint_chrome(self, p: QPainter, solid: bool = False) -> None:
+        """看得见的边线、四角和标签。solid：色键窗口里只能画不透明的颜色。"""
+        inner = self._local(self.mirror)
         # 可见边线（画在框外，不压住镜内内容）
-        pen = QPen(self.color)
+        color = layered.solid(self.color) if solid else self.color
+        pen = QPen(color)
         pen.setWidth(LINE)
         pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
         p.setPen(pen)
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRect(QRectF(inner).adjusted(-LINE / 2 - 0.5, -LINE / 2 - 0.5, LINE / 2 + 0.5, LINE / 2 + 0.5))
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(self.color)
+        p.setBrush(color)
         for cx, cy in ((inner.left(), inner.top()), (inner.right(), inner.top()), (inner.left(), inner.bottom()),
                        (inner.right(), inner.bottom())):
             p.drawRect(QRect(cx - 4, cy - 4, 9, 9))
         if self.grab_mode:
             c = QColor(self.color)
             c.setAlpha(60)
-            pen = QPen(c)
-            pen.setWidth(4)
+            pen = QPen(layered.solid(c) if solid else c)
+            pen.setWidth(2 if solid else 4)          # 不透明的画细一点
             p.setPen(pen)
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawRect(inner.adjusted(2, 2, -2, -2))
-        self._paint_tab(p)
-        p.end()
+        self._paint_tab(p, solid)
 
-    def _paint_tab(self, p: QPainter) -> None:
+    def _paint_tab(self, p: QPainter, solid: bool = False) -> None:
         tab = self._local(self._tab)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(28, 30, 36, 235))
+        p.setBrush(QColor(28, 30, 36, 255 if solid else 235))
         p.drawRoundedRect(tab, 5, 5)
         font = QFont("Microsoft YaHei UI")
         font.setPixelSize(13)
@@ -358,3 +407,25 @@ class MirrorFrame(QWidget):
         if self._hover_button:
             self._hover_button = ""
             self.update(self._local(self._tab))
+
+
+class _Chrome(QWidget):
+    """色键窗口时看得见的边线和标签（鼠标穿过去，由看不见的 MirrorFrame 接）。大小、位置、显示都跟着 MirrorFrame。"""
+
+    def __init__(self, frame: MirrorFrame, flags) -> None:
+        super().__init__(None, flags | Qt.WindowType.WindowTransparentForInput)
+        self.frame = frame
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        self.winId()
+        layered.apply(self)
+        winapi.exclude_from_capture(int(self.winId()))
+        winapi.set_exstyle(int(self.winId()), add=winapi.WS_EX_NOACTIVATE | winapi.WS_EX_TOOLWINDOW
+                           | winapi.WS_EX_TRANSPARENT)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.fillRect(event.rect(), layered.key_color())
+        self.frame._paint_chrome(p, solid=True)
+        p.end()
+        layered.painted(self)

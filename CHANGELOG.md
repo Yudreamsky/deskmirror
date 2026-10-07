@@ -2,9 +2,20 @@
 
 ## 未发布
 
+- **Windows 10 上不再把自己的译文当原文**：Windows 10 不支持让半透明的窗口对截屏隐身，魔镜会截到自己画的译文、又翻一遍（日志里是“SetWindowDisplayAffinity 失败，错误码 8”）。现在启动时先试一下，不支持就改用色键窗口：看起来一样，鼠标操作也一样，只是底板总是不透明（这种电脑上设置里的“底板不透明度”不能调）。（#2）
+- **截图模式**：别的截图、录屏软件截不到魔镜，因为魔镜自己也靠截屏看字，截得到自己就会把译文当原文。现在托盘菜单或右键魔镜标签里可以打开“让截图工具截到魔镜”：期间译文定住不更新，关掉后接着识别、翻译。标签上的“截原图 / 截译图”照样能用。（#2）
 - **新手指南第 3 步能获取模型列表**：选云端服务时，填好 API Key 点“获取模型列表”，从服务商现有的模型里选，不用手填；换服务时不再留着上一家的模型名。（#3）
 - **中文 Windows 上从源码安装不再失败**：依赖清单的注释改成英文，setup.bat、start.bat 让 Python 按 UTF-8 读写（以前 pip 按 GBK 读依赖清单就报错退出）。（#1）
 
+- **No more translating its own translations on Windows 10**: Windows 10 can't hide translucent windows from screen
+  capture, so the mirror captured the translations it had drawn and translated them again (the log said
+  "SetWindowDisplayAffinity 失败，错误码 8"). DeskMirror now checks at startup and, where needed, uses colour-key
+  windows instead: they look and work the same, except that plates are always opaque (the plate opacity setting is
+  disabled on such PCs). (#2)
+- **Screenshot mode**: other screenshot and screen recording tools can't capture the mirror, because the mirror reads
+  the screen through screen capture too and would otherwise see its own translations. Now "Let screenshot tools
+  capture the mirror" in the tray menu or the tab's right-click menu makes them visible; translations stay frozen
+  meanwhile and carry on when you turn it off. The tab's screenshot buttons work as before. (#2)
 - **Fetch models in the quick start**: step 3 has a "Fetch models" button for cloud services that lists the models
   the service offers, so you can pick one instead of typing it; switching services no longer keeps the previous
   service's model name. (#3)
