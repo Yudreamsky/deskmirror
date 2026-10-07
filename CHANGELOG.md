@@ -1,6 +1,8 @@
 # 更新记录 / Changelog
 
-## 未发布 / Unreleased
+## 1.1.0（2026-10-07）
+
+游戏、视频字幕、漫画用起来更顺：倒计时不闪、字幕换句不空不露原文、漫画竖排气泡直接翻；加了“翻译聊天软件”开关。
 
 - **翻译聊天软件开关**：聊天软件默认仍不翻（私人聊天不发出去）；和外国同事、朋友聊天时，右键魔镜的标签或托盘菜单勾选“翻译聊天软件”，微信、QQ、钉钉、飞书、Telegram、WhatsApp 等窗口就照常翻译，聊完再关掉。密码管理器和网银、支付页面始终不翻。魔镜停在没翻的聊天窗口上时，标签会提示怎么打开。
 - **更快、更省**：DeepSeek 等 OpenAI 兼容服务默认会先“思考”再回答，翻译用不着；现在翻译时关掉思考（不认这个开关的服务自动跳过）。实测一句短文 1.5～2.4 秒 → 1.1 秒。
@@ -13,6 +15,9 @@
 - **视频字幕换句不再空一下**：以前有几种情况换句时译文会消失一秒左右：刚把魔镜挪到视频上时的第一句字幕、新句子的识别结果因为画面在变被丢掉、识别时少认了句末一个字。现在旧译文都会留到新译文出来；中文、日文、韩文字幕实测各换句 5 次以上都不再空。识别时标点后的空格时有时无，也不再当成新句子多翻译一次。
 - **漫画的竖排气泡能直接翻了**：以前横排的识别模型把竖排的字认成乱码（“待って！”认成“待号”）；现在把一列字切成单字排成一行再认，竖线写的长音、破折号单独补上，几列从右往左连成一句。中日文译文也竖着排在气泡里（在“！”“。”后面换列），英文照旧横排；底板不再盖住气泡的弧形边框。英文换行时不再把单词后面的“!”挤到下一行。
 - **调试用的录制**：通过调试通道按用户看到的样子录 60 帧视频（宣传片的实录素材用）。
+
+Smoother games, video subtitles and comics: countdowns no longer flicker, subtitle changes neither blank out nor show
+the original, vertical text in manga speech bubbles is translated directly; and a new “Translate chat apps” switch.
 
 - **Translate chat apps switch**: chat apps are still skipped by default (private chats are not sent anywhere); when
   chatting with colleagues or friends abroad, right-click the mirror's tab or the tray icon and check “Translate chat
