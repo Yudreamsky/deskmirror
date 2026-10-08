@@ -10,6 +10,9 @@
 借来的地方用多少占多少，底板只比最长的一行宽一点。
 竖排的漫画气泡：底板只盖原来的每个字和译文实际占的地方（不铺满整块，免得方角伸出椭圆气泡、盖掉边框），
 横排的译文每行居中。
+译文照原文的对齐摆（引擎看同一列的块判断）：右对齐的参数名贴着输入框，图标下的名字、下拉框里的字居中，
+从原文笔画的边开始（不从检测框的边）；放不下时右对齐的向左借、居中的向两边借。界面上的短标签不折行：
+放不下先压扁、缩小，再不行就截断。
 """
 from __future__ import annotations
 
@@ -124,6 +127,25 @@ def _squashes(lo: float) -> list[float]:
 def _mostly_cjk(text: str) -> bool:
     chars = [c for c in text if not c.isspace()]
     return sum(ord(c) >= 0x2E80 for c in chars) * 2 > len(chars)
+
+
+def _balanced(text: str, n: int, font: QFont, width: float) -> list[tuple[int, int]] | None:
+    """分成 n 行、每行差不多长（照原文分两行写的名字：柏拉图 / 立体）：西文在词之间分，中日韩文字在字之间分。
+    只分两行；哪种分法都有一行放不下就返回 None。"""
+    if n != 2 or len(text) < 2:
+        return None
+    fm = QFontMetricsF(font)
+    cuts = [i for i, c in enumerate(text) if c == " "] if " " in text else list(range(1, len(text)))
+    best = None
+    for k in cuts:
+        a, b = text[:k].rstrip(), text[k:].lstrip()
+        if not a or not b:
+            continue
+        w = max(fm.horizontalAdvance(a), fm.horizontalAdvance(b))
+        key = (round(w, 1), -len(a))                  # 一样宽时第一行长一点（几何体 / 灯光）
+        if w <= width and (best is None or key < best[0]):
+            best = (key, [(0, len(a)), (len(text) - len(b), len(b))])
+    return best[1] if best else None
 
 
 def _wordchar(c: str) -> bool:
@@ -251,12 +273,20 @@ class Renderer:
         st = self.style
         w = max(8, item.rect[2] - item.rect[0])
         h = max(6, item.rect[3] - item.rect[1])
-        wide = max(w, item.room[2] - item.rect[0])          # 放不下时最多可以向右借到这么宽
+        # 放不下时可以借的空白：左对齐的向右借，右对齐的向左借（右边多半是输入框），居中的两边借一样多
+        right_room = max(0, item.room[2] - item.rect[2]) if item.align != "right" else 0
+        left_room = max(0, item.rect[0] - item.room[0]) if item.align != "left" else 0
+        if item.align == "center":
+            right_room = left_room = min(right_room, left_room)
+        wide = w + left_room + right_room
         room_h = max(h, item.room[3] - item.room[1])
         # 下面同色、静止的空白有多高：再往下是面板边框、图片、在动的画面
         soft_h = room_h if item.soft is None else min(room_h, max(h, item.soft - item.rect[1]))
         n_orig = max(1, item.n_lines)
         base_px = max(9, min(160, round((item.em or item.line_h) * 0.74)))
+        if not item.vertical and _mostly_cjk(item.text):
+            # 中日韩文字比 min_font_px 还小就糊成一团（4K 屏上软件界面的小字常只有 10 像素）：至少写这么大
+            base_px = max(base_px, st.min_font_px)
         min_px = min(base_px, max(st.min_font_px, round(base_px * st.min_scale)))
         floor_px = min(min_px, max(st.min_font_px, round(base_px * 0.6)))
         orig_pitch = (h - item.line_h) / (n_orig - 1) if n_orig > 1 else item.line_h * 1.25
@@ -289,6 +319,10 @@ class Renderer:
             spans = _wrap(text, font, width / sx)           # 压扁 sx 倍画，就能按宽 width / sx 换行
             if not split_ok and _breaks_word(text, spans):
                 return None
+            if item.label and len(spans) > 1:               # 短标签不折行；原文本来就分两行写的，照样平均分两行
+                spans = _balanced(text, n_orig, font, width / sx) if n_orig == 2 else None
+                if spans is None:
+                    return None
             pitch = max(px * 1.18, min(orig_pitch, px * 1.7)) if n_orig > 1 else px * 1.25
             # 汉字实际占高约 1.0~1.1 个字号；按 1.3 倍留量会让矮检测框（没有下伸字母的行）的译文被无谓缩小
             need = (len(spans) - 1) * pitch + _tail(text, spans, px, font)
@@ -298,6 +332,8 @@ class Renderer:
             font.setPixelSize(px)
             spans = _wrap(text, font, width / sx)
             if not split_ok and _breaks_word(text, spans):
+                return None
+            if item.label and len(spans) > 1:
                 return None
             pitch = px * 1.18
             need = (len(spans) - 1) * pitch + max(px * 1.15, _tail(text, spans, px, font))
@@ -353,6 +389,12 @@ class Renderer:
                 if chosen:
                     wide = wider
                     break
+        if chosen is None and item.label:
+            # 短标签缩到最小、压到最扁还放不下：一行截断，鼠标停上去看全文
+            px, sx = floor_px, full[-1]
+            font.setPixelSize(px)
+            over = QFontMetricsF(font).horizontalAdvance(text) * sx > wide
+            chosen = (px, [(0, len(text))], px * 1.18, h, over, sx)
         if chosen is None:
             px = min_px
             font.setPixelSize(px)
@@ -369,9 +411,12 @@ class Renderer:
             longest = max((fm.horizontalAdvance(text[a:a + n].rstrip()) * sx for a, n in spans), default=0.0)
             plate_w = wide if truncated else max(w, min(wide, int(longest + 0.999) + 3))
         end = item.src.rstrip()[-1:]
-        if end and end in _CJK_END and not item.vertical:
+        if end and end in _CJK_END and not item.vertical and item.align == "left":
             # 识别框常常没把句末的全角标点框进去：底板往右多盖大半个字，免得旁边露出一个“。”
             plate_w = max(plate_w, w + round(item.line_h * 0.6))
+        # 底板相对原文块左边从哪儿开始：右对齐的向左伸，居中的两边各伸一半
+        x0p = w - plate_w if item.align == "right" else (w - plate_w) // 2 if item.align == "center" else 0
+        ink = item.ink or (0, 0, w, h)
         img_w, img_h = plate_w + 2 * PAD, max(h, used_h) + 2 * PAD
         img = QImage(img_w, img_h, QImage.Format.Format_ARGB32_Premultiplied)
         img.fill(0)
@@ -399,11 +444,28 @@ class Renderer:
                 if not line.endswith("…"):
                     line = line[:-1] + "…"
             adv = fm.horizontalAdvance(line) * sx
-            x = PAD + max(0.0, (plate_w - adv) / 2) if item.cols else PAD     # 竖排气泡里的横排译文：每行居中
+            if item.cols:
+                x = PAD + max(0.0, (plate_w - adv) / 2)        # 竖排气泡里的横排译文：每行居中
+            else:
+                # 照原文的对齐，笔画对笔画（字形两边各有一点留白）；放不下时在底板里尽量靠那一边
+                tb = fm.tightBoundingRect(line)
+                il, ir = tb.left() * sx, tb.right() * sx
+                want = (ink[2] - ir if item.align == "right" else (ink[0] + ink[2] - il - ir) / 2
+                        if item.align == "center" else ink[0] - il)
+                x = PAD + max(0.0, min(want - x0p, plate_w - adv))
             drawn.append((line, x, top + i * pitch, adv))
         if item.cols:
             _fill_plates(p, _col_plates(item) + [(x - PAD, y0 - PAD, x + adv + PAD, y0 + fm.height() + PAD)
                                                  for _line, x, y0, adv in drawn], bg)
+        elif item.grad:
+            # 按钮、下拉框上浅下深：底板照着原文块上下边的颜色画渐变
+            from PySide6.QtGui import QLinearGradient
+            g = QLinearGradient(0, PAD, 0, PAD + h)
+            for stop, rgb in ((0.0, item.grad[0]), (1.0, item.grad[1])):
+                c = QColor(*rgb)
+                c.setAlphaF(st.plate_opacity)
+                g.setColorAt(stop, c)
+            p.fillRect(QRectF(0, 0, img_w, img_h), g)
         else:
             p.fillRect(QRectF(0, 0, img_w, img_h), bg)
         for line, x, y0, _adv in drawn:
@@ -426,4 +488,4 @@ class Renderer:
             p.drawPolygon(QPolygonF([QPointF(img_w - 1, img_h - 9), QPointF(img_w - 1, img_h - 1),
                                      QPointF(img_w - 9, img_h - 1)]))
         p.end()
-        return Rendered(img, -PAD, -PAD, img_w, img_h, truncated, px, sx)
+        return Rendered(img, x0p - PAD, -PAD, img_w, img_h, truncated, px, sx)

@@ -123,6 +123,13 @@ class Block:
     refind_at: float = 0.0            # 对不上时在附近重新找这段的下一次时间（找不到就逐步放慢）
     refind_n: int = 0
     missed: int = 0                   # 像素没变、重新识别却没报出来的次数（短词置信度差一点）：连着三次才删
+    ink: Rect | None = None           # 原文墨迹的范围（相对块左上角）：译文按字的边对齐，不按检测框的边
+    em_raw: float = 0.0               # 这块自己估的字号；em 是和同一列、同一排的块统一过的
+    align: str = "left"               # 原文怎么对齐：left / right（参数名贴着输入框）/ center（图标下的名字、下拉框里的字）
+    align_n: int = 0                  # 有几块和它对齐、支持这个判断（0 = 没有旁证，按默认）
+    label: bool = False               # 界面上的短标签（按钮、菜单项、参数名）：译文不折行
+    grad: tuple | None = None         # 底是上下渐变（按钮、下拉框）：(上沿颜色, 下沿颜色)，底板照着画
+    extra_left: int = 0               # 右对齐、居中的译文放不下时最多可以向左借用的空白宽度
 
     def screen_rect(self) -> Rect:
         return self.canvas.to_screen(self.rect)
@@ -153,6 +160,10 @@ class DrawItem:
     # 竖排原文每个字的墨迹（相对原文块左上角）：底板只盖这些字和译文实际占的地方，不铺满整块——
     # 几列长短不一、一列两头是窄的标点时，方底板的角会伸出椭圆气泡、盖掉弧形边框
     cols: tuple[Rect, ...] = ()
+    align: str = "left"               # 原文的对齐：left / right / center（译文照样对齐）
+    ink: Rect | None = None           # 原文墨迹的范围（相对原文块左上角）
+    label: bool = False               # 界面上的短标签：译文不折行（放不下先缩小、压扁，再不行就截断）
+    grad: tuple | None = None         # 底板上下渐变：(上沿颜色, 下沿颜色)，按原文块的上下边画
 
 
 @dataclass(frozen=True)

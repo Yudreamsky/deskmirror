@@ -29,7 +29,7 @@ from .capture import open_capture
 from .config import CHAT_APPS, CHAT_TITLES, AppConfig, ocr_lang_for
 from .geom import Rect
 from .i18n import tr
-from .layout import Line, font_em
+from .layout import Line, centered_stack, font_em, is_label
 from .consistency import RefHistory
 from .memory import Memory, TemplateCache, number_template
 from .ocr_worker import OcrBlockOut, OcrClient, OcrJob
@@ -2110,10 +2110,26 @@ class Engine(threading.Thread):
         line_local = [(ln.rect[0] - jl - ol, ln.rect[1] - jt - ot, ln.rect[2] - jl - ol, ln.rect[3] - jt - ot)
                       for ln in ob.lines]
         bg, fg = textutil.sample_colors(sub, line_local)
+        grad = None if ob.vertical else textutil.plate_gradient(sub, line_local, bg, fg)
+        ink_rects = list(line_local)
+        for i in range(1, len(ink_rects)):
+            a, c = ink_rects[i - 1], ink_rects[i]
+            if a[1] < c[1] < a[3]:                     # 两行的检测框叠在一起：从中间分开再量，免得把上一行的字脚算进来
+                mid = (a[3] + c[1]) // 2
+                ink_rects[i - 1], ink_rects[i] = (a[0], a[1], a[2], mid), (c[0], mid, c[2], c[3])
+        inks = [None] * len(lines) if ob.vertical else \
+            textutil.line_ink(sub, ink_rects, [ln.text for ln in ob.lines], bg, fg)
         hs = sorted(lr[3] - lr[1] for lr, _ in lines)
-        # 字号取各行“正文字高”的偏低中位数：带上标的行、没有上下伸字母的行都不会把字号带偏
-        ems = sorted(font_em(Line(lr, t)) for lr, t in lines)
+        # 字号取各行“正文字高”的偏低中位数：带上标的行、没有上下伸字母的行都不会把字号带偏；
+        # 量得出笔画时按笔画估（短词的检测框两头留白多，按框估会大一圈）
+        ems = sorted(font_em(Line(lr, t), ink[4] if ink else 0.0) for (lr, t), ink in zip(lines, inks))
         line_h, em = hs[len(hs) // 2], ems[(len(ems) - 1) // 2]
+        ink_box = None
+        got = [k for k in inks if k]
+        if got:
+            sx, sy = ol + jl - r0[0], ot + jt - r0[1]          # 取样图的坐标 → 相对块左上角
+            ink_box = (min(k[0] for k in got) + sx, min(k[1] for k in got) + sy,
+                       max(k[2] for k in got) + sx, max(k[3] for k in got) + sy)
         if ob.vertical:
             # 竖排一列的宽度就是一个字的大小：字号按列宽算（按框高算会大得离谱）。
             # 检测框左右多出的那截随列长短变（长的一列多出好几像素，译文会比原文大一圈）：有墨迹宽度时
@@ -2127,6 +2143,11 @@ class Engine(threading.Thread):
                   job_id=st.job.job_id, lum_fg=fg, lum_bg=bg)
         b.vertical = ob.vertical
         b.cols = cols
+        b.ink = ink_box
+        b.grad = grad
+        b.label = not ob.vertical and len(lines) == 1 and is_label(text)
+        if not ob.vertical and len(lines) > 1 and all(centered_stack(a[0], c[0]) for a, c in zip(lines, lines[1:])):
+            b.align, b.label = "center", True     # 图标下面分两行写的一个名字：两行居中，也是短标签
         b.ok_rect = verified
         b.room_bottom = content[3]
         win = canvas.window()
@@ -2148,7 +2169,8 @@ class Engine(threading.Thread):
             if prev is not None and prev.em and abs(b.em - prev.em) <= 0.2 * prev.em:
                 # 字号估计跟着上一块慢慢走：识别框高低差一两个像素，译文字号就会每跳一下变一点
                 b.em = prev.em + (b.em - prev.em) * 0.25
-        if not textutil.needs_translation(text, self.cfg.target_lang) or textutil.looks_like_code(text):
+        if not textutil.needs_translation(text, self.cfg.target_lang) or textutil.looks_like_code(text) \
+                or textutil.looks_like_shortcut(text):
             b.state = "skip"
         elif (hit := self._cached(key, text)) is not None:
             b.translation = hit
@@ -2169,8 +2191,102 @@ class Engine(threading.Thread):
                     self._delete_block(old, "replaced")
             else:
                 b.replaces = [old.bid for old in replaced]
+        b.em_raw = b.em
+        column = self._update_align(canvas, b)
+        if b.state == "pending" and b.align == "right" and len(text) <= 8 and " " not in text \
+                and sum(textutil.looks_like_shortcut(o.text) for o in column) >= 2:
+            b.state = "skip"             # 菜单里快捷键那一列（Ctrl+C、Del）：原样留着
         self._update_room(canvas, b, m)
         self._trim_cache()
+
+    def _update_align(self, canvas: Canvas, b: Block) -> list[Block]:
+        """界面文字照原样对齐，同一列、同一排统一字号（判断见 _align_evidence）。新块到了，和它对得上、同一排挨着的
+        那几块也按各自周围的证据重新判断：识别结果是分批到的，先到的块当时还看不出自己在哪一列、哪一排。
+        字号相近的取中位数（检测框差一两个像素，同一列的译文就会忽大忽小）。返回和这块对得上的块。"""
+        if b.vertical or not textutil.has_words(b.text):      # 竖排、纯数字和符号：不参与
+            return []
+        b.align, b.align_n, group, row = self._align_evidence(canvas, b)
+        for o in dict.fromkeys(group + row):
+            align, n, _g, _r = self._align_evidence(canvas, o)
+            if (align, n) != (o.align, o.align_n):
+                if align != o.align:
+                    o.version += 1
+                    self._dirty = True
+                o.align, o.align_n = align, n
+        if not b.em_raw:
+            return group
+        pool = [b] + [o for o in dict.fromkeys(group + row) if o.em_raw]
+        if len(pool) < 2:
+            return group
+        ems = sorted(x.em_raw for x in pool)
+        em = ems[(len(ems) - 1) // 2]
+        for x in pool:                         # 只统一相差两成以内的：标题和正文对齐在同一条边上，字号照样不同
+            if 0.8 * em <= x.em_raw <= 1.25 * em and abs(x.em - em) > 0.05:
+                x.em = em
+                if x is not b:
+                    x.version += 1
+                    self._dirty = True
+        return group
+
+    def _align_evidence(self, canvas: Canvas, b: Block) -> tuple[str, int, list[Block], list[Block]]:
+        """这块原文怎么对齐：看同一画布上的块，左边、右边还是中线和它对得上（参数名右对齐贴着输入框，菜单项、标题
+        左对齐，几个下拉框里的字居中）。宽度一样的块三样都对得上，说明不了什么，按左对齐。谁也对不上时：同一排还有
+        好几个挨着的短标签（工具栏里图标下的名字、标签页）按居中，其余按左对齐（图标下分两行写的名字按居中）。
+        纯数字、符号（输入框里的数、被认成“●”的图标）不算：它们和文字碰巧对齐说明不了什么。
+        返回 (对齐, 有几块支持, 对得上的块, 同一排挨着的块)。"""
+        def edges(x: Block) -> tuple[float, float, float, float, float]:
+            k = x.ink or (0, 0, x.rect[2] - x.rect[0], x.rect[3] - x.rect[1])
+            left, right = x.rect[0] + k[0], x.rect[0] + k[2]
+            return left, right, (left + right) / 2, x.rect[1] + k[1], x.rect[1] + k[3]
+
+        bl, br, bc, bt, bb = edges(b)
+        tol = max(1.5, 0.1 * b.line_h)
+        votes: dict[str, list[Block]] = {"left": [], "right": [], "center": []}
+        same_w: list[Block] = []
+        band: list[tuple[Block, tuple]] = []            # 和这块在同一排的
+        for o in canvas.blocks.values():
+            if o is b or o.vertical or not textutil.has_words(o.text):
+                continue
+            ol, orr, oc, ot, ob_ = edges(o)
+            if abs(ot - bt) > 40 * b.line_h:
+                continue
+            if abs(ot - bt) > 0.5 * b.line_h:                       # 同一列里上下的块：投它最吻合的那条边
+                ds = sorted((abs(d), k) for k, d in (("left", ol - bl), ("right", orr - br), ("center", oc - bc)))
+                if ds[0][0] > tol:
+                    continue
+                if ds[1][0] <= 1.0 and ds[2][0] <= 1.0:
+                    same_w.append(o)                # 位置、宽度都一样：三条边都对得上，说明不了什么
+                else:
+                    votes[ds[0][1]].append(o)
+            elif min(ob_, bb) - max(ot, bt) >= 0.6 * min(ob_ - ot, bb - bt) and (
+                    0.75 <= o.em_raw / b.em_raw <= 1.33 if o.em_raw and b.em_raw
+                    else abs(o.line_h - b.line_h) <= 0.25 * b.line_h + 1):
+                # 同一排：竖直方向重叠（有下伸字母的底边低几像素），字号差不多（检测框高度在同一排标签页里能差好几像素）
+                band.append((o, (ol, orr)))
+        # 同一排里挨着的一串（相邻两块隔不到两个半行高）：工具栏、标签页；游戏画面两头离得很远的提示不算
+        row: list[Block] = []
+        reach = [(bl, br)]
+        grew = True
+        while grew:
+            grew = False
+            for o, (ol, orr) in band:
+                if o not in row and any(min(abs(ol - r), abs(l - orr)) <= 2.5 * b.line_h or (ol < r and l < orr)
+                                        for l, r in reach):
+                    row.append(o)
+                    reach.append((ol, orr))
+                    grew = True
+        best = max(votes, key=lambda k: (len(votes[k]), k == "left", k == "right"))
+        n = len(votes[best])
+        # 界面很密时，不相干的两块常常碰巧有一条边对齐（上面一排的标签页和下面一排的工具名）：至少两块对得上，
+        # 或者那一块就紧挨在上下一行，才算数。工具栏、标签页（同一排有好几个短标签）本来就居中，要三块以上才推翻
+        toolbar = b.label and len([o for o in row if o.label]) >= 2
+        near = n == 1 and abs(edges(votes[best][0])[3] - bt) <= 2.2 * b.line_h
+        own = "center" if b.label and len(b.lines) > 1 else "left"
+        if n >= (3 if toolbar else 2) or (near and not toolbar):
+            return best, n, votes[best] + same_w, row
+        if same_w and not toolbar:
+            return ("left" if len(b.lines) == 1 else own), 0, same_w, row
+        return ("center" if toolbar else own), 0, [], row
 
     def _update_room(self, canvas: Canvas, b: Block, m: Mon | None = None) -> None:
         """排版时向下延伸的上限：到下方最近的块为止，最多再延伸两个行高。
@@ -2202,6 +2318,12 @@ class Engine(threading.Thread):
                 if o.extra_w > room or o.extra_max > room:
                     o.extra_w, o.extra_max = min(o.extra_w, room), min(o.extra_max, room)
                     o.version += 1
+            if o.extra_left and o.rect[0] >= b.rect[2] - 2 and o.rect[1] < b.rect[3] and b.rect[1] < o.rect[3]:
+                # 新块占了右边那块（右对齐、居中的）原来能向左借的地方
+                room = max(0, o.rect[0] - max(8, o.line_h // 2) - b.rect[2])
+                if o.extra_left > room:
+                    o.extra_left = room
+                    o.version += 1
         right = min(right, nearest)
         if b.dynamic or m is None:
             b.extra_w = b.extra_max = 0
@@ -2216,6 +2338,15 @@ class Engine(threading.Thread):
         if w and self._volatile_frac(m, (sr[2], sr[1], sr[2] + w, sr[3]), 1.5, inner=True) > 0.3:
             w = 0
         b.extra_w = w
+        b.extra_left = 0
+        if b.align != "left":
+            # 右对齐、居中的译文放不下时向左借（参数名左边一般是空的面板）：到左边最近的块为止，左边也得是纯色
+            nearest_l = b.rect[0] - 900
+            for o in canvas.blocks.values():
+                if o is not b and o.rect[2] <= b.rect[0] + 2 and o.rect[1] < b.rect[3] and b.rect[1] < o.rect[3]:
+                    nearest_l = max(nearest_l, o.rect[2] + gap)
+            most = min(b.rect[0] - nearest_l, 2 * (b.rect[2] - b.rect[0]), sr[0] - b.canvas.screen_clip()[0] - 4)
+            b.extra_left = self._plain_left(m, b, most) if most > 0 else 0
         b.plain_below = self._plain_below(m, b, sr[2] + w, b.room_bottom - b.rect[3])
 
     def _plain_right(self, m: Mon, b: Block, most: int) -> int:
@@ -2233,6 +2364,18 @@ class Engine(threading.Thread):
         off = (np.abs(m.cur[t:bb, l:r].astype(np.int16) - int(round(_lum(b.lum_bg)))) > 28).mean(axis=0)
         n = _first_blocked(off, max(2, b.line_h // 8), 0.0 if b.vertical else 0.15)
         return max(0, n - 6) if n is not None else r - l     # 碰到图案、边框就停，离它留一点
+
+    def _plain_left(self, m: Mon, b: Block, most: int) -> int:
+        """原文块左边有多宽是和底色一样的纯色（右对齐、居中的译文放不下时向左借），做法和 _plain_right 一样。"""
+        sr = b.screen_rect()
+        h, w = m.cur.shape
+        l, t, r, bb = m.local((sr[0] - most, sr[1], sr[0], sr[3]))
+        l, t, r, bb = max(0, l), max(0, t), min(w, r), min(h, bb)
+        if r - l < 4 or bb <= t:
+            return 0
+        off = (np.abs(m.cur[t:bb, l:r].astype(np.int16) - int(round(_lum(b.lum_bg)))) > 28).mean(axis=0)[::-1]
+        n = _first_blocked(off, max(2, b.line_h // 8), 0.15)
+        return max(0, n - 6) if n is not None else r - l
 
     def _plain_below(self, m: Mon, b: Block, right: int, most: int) -> int:
         """原文块下面有多高是和底色一样、而且不在动的空白（逐行看块占的那几列，连同向右借的宽度）。
@@ -2876,12 +3019,13 @@ class Engine(threading.Thread):
                         # 滚轮预测：内容正在动，按学到的曲线把译文提前放到“显示出来那一刻”的位置
                         sr = (sr[0] + ex, sr[1] + ey, sr[2] + ex, sr[3] + ey)
                     if b.state == "done" and b.translation:
-                        room = (sr[0], sr[1], sr[2] + b.extra_w, max(r[3], b.room_bottom) + oy + ey)
+                        room = (sr[0] - b.extra_left, sr[1], sr[2] + b.extra_w, max(r[3], b.room_bottom) + oy + ey)
                         items.append(DrawItem(b.bid, b.version, sr, room, clips, b.translation, b.bg, b.fg,
                                               b.line_h, len(b.lines), b.em, b.ref, b.text,
                                               stretch=sr[2] + b.extra_max if b.extra_max else 0,
                                               soft=sr[3] + b.plain_below if b.plain_below >= 0 else None,
-                                              vertical=b.vertical, cols=tuple(b.cols)))
+                                              vertical=b.vertical, cols=tuple(b.cols), align=b.align, ink=b.ink,
+                                              label=b.label, grad=None if b.dynamic else b.grad))
                     elif any(geom.overlaps(c, sr) for c in clips):
                         # 只报露出来的：被别的窗口整块挡住的不算“在翻译”（范围外的窗口永远不会翻译）
                         pending.append((sr, clips, b.state == "failed"))

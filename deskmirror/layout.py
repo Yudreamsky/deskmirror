@@ -4,10 +4,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from .geom import Rect, union
 from .textutil import em_height
 
 _CJK = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
+_LETTERS = re.compile(r"[^\W\d_]")
 _LIST_MARK = re.compile(r"^\s*(?:[•·●◦▪■□►▶‣\-–—*]|\(?\d{1,3}[.)、]|\(?[a-zA-Z][.)]\s|[一二三四五六七八九十]+[、.])")
 
 
@@ -32,6 +35,65 @@ class BlockDraft:
 
 def _h(r: Rect) -> int:
     return r[3] - r[1]
+
+
+def split_wide_gaps(gray: np.ndarray, rect: Rect) -> list[Rect]:
+    """一行里隔得很开的几段字拆开：工具栏里并排的按钮名、菜单项和快捷键、表格里的几格。
+    检测模型会把间距不大的几个按钮名框成一行（“Spot Light Area Light”），译文就挤成一句、和各自的图标对不上。
+    看墨迹的列投影：比词距宽得多的空隙（至少 0.6 个框高，且是这行常见词距的 2.2 倍以上）算两项之间的空。
+    0.6 个框高比中文逗号、句号后面的空白宽，一句中文不会从标点处被拆开。gray 是整幅灰度图，rect 是检测框。"""
+    x0, y0, x1, y1 = rect
+    h = y1 - y0
+    if h < 6 or x1 - x0 < 3 * h:
+        return [rect]
+    crop = gray[max(0, y0):y1, max(0, x0):x1].astype(np.int16)
+    if crop.size == 0:
+        return [rect]
+    border = np.concatenate([crop[0], crop[-1], crop[:, 0], crop[:, -1]])
+    diff = np.abs(crop - float(np.median(border)))
+    hi = float(np.percentile(diff, 99))
+    if hi < 30:
+        return [rect]
+    cols = np.flatnonzero((diff > max(25.0, 0.35 * hi)).any(axis=0))
+    if len(cols) < 2:
+        return [rect]
+    step = np.diff(cols)
+    at = np.flatnonzero(step > 1)                 # 第 i 个墨迹列后面有空列
+    if not len(at):
+        return [rect]
+    widths = step[at] - 1
+    words = widths[widths >= max(2, round(0.12 * h))]
+    typical = float(np.median(words)) if len(words) else 0.25 * h
+    cut = [int(i) for i, w in zip(at, widths) if w >= max(0.6 * h, 2.2 * typical)]
+    if not cut:
+        return [rect]
+    pieces, start = [], int(cols[0])
+    for i in cut:
+        pieces.append((start, int(cols[i])))
+        start = int(cols[i + 1])
+    pieces.append((start, int(cols[-1])))
+    pad_l, pad_r = int(cols[0]), (x1 - x0 - 1) - int(cols[-1])     # 检测框两头比墨迹多出的那截，拆开后各段照留
+    out = []
+    for k, (a, b) in enumerate(pieces):
+        left = a - pad_l if k == 0 else max(a - pad_l, (pieces[k - 1][1] + a) // 2 + 1)
+        right = b + 1 + pad_r if k == len(pieces) - 1 else min(b + 1 + pad_r, (b + pieces[k + 1][0]) // 2 + 1)
+        out.append((x0 + left, y0, x0 + right, y1))
+    return out
+
+
+def centered_stack(a: Rect, b: Rect) -> bool:
+    """b 是 a 下面紧挨着、居中对齐的第二行：图标下面分两行写的一个名字（Geometry / Light、Platonic / Solids）。
+    行距比一般段落还紧（两行的框几乎贴着、常常叠在一起），中线对齐，都不长。菜单项之间有空隙，不算；
+    两个一样宽的菜单项（Copy / Paste）左右边也都对得上，框得真叠在一起才算。"""
+    href = min(_h(a), _h(b))
+    if max(_h(a), _h(b)) > 1.4 * href:
+        return False
+    gap, pitch = b[1] - a[3], b[3] - a[3]
+    ca, cb = (a[0] + a[2]) / 2, (b[0] + b[2]) / 2
+    if abs(a[0] - b[0]) <= 2 and abs(a[2] - b[2]) <= 2 and gap >= 0:
+        return False
+    return (abs(ca - cb) <= max(2.0, 0.12 * href) and -0.7 * href <= gap <= 0.1 * href and pitch <= 1.1 * href
+            and max(a[2] - a[0], b[2] - b[0]) <= 8 * href)
 
 
 def candidate_paragraphs(rects: list[Rect]) -> list[list[int]]:
@@ -65,15 +127,16 @@ def candidate_paragraphs(rects: list[Rect]) -> list[list[int]]:
                 continue
             gap = b[1] - a[3]
             pitch = b[3] - a[3]
-            if gap < -0.6 * href or gap > 0.5 * href:
-                continue
-            if not (0.9 * href <= pitch <= 1.9 * href):
-                continue
-            ov = min(a[2], b[2]) - max(a[0], b[0])
-            narrow = min(a[2] - a[0], b[2] - b[0])
-            aligned = abs(a[0] - b[0]) <= 1.2 * href
-            if ov < 0.5 * narrow and not (aligned and ov > 0):
-                continue
+            if not centered_stack(a, b):
+                if gap < -0.6 * href or gap > 0.5 * href:
+                    continue
+                if not (0.9 * href <= pitch <= 1.9 * href):
+                    continue
+                ov = min(a[2], b[2]) - max(a[0], b[0])
+                narrow = min(a[2] - a[0], b[2] - b[0])
+                aligned = abs(a[0] - b[0]) <= 1.2 * href
+                if ov < 0.5 * narrow and not (aligned and ov > 0):
+                    continue
             if best_gap is None or gap < best_gap:
                 best, best_gap = j, gap
         if best >= 0:
@@ -103,12 +166,37 @@ def char_width(ln: Line) -> float | None:
 
 # 常见西文无衬线字体平均字宽约 0.5 个字号，检测框高约 1.35 个字号：换算回“框高”口径，和 em_height 一致
 _CW_TO_EM = 2.6
+# 按笔画估的字号（像素）换算成同样的“框高”口径：和按字宽估的对得上，网页正文的译文字号基本不变
+_PX_TO_EM = 1.3
 
 
-def font_em(ln: Line) -> float:
-    """估计原文字号（检测框高度口径）：字数够的西文行按字宽，否则按校正后的框高。"""
+def font_em(ln: Line, ink_px: float = 0.0) -> float:
+    """估计原文字号（检测框高度口径）。有按笔画估的字号（textutil.line_ink）时以它为准：字数够的西文行仍按字宽
+    （很稳），但不让它和笔画差太多；短词（Line、Camera）检测框两头的留白占比大，按字宽、框高都会估大。
+    没有时：字数够的西文行按字宽，否则按校正后的框高。"""
     cw = char_width(ln)
+    if ink_px:
+        e = _PX_TO_EM * ink_px
+        if cw is not None and len(ln.text.strip()) >= 25:      # 长行的字宽很稳；十来个字的标签框两头的留白还是占比大
+            return min(max(_CW_TO_EM * cw, 0.9 * e), 1.1 * e)
+        return e
     return _CW_TO_EM * cw if cw is not None else body_height(ln)
+
+
+_SENTENCE_END = re.compile(r"[.!?。！？]$")
+
+
+def is_label(text: str) -> bool:
+    """界面上的短标签（按钮、菜单项、参数名、标签页）：一行、几个词、不是句子。译文不折行，放不下先缩小、压扁。
+    菜单项常以“...”结尾（Save As...），不算句子。"""
+    t = " ".join(text.split())
+    if not t or len(t) > 40:
+        return False
+    if _SENTENCE_END.search(t) and not t.endswith(("...", "…")):
+        return False
+    if _CJK.search(t):
+        return len(t) <= 14
+    return len(t.split()) <= 4
 
 
 def split_by_text(lines: list[Line]) -> list[BlockDraft]:
@@ -132,7 +220,11 @@ def split_by_text(lines: list[Line]) -> list[BlockDraft]:
         # 或者下一行以小写字母开头、明显是句子的延续
         long_enough = len(prev.text.strip()) >= 20 or _CJK.search(prev.text) is not None
         continues = ln.text.strip()[:1].islower()
-        if similar and not _LIST_MARK.match(ln.text) and ((prev_full and long_enough) or continues):
+        # 图标下面分两行写的一个名字（Geometry / Light）：两行居中、挨得很紧，都很短
+        stack = (len(blocks[-1].lines) < 3 and centered_stack(prev.rect, ln.rect)
+                 and len(prev.text.strip()) <= 20 and len(ln.text.strip()) <= 20
+                 and len(_LETTERS.findall(prev.text)) >= 2 and len(_LETTERS.findall(ln.text)) >= 2)   # 上面的图标认成“●”的不算
+        if stack or (similar and not _LIST_MARK.match(ln.text) and ((prev_full and long_enough) or continues)):
             blocks[-1].lines.append(ln)
         else:
             blocks.append(BlockDraft([ln]))

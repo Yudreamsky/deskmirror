@@ -1501,6 +1501,8 @@ def main() -> int:
                             d["squash"] = img.squash
                             d["em"] = round(it.em, 1)
                             d["cols"] = [list(c) for c in it.cols]     # 竖排各列字的墨迹（相对原文块）
+                            d["align"], d["label"] = it.align, it.label
+                            d["ink"] = list(it.ink) if it.ink else None  # 原文墨迹（相对原文块）
                         if req.get("refs") and it.ref is not None:
                             import base64
                             import cv2

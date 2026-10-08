@@ -132,6 +132,27 @@ def _detect(engine, img: np.ndarray) -> list[Rect]:
     return out
 
 
+# 句子里的标点（，、；：。！？… 和半角的）：按码点写，免得被当成要翻译的界面文字
+_JOINS = set(map(chr, (0xFF0C, 0x3001, 0xFF1B, 0xFF1A, 0x3002, 0xFF01, 0xFF1F, 0x2026))) | set(",;:.!?")
+
+
+def _split_line(engine, img: np.ndarray, gray: np.ndarray, rect: Rect) -> list[Rect]:
+    """按大空隙拆开一行（layout.split_wide_gaps）；拆开的地方左边那段以标点结尾的再合回去：
+    中文逗号、句号后面的空白很宽，同一句话不能从那儿断开（按钮名、快捷键后面没有标点）。"""
+    from .layout import split_wide_gaps
+    pieces = split_wide_gaps(gray, rect)
+    if len(pieces) < 2:
+        return pieces
+    texts = [t.strip() for t, _s in _recognize(engine, img, pieces)]
+    out = [pieces[0]]
+    for prev_text, piece in zip(texts, pieces[1:]):
+        if prev_text[-1:] in _JOINS:
+            out[-1] = (out[-1][0], min(out[-1][1], piece[1]), piece[2], max(out[-1][3], piece[3]))
+        else:
+            out.append(piece)
+    return out
+
+
 def _recognize(engine, img: np.ndarray, rects: list[Rect]) -> list[tuple[str, float]]:
     h, w = img.shape[:2]
     return _recognize_images(engine, [img[max(0, y0):min(h, y1), max(0, x0):min(w, x1)] for x0, y0, x1, y1 in rects])
@@ -234,6 +255,9 @@ def _process(engine, job: OcrJob, out_q) -> None:
     # 细高的框是竖排的一列字（漫画气泡）：单独处理，横排的照旧分段识别
     cols = join_columns([r for r in rects if is_column(r)])
     rects = [r for r in rects if not is_column(r)]
+    # 一个框里并排的几个按钮名、菜单项和快捷键：按墨迹之间的大空隙拆开，各自识别、各自翻译
+    gray = img[:, :, 0] * 0.114 + img[:, :, 1] * 0.587 + img[:, :, 2] * 0.299
+    rects = [p for r in rects for p in _split_line(engine, img, gray, r)]
     paras = candidate_paragraphs(rects)
     para_rects = []
     for idx in paras:

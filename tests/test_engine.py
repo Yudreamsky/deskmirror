@@ -257,10 +257,14 @@ class NumberTickTest(unittest.TestCase):
         old = add_block(eng, sc, rect, page[y0:y0 + 22, 10:500].copy())
         old.text, old.key = "残り 02:00", E.textutil.cache_key("残り 02:00")
         eng.by_key[old.key].add(old.bid)
-        e = E.font_em(E.Line(rect, "残り 01:59"))
-        old.state, old.translation, old.counter, old.em = "done", "剩余 02:00", True, e * 1.15
         eng.templates.learn(E.textutil.cache_key, "残り 02:00", "剩余 02:00")
         m.cur[y0:y0 + 22, 10:500] = 255 - m.cur[y0:y0 + 22, 10:500]             # 数字跳了
+        # 引擎按笔画估字号（量得出时）：照它的做法算出这次的估计
+        crop = np.dstack([m.cur] * 3)[y0 - 3:y0 + 25, 7:503]
+        bg, fg = E.textutil.sample_colors(crop, [(3, 3, 493, 25)])
+        ink = E.textutil.line_ink(crop, [(3, 3, 493, 25)], ["残り 01:59"], bg, fg)[0]
+        e = E.font_em(E.Line(rect, "残り 01:59"), ink[4] if ink else 0.0)
+        old.state, old.translation, old.counter, old.em = "done", "剩余 02:00", True, e * 1.15
         old.ok_rect = None
         m.bgra = np.dstack([m.cur] * 3 + [np.full_like(m.cur, 255)])
         eng._submit_ocr(m, (0, y0 - 20, W, y0 + 42))

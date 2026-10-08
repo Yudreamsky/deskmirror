@@ -44,6 +44,11 @@ def looks_indonesian(text: str) -> bool:
     return len(hits) >= 2 or (len(words) <= 4 and len(hits) == 1)
 
 
+def has_words(text: str) -> bool:
+    """至少两个字母（任何文字）：不是纯数字、符号。"""
+    return len(_LETTER.findall(text)) >= 2
+
+
 def needs_translation(text: str, target: str) -> bool:
     """原文已经是目标语言、或只有数字符号时不翻译，也不遮盖原文。"""
     letters = _LETTER.findall(text)
@@ -67,6 +72,20 @@ def needs_translation(text: str, target: str) -> bool:
     return True
 
 
+def _inner_background(px: np.ndarray) -> np.ndarray | None:
+    """行框里面最多的那种颜色（粗分成 8 级一档）：界面的标签页、按钮、高亮条里，字本身占不到一半，
+    剩下的就是字紧挨着的底色。"""
+    if len(px) < 16:
+        return None
+    q = px // 32
+    codes = q[:, 0] * 64 + q[:, 1] * 8 + q[:, 2]
+    counts = np.bincount(codes, minlength=512)
+    top = int(np.argmax(counts))
+    if counts[top] < 0.4 * len(px):
+        return None
+    return np.median(px[codes == top], axis=0)
+
+
 def sample_colors(bgr: np.ndarray, line_rects: list[tuple[int, int, int, int]]) -> tuple[tuple, tuple]:
     """估计文字块的背景色和文字色（RGB）。bgr 是块所在区域的截图，line_rects 是行在其中的坐标。"""
     h, w = bgr.shape[:2]
@@ -74,6 +93,14 @@ def sample_colors(bgr: np.ndarray, line_rects: list[tuple[int, int, int, int]]) 
         return (255, 255, 255), (0, 0, 0)
     border = np.concatenate([bgr[0, :], bgr[-1, :], bgr[:, 0], bgr[:, -1]]).reshape(-1, 3).astype(np.int32)
     bg = np.median(border, axis=0)
+    inside = [bgr[max(0, t):min(h, b), max(0, l):min(w, r)].reshape(-1, 3) for l, t, r, b in line_rects]
+    inside = [p for p in inside if p.size]
+    if inside:
+        ib = _inner_background(np.concatenate(inside).astype(np.int32))
+        # 框外一圈碰到了标签页、按钮的深色边框或别的面板（框里的底色和外圈差得多）：用框里的底色，
+        # 不然底板成了一块黑方块（Houdini 的工具架标签）
+        if ib is not None and np.abs(ib - bg).sum() > 36:
+            bg = ib
     inner = []
     for l, t, r, b in line_rects:
         patch = bgr[max(0, t):min(h, b), max(0, l):min(w, r)]
@@ -94,6 +121,77 @@ def sample_colors(bgr: np.ndarray, line_rects: list[tuple[int, int, int, int]]) 
     else:
         fg_rgb = (int(fg[2]), int(fg[1]), int(fg[0]))
     return bg_rgb, _ensure_contrast(bg_rgb, fg_rgb)
+
+
+def plate_gradient(bgr: np.ndarray, line_rects: list[tuple[int, int, int, int]], bg: tuple,
+                   fg: tuple) -> tuple[tuple, tuple] | None:
+    """按钮、下拉框常是上浅下深的渐变：返回 (上沿颜色, 下沿颜色)（RGB），底板照着画；纯色的返回 None。
+    取所有行合起来的框里最上、最下两行不是字的像素（检测框比字高出一点，那几行基本是底）。"""
+    h, w = bgr.shape[:2]
+    l, t = max(0, min(r[0] for r in line_rects)), max(0, min(r[1] for r in line_rects))
+    r_, b = min(w, max(r[2] for r in line_rects)), min(h, max(r[3] for r in line_rects))
+    if r_ - l < 6 or b - t < 6:
+        return None
+    bg_bgr = np.array(bg[::-1], np.int32)
+    fg_bgr = np.array(fg[::-1], np.int32)
+
+    def edge(rows: np.ndarray) -> np.ndarray | None:
+        px = rows.reshape(-1, 3).astype(np.int32)
+        keep = np.abs(px - bg_bgr).sum(axis=1) < np.abs(px - fg_bgr).sum(axis=1)      # 离底色比离字色近的
+        return np.median(px[keep], axis=0) if keep.sum() >= 8 else None
+
+    top, bottom = edge(bgr[t:t + 2, l:r_]), edge(bgr[b - 2:b, l:r_])
+    if top is None or bottom is None or not 14 <= int(np.abs(top - bottom).sum()) <= 150:
+        return None
+    return (int(top[2]), int(top[1]), int(top[0])), (int(bottom[2]), int(bottom[1]), int(bottom[0]))
+
+
+_ASCENDING = re.compile(r"[bdfhklt0-9A-Z]")
+
+
+def line_ink(bgr: np.ndarray, line_rects: list[tuple[int, int, int, int]], texts: list[str], bg: tuple,
+             fg: tuple) -> list[tuple[int, int, int, int, float] | None]:
+    """各行文字的墨迹范围 (左, 上, 右, 下) 和按笔画估的原文字号（像素；0 = 估不出）。
+    检测框四周的留白随字数、字母形状变（“Line”“Camera”这种短词留白占比大）：按框宽、框高估字号会忽大忽小，
+    对齐也要按字的边、不按框的边。字号按整行墨迹的高度换算：同时有上伸字母（含大写、数字）和下伸字母时约占
+    0.94 个字号，只有上伸 0.72，只有下伸 0.74，都没有（x 高）0.52，中日韩文字 0.88。
+    bgr 是块所在区域的截图，bg / fg 是 RGB。"""
+    lb = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2]
+    lf = 0.299 * fg[0] + 0.587 * fg[1] + 0.114 * fg[2]
+    if abs(lf - lb) < 40:
+        return [None] * len(line_rects)
+    gray = bgr[..., 0] * 0.114 + bgr[..., 1] * 0.587 + bgr[..., 2] * 0.299
+    sign = 1.0 if lf > lb else -1.0
+    thr = max(20.0, 0.45 * abs(lf - lb))
+    h, w = gray.shape
+    out: list[tuple[int, int, int, int, float] | None] = []
+    for (l, t, r, b), text in zip(line_rects, texts):
+        l, t, r, b = max(0, l), max(0, t), min(w, r), min(h, b)
+        patch = gray[t:b, l:r]
+        if patch.size == 0:
+            out.append(None)
+            continue
+        mask = (patch - lb) * sign > thr
+        mask[mask.mean(axis=1) > 0.85] = False         # 横贯整行的下划线、边框线不是字
+        rows, cols = np.flatnonzero(mask.any(axis=1)), np.flatnonzero(mask.any(axis=0))
+        if len(rows) < 3 or len(cols) < 2:
+            out.append(None)
+            continue
+        top, bottom = int(rows[0]), int(rows[-1]) + 1
+        # 整行墨迹的总高度占字号的比例取决于有没有上伸字母（含大写、数字）和下伸字母（g j p q y）
+        t_ = text.strip()
+        if _HAN.search(t_) or _KANA.search(t_) or _HANGUL.search(t_):
+            share = 0.88
+        elif any(c.isalpha() for c in t_):
+            asc, desc = bool(_ASCENDING.search(t_)), any(c in _DESC for c in t_)
+            share = 0.94 if asc and desc else 0.72 if asc else 0.74 if desc else 0.52
+        else:
+            share = 0.0
+        px = (bottom - top) / share if share else 0.0
+        if px and not 0.3 * (b - t) <= px <= 1.6 * (b - t):
+            px = 0.0                                # 和框高差得离谱：多半是把图标、边框也当成了字
+        out.append((l + int(cols[0]), t + top, l + int(cols[-1]) + 1, t + bottom, round(px, 2)))
+    return out
 
 
 def _lum(c: tuple) -> float:
@@ -161,6 +259,17 @@ def looks_untranslated(src: str, out: str, target: str) -> bool:
                 break
         best = max(best, run)
     return best >= 5 and best >= 0.25 * len(src_words)
+
+
+_SHORTCUT = re.compile(
+    r"^(?:(?:(?:ctrl|control|alt|shift|cmd|command|win|meta|option|opt|super)\s*[+\-]\s*)+"
+    r"(?:[a-z0-9]|f\d{1,2}|del(?:ete)?|esc(?:ape)?|enter|return|tab|space|backspace|home|end|pgup|pgdn|"
+    r"page ?up|page ?down|ins(?:ert)?|up|down|left|right|plus|minus|[\[\]\\/;',.`=+\-])|f\d{1,2})$", re.I)
+
+
+def looks_like_shortcut(text: str) -> bool:
+    """菜单里的快捷键（Ctrl+C、Alt+Shift+F4、F2）：不翻译、不遮盖，原样留着。"""
+    return bool(_SHORTCUT.match(" ".join(text.split())))
 
 
 _CODE_CHARS = re.compile(r"[{};=<>]|::|=>|\(\)|\w+\(|^\s*(?:def|class|import|return|const|let|var|function)\b")
