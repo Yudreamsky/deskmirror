@@ -88,8 +88,9 @@ EN: dict[str, str] = {
         'Some hotkeys are unavailable',
     '继续工作，正在核对画面…':
         'Resuming, checking the screen…',
-    '桌面魔镜 · 今天发给翻译服务（{where}）{requests} 次、{chars} 字':
-        'DeskMirror · sent to the translation service ({where}) today: {requests} requests, {chars} characters',
+    '桌面魔镜 · 今天发给翻译服务（{where}）{requests} 次、{chars} 字，↑{tin} ↓{tout} token':
+        'DeskMirror · sent to the translation service ({where}) today: {requests} requests, {chars} characters, '
+        '↑{tin} ↓{tout} tokens',
     '魔镜下面没有找到窗口（或拿不到它的程序名）。':
         "No window found under the mirror (or its program name isn't available).",
     '跟随的窗口已关闭，魔镜不再跟随。':
@@ -536,8 +537,9 @@ EN: dict[str, str] = {
         'Only for program (optional)',
     '翻译时附上这个窗口里含同样词语的已有译文作参考，没写进术语表的词也沿用同样的译法。发给翻译服务的文字会多一些（实测约多 15%）。':
         "Adds earlier translations from the same window that contain the same words as a reference, so terms that aren't in the glossary are also translated consistently. Slightly more text is sent to the translation service (about 15% more in tests).",
-    '今天（{date}）发给翻译服务 {requests} 次请求、{chars} 字（只统计数量，不记录内容）':
-        'Today ({date}): {requests} requests and {chars} characters sent to the translation service (counts only, no content)',
+    '今天（{date}）发给翻译服务 {requests} 次请求、{chars} 字，输入 {tin} token、输出 {tout} token（只统计数量，不记录内容）':
+        'Today ({date}): {requests} requests and {chars} characters sent to the translation service, '
+        '{tin} input and {tout} output tokens (counts only, no content)',
     '按 {key} 或点魔镜标签上的“看图”，把镜框里的画面交给这里的模型来读、来翻，适合漫画、艺术字、图片里的字。默认用本机 Ollama 的 gemma4:12b，画面不出本机；发给云端服务前，每次都会先问你。':
         "Press {key} or click “Image” on the mirror's tab to have this model read and translate the picture inside the frame. Good for comics, stylized lettering and text in pictures. By default it uses gemma4:12b on local Ollama, so the picture never leaves your PC; before anything is sent to a cloud service, you'll be asked every time.",
     '取到 {n} 个模型，已列在下拉框里，点一个即可':
@@ -705,8 +707,6 @@ EN: dict[str, str] = {
         'Ollama context length',
     '本机 Ollama':
         'Ollama on this PC',
-    '桌面魔镜命令行（{version}）：不打开界面就能看、改设置，改完正在运行的魔镜一秒内自动生效。\n\n  {p} config list                     全部设置\n  {p} config get 名字                  一项设置，比如 llm.model\n  {p} config set 名字 值 [名字 值…]     改设置；值写 - 表示从标准输入读（API Key 这样传，不留在命令行里）\n  {p} config reset 名字                恢复默认值\n  {p} config keys                     每项设置的说明、能取的值\n  {p} config path                     配置文件在哪\n  {p} service [服务名]                 列出预设的翻译服务 / 换成其中一个（deepseek、qwen、openai、ollama…）\n  {p} models [--vision]               翻译服务（或看图翻译服务）现有的模型\n  {p} test                            试一下翻译服务能不能用（会翻译一句很短的话）\n  {p} glossary list | add 原文 译文 [--app 程序.exe] | remove 原文 [--app 程序.exe]\n  {p} update [--check] [--yes]        检查新版本 / 下载并换上新版本（正在运行的魔镜会自动退出、重新打开）\n  {p} version\n\n加 --json 输出 JSON（给程序、AI 助手读）。':
-        'DeskMirror command line ({version}): view and change settings without opening a window; a running mirror picks up changes within a second.\n\n  {p} config list                     all settings\n  {p} config get NAME                 one setting, e.g. llm.model\n  {p} config set NAME VALUE [NAME VALUE…]  change settings; a VALUE of - is read from standard input (use it for API keys so they stay off the command line)\n  {p} config reset NAME               back to the default\n  {p} config keys                     what each setting means and which values it takes\n  {p} config path                     where the settings file is\n  {p} service [NAME]                  list the preset translation services / switch to one (deepseek, qwen, openai, ollama…)\n  {p} models [--vision]               models offered by the translation (or image translation) service\n  {p} test                            check that the translation service works (translates one short sentence)\n  {p} glossary list | add SOURCE TARGET [--app program.exe] | remove SOURCE [--app program.exe]\n  {p} update [--check] [--yes]        check for a new version / download and switch to it (a running mirror quits and reopens by itself)\n  {p} version\n\nAdd --json for JSON output (for programs and AI assistants).',
     '颜色要写成 #RRGGBB，比如 #3D8BFD':
         'Write the colour as #RRGGBB, e.g. #3D8BFD',
     '地址要以 http:// 或 https:// 开头':
@@ -914,4 +914,101 @@ EN: dict[str, str] = {
         'The package contains an unsafe path: {name}',
     '已取消':
         'Cancelled',
+    ' · 你不在：只翻镜框里的（省钱）':
+        " · You're away: translating only inside the mirror (saves tokens)",
+    '≈：服务没有报用量的部分是按字数估算的':
+        "≈: where the service didn't report usage, tokens are estimated from the text length",
+    '本机服务不花钱，不受每日上限限制':
+        'Local services cost nothing and have no daily cap',
+    '今天（{date}）用掉的 token：输入 {tin}，输出 {tout}':
+        'Tokens used today ({date}): {tin} in, {tout} out',
+    '翻译服务：{where} · {model}':
+        'Translation service: {where} · {model}',
+    '请求 {requests} 次，原文 {chars} 字':
+        '{requests} requests, {chars} characters of source text',
+    '锁屏或屏保中：已停下，回来自动继续':
+        'Screen locked or screensaver on: stopped, resumes when you are back',
+    '今天发给翻译服务的 token 已经用到上限（{limit}），先停止翻译新的文字。可以在 设置 → 范围与隐私 里调高或关掉上限，明天自动恢复。':
+        "Today's tokens sent to the translation service reached the cap ({limit}), so new text is no longer translated. Raise or turn off the cap in Settings → Scope and privacy; it resets tomorrow.",
+    '每日上限 {limit} token，到了就停（设置 → 范围与隐私）':
+        'Daily cap {limit} tokens, then it stops (Settings → Scope and privacy)',
+    '今天的 token 已用到上限，停止翻译新文字（设置里可调）':
+        "Today's token cap reached: new text is not translated (see Settings)",
+    '账户余额不足（HTTP 402）：到服务商那里充值后点 ⟳ 继续':
+        'Insufficient balance (HTTP 402): top up with the provider, then click ⟳',
+    ' 分钟':
+        ' min',
+    '不管':
+        'Off',
+    '没碰键盘鼠标':
+        'No keyboard/mouse for',
+    '锁屏、屏保时完全停下（不截屏、不识别、不翻译）':
+        'Stop completely while the screen is locked or the screensaver runs (no capture, recognition or translation)',
+    '不限':
+        'Unlimited',
+    '每天最多用':
+        'Daily token cap',
+    '魔镜标签上显示今天用掉的 token（↑ 输入 ↓ 输出）':
+        "Show today's tokens on the mirror tab (↑ input ↓ output)",
+    '超过这么久没碰键盘鼠标，就只翻镜框里的文字，不在后台预译屏幕上别处的（动一下就恢复）。镜框里的字幕照常翻译，看视频不受影响。':
+        'After this long without keyboard or mouse input, only text inside the mirror is translated; the rest of the screen waits until you move the mouse. Subtitles inside the mirror keep being translated, so videos are not affected.',
+    '只限云端服务（本机 Ollama 不花钱、不限）：今天发出去和收回来的 token 加起来到了这个数，就停止翻译新的文字，已有译文照常显示，明天自动恢复。':
+        "Cloud services only (local Ollama is free and unlimited): once today's input plus output tokens reach this number, new text is no longer translated; existing translations still show, and it resets tomorrow.",
+    '输入里命中服务商缓存 {cached}（{pct}%，按低得多的价格计费）':
+        "Of the input, {cached} hit the provider's cache ({pct}%, billed at a much lower price)",
+    '每次请求的明细：logs 文件夹里的 usage-*.jsonl（只有数量，没有文字）':
+        'Per-request details: usage-*.jsonl in the logs folder (counts only, no text)',
+    # 合并家里电脑的 b613547 后：命令行的用量、状态
+    '桌面魔镜命令行（{version}）：不打开界面就能看、改设置，改完正在运行的魔镜一秒内自动生效。\n\n  {p} config list                     全部设置\n  {p} config get 名字                  一项设置，比如 llm.model\n  {p} config set 名字 值 [名字 值…]     改设置；值写 - 从标准输入读，写 --env 变量名 从环境变量读\n                                        （API Key 这样传，不留在命令行里）\n  {p} config reset 名字                恢复默认值\n  {p} config keys                     每项设置的说明、能取的值（config schema：同样的内容，输出 JSON）\n  {p} config path                     配置文件在哪\n  {p} service [服务名]                 列出预设的翻译服务 / 换成其中一个（deepseek、qwen、openai、ollama…）\n  {p} models [--vision]               翻译服务（或看图翻译服务）现有的模型\n  {p} test                            试一下翻译服务能不能用（会翻译一句很短的话）\n  {p} glossary list | add 原文 译文 [--app 程序.exe] | remove 原文 [--app 程序.exe]\n  {p} usage [--log [日期]] [--tail N]   今天的请求数、字数、token；--log 按每次请求的日志汇总（哪个程序、\n                                        多大的批、命中缓存多少）\n  {p} status                          版本、配置文件在哪、魔镜在不在运行、能怎么更新\n  {p} update [--check] [--yes]        检查新版本 / 下载并换上新版本（正在运行的魔镜会自动退出、重新打开）\n  {p} version\n\n加 --json 输出 JSON（给程序、AI 助手读）。':
+        "DeskMirror command line ({version}): view and change settings without opening a window; a running mirror picks up changes within a second.\n\n  {p} config list                     all settings\n  {p} config get NAME                 one setting, e.g. llm.model\n  {p} config set NAME VALUE [NAME VALUE…]  change settings; a VALUE of - is read from standard input, --env VAR\n                                        from an environment variable (use these for API keys so they stay off\n                                        the command line)\n  {p} config reset NAME               back to the default\n  {p} config keys                     what each setting means and which values it takes (config schema: the\n                                        same as JSON)\n  {p} config path                     where the settings file is\n  {p} service [NAME]                  list the preset translation services / switch to one (deepseek, qwen, openai, ollama…)\n  {p} models [--vision]               models offered by the translation (or image translation) service\n  {p} test                            check that the translation service works (translates one short sentence)\n  {p} glossary list | add SOURCE TARGET [--app program.exe] | remove SOURCE [--app program.exe]\n  {p} usage [--log [DATE]] [--tail N]  today's requests, characters and tokens; --log sums up the per-request log\n                                        (by program, batch size, cache hits)\n  {p} status                          version, settings file, whether the mirror is running, how it updates\n  {p} update [--check] [--yes]        check for a new version / download and switch to it (a running mirror quits and reopens by itself)\n  {p} version\n\nAdd --json for JSON output (for programs and AI assistants).",
+    '已有请求在途时，零星的新文字最多等多少毫秒凑成一批再发（每次请求都带约 430 token 的固定说明）；0 = 不等':
+        "While a request is in flight, how many milliseconds stray new lines wait to go out as one batch (every request carries about 430 tokens of fixed instructions); 0 = don't wait",
+    '这么多分钟没碰键盘鼠标，就只翻镜框里的文字，不在后台预译别处（0 = 不管）':
+        'After this many minutes without keyboard or mouse input, only text inside the mirror is translated, nothing else in the background (0 = off)',
+    '云端服务一天最多用多少 token（输入 + 输出），到了就停止翻译新文字；0 = 不限。本机服务不限':
+        'Daily token cap for cloud services (input + output): at the cap, new text is no longer translated; 0 = unlimited. Local services have no cap',
+    '{date}：请求 {requests} 次、原文 {chars} 字；输入 {tin} token（命中缓存 {cached}），输出 {tout} token':
+        '{date}: {requests} requests, {chars} characters; input {tin} tokens ({cached} from cache), output {tout} tokens',
+    '每日上限：{limit} token':
+        'Daily cap: {limit} tokens',
+    '每日上限：不限':
+        'Daily cap: unlimited',
+    '魔镜正在运行：用量每 5 分钟存一次盘，这里的数可能慢一点':
+        'DeskMirror is running: it saves usage every 5 minutes, so these numbers may lag a little',
+    '日期要写成 年-月-日，比如 2026-10-07':
+        'Write the date as YYYY-MM-DD, e.g. 2026-10-07',
+    '--tail 后面要跟条数':
+        '--tail needs a number of requests',
+    '{day} 没有记下翻译请求（日志在 {folder}）':
+        'No translation requests logged for {day} (log folder: {folder})',
+    '{day}：请求 {requests} 次，输入 {tin} token（命中缓存 {cached}，{rate:.0%}），输出 {tout} token':
+        '{day}: {requests} requests, input {tin} tokens ({cached} from cache, {rate:.0%}), output {tout} tokens',
+    '平均每次请求：原文 {chars} 字、输入 {tin} token；每次都带的固定说明（约 {overhead} token）大约占输入的 {share:.0%}':
+        'Average request: {chars} characters of text, {tin} input tokens; the fixed instructions sent every time (about {overhead} tokens) are about {share:.0%} of the input',
+    '{requests:>6} 次  输入 {tin:>10}  输出 {tout:>9}':
+        '{requests:>6} req  in {tin:>10}  out {tout:>9}',
+    '按程序：':
+        'By program:',
+    '按一批的字数：':
+        'By characters per request:',
+    '按小时：':
+        'By hour:',
+    '在程序里直接更新':
+        'from inside the app',
+    'git pull（源码版）':
+        'git pull (source install)',
+    '版本：{version}':
+        'Version: {version}',
+    '配置文件：{path}':
+        'Settings file: {path}',
+    '魔镜正在运行':
+        'DeskMirror is running',
+    '魔镜没在运行':
+        'DeskMirror is not running',
+    '更新方式：{how}':
+        'Updates: {how}',
+    '--env 后面要跟环境变量名':
+        '--env needs the name of an environment variable',
+    '没有这个环境变量：{name}':
+        'No such environment variable: {name}',
 }

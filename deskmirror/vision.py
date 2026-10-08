@@ -24,8 +24,8 @@ from .translator import _SOURCE_DESC, _TARGET_DESC, ServiceError, _http_error, m
 
 def is_local(base_url: str) -> bool:
     """地址是不是本机（本机的服务不用每次问）。"""
-    host = (urlparse(base_url.strip() if "://" in base_url else "http://" + base_url.strip()).hostname or "").lower()
-    return host in ("127.0.0.1", "localhost", "::1") or host.endswith(".localhost")
+    from .config import is_local_url
+    return is_local_url(base_url)
 
 
 def host_of(base_url: str) -> str:

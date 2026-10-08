@@ -1,10 +1,10 @@
-"""命令行：不打开界面就能看、改全部设置（AI 助手、脚本用），还能列出模型、测试翻译服务、管理术语表。
+"""命令行：不打开界面就能看、改全部设置（AI 助手、脚本用），还能列出模型、测试翻译服务、管理术语表、看用量、更新。
 
     python -m deskmirror config list          （打包版：DeskMirrorCLI.exe config list）
 
 改的是配置文件 deskmirror.json，正在运行的魔镜一秒内自动重新载入（少数几项要重启，会提示）。
-加 --json 输出 JSON（只用 ASCII，任何代码页下都不乱码）。API Key 只显示前后几位；设置时值写成 -，
-从标准输入读，不留在命令行和历史记录里。不开网络端口：能改这个文件的程序才能改设置。
+加 --json 输出 JSON（只用 ASCII，任何代码页下都不乱码）。API Key 只显示前后几位；设置时值写成 -（从标准输入读）
+或 --env 变量名（从环境变量读），不留在命令行和历史记录里。不开网络端口：能改这个文件的程序才能改设置。
 """
 from __future__ import annotations
 
@@ -51,6 +51,8 @@ DOCS = {
     "llm.num_ctx": N_("Ollama 的上下文长度（和看图翻译用同一个模型时要一样）"),
     "llm.keep_alive": N_("Ollama 把模型留在显存里多久，比如 30m"),
     "llm.consistency": N_("术语前后一致：附上本窗口里含同样词语的已有译文作参考"),
+    "llm.gather_ms": N_("已有请求在途时，零星的新文字最多等多少毫秒凑成一批再发（每次请求都带约 430 token 的固定说明）；"
+                        "0 = 不等"),
     "ocr.device": N_("文字识别用显卡（gpu，DirectML）还是 cpu"),
     "ocr.threads": N_("用 CPU 识别时的线程数"),
     "hotkeys.drag_modifiers": N_("按住它在镜框里任意位置拖动就能移动魔镜，比如 Ctrl+Alt"),
@@ -88,7 +90,11 @@ DOCS = {
     "vision.timeout_s": N_("看图翻译最多等多少秒"),
     "vision.max_side": N_("发图前把长边缩到多少像素"),
     "vision.num_ctx": N_("Ollama 的上下文长度"),
-    "update.check_on_start": N_("启动后检查有没有新版本（一天最多一次，只访问 GitHub；有新版只提示）"),
+    "guard.idle_min": N_("这么多分钟没碰键盘鼠标，就只翻镜框里的文字，不在后台预译别处（0 = 不管）"),
+    "guard.pause_when_locked": N_("锁屏、屏保时完全停下（不截屏、不识别、不翻译）"),
+    "guard.daily_tokens": N_("云端服务一天最多用多少 token（输入 + 输出），到了就停止翻译新文字；0 = 不限。本机服务不限"),
+    "guard.show_meter": N_("魔镜标签上显示今天用掉的 token（↑ 输入 ↓ 输出）"),
+    "update.auto_check": N_("启动后检查有没有新版本（一天最多一次，只访问 GitHub；有新版只提示）"),
     "update.skip_version": N_("自动检查时不再提示的版本号（检查更新窗口里点了“跳过这个版本”）"),
 }
 # service 命令的服务名 → 预设（显示名、接口、地址、默认模型）；OpenAI 兼容的从 config.OPENAI_PRESETS 取
@@ -113,14 +119,18 @@ def usage() -> str:
         "桌面魔镜命令行（{version}）：不打开界面就能看、改设置，改完正在运行的魔镜一秒内自动生效。\n\n"
         "  {p} config list                     全部设置\n"
         "  {p} config get 名字                  一项设置，比如 llm.model\n"
-        "  {p} config set 名字 值 [名字 值…]     改设置；值写 - 表示从标准输入读（API Key 这样传，不留在命令行里）\n"
+        "  {p} config set 名字 值 [名字 值…]     改设置；值写 - 从标准输入读，写 --env 变量名 从环境变量读\n"
+        "                                        （API Key 这样传，不留在命令行里）\n"
         "  {p} config reset 名字                恢复默认值\n"
-        "  {p} config keys                     每项设置的说明、能取的值\n"
+        "  {p} config keys                     每项设置的说明、能取的值（config schema：同样的内容，输出 JSON）\n"
         "  {p} config path                     配置文件在哪\n"
         "  {p} service [服务名]                 列出预设的翻译服务 / 换成其中一个（deepseek、qwen、openai、ollama…）\n"
         "  {p} models [--vision]               翻译服务（或看图翻译服务）现有的模型\n"
         "  {p} test                            试一下翻译服务能不能用（会翻译一句很短的话）\n"
         "  {p} glossary list | add 原文 译文 [--app 程序.exe] | remove 原文 [--app 程序.exe]\n"
+        "  {p} usage [--log [日期]] [--tail N]   今天的请求数、字数、token；--log 按每次请求的日志汇总（哪个程序、\n"
+        "                                        多大的批、命中缓存多少）\n"
+        "  {p} status                          版本、配置文件在哪、魔镜在不在运行、能怎么更新\n"
         "  {p} update [--check] [--yes]        检查新版本 / 下载并换上新版本（正在运行的魔镜会自动退出、重新打开）\n"
         "  {p} version\n\n"
         "加 --json 输出 JSON（给程序、AI 助手读）。"
@@ -312,7 +322,8 @@ def cmd_config(cfg: AppConfig, args: list[str], as_json: bool) -> int:
         value = _shown(key, config.get_key(cfg, key))
         _emit(as_json, {"key": key, "value": value}, _text(value))
         return 0
-    if sub == "keys":
+    if sub in ("keys", "schema"):            # schema：同样的内容，总是输出 JSON
+        as_json = as_json or sub == "schema"
         defaults, out, lines = AppConfig(), [], []
         for key in settable_keys():
             default = config.get_key(defaults, key)
@@ -331,12 +342,28 @@ def cmd_config(cfg: AppConfig, args: list[str], as_json: bool) -> int:
         _emit(as_json, {"keys": out}, "\n".join(lines))
         return 0
     if sub == "set":
-        if not rest or len(rest) % 2:
+        pairs, i = [], 0
+        while i < len(rest):
+            if i + 1 >= len(rest):
+                raise CliError(tr("用法：config set 名字 值 [名字 值…]"), 2)
+            if rest[i + 1] == "--env":
+                if i + 2 >= len(rest):
+                    raise CliError(tr("--env 后面要跟环境变量名"), 2)
+                pairs.append((rest[i], "--env", rest[i + 2]))
+                i += 3
+            else:
+                pairs.append((rest[i], "", rest[i + 1]))
+                i += 2
+        if not pairs:
             raise CliError(tr("用法：config set 名字 值 [名字 值…]"), 2)
         changed = []
-        for key, raw in zip(rest[::2], rest[1::2]):
+        for key, how, raw in pairs:
             _check_key(key)
-            if raw == "-":
+            if how == "--env":
+                if raw not in os.environ:
+                    raise CliError(tr("没有这个环境变量：{name}").format(name=raw))
+                raw = os.environ[raw]
+            elif raw == "-":
                 raw = _read_secret(key)
             apply_value(cfg, key, parse_value(key, raw))
             changed.append(key)
@@ -448,6 +475,79 @@ def cmd_glossary(cfg: AppConfig, args: list[str], as_json: bool) -> int:
     raise CliError(tr("glossary 没有这个子命令：{sub}").format(sub=sub), 2)
 
 
+def cmd_usage(cfg: AppConfig, args: list[str], as_json: bool) -> int:
+    if "--log" in args:
+        return _usage_log(args, as_json)
+    u, limit = cfg.usage, cfg.guard.daily_tokens
+    local, running = config.is_local_url(cfg.llm.base_url), _running()
+    info = {"date": u.date, "requests": u.requests, "chars": u.chars, "tokens_in": u.tokens_in,
+            "tokens_out": u.tokens_out, "tokens_cached": u.tokens_cached, "estimated": u.estimated,
+            "daily_tokens_limit": limit, "local_service": local, "running": running}
+    lines = [tr("{date}：请求 {requests} 次、原文 {chars} 字；输入 {tin} token（命中缓存 {cached}），输出 {tout} token").format(
+        date=u.date or "-", requests=u.requests, chars=u.chars, tin=f"{u.tokens_in:,}",
+        cached=f"{u.tokens_cached:,}", tout=f"{u.tokens_out:,}")]
+    if u.estimated:
+        lines.append(tr("≈：服务没有报用量的部分是按字数估算的"))
+    if local:
+        lines.append(tr("本机服务不花钱，不受每日上限限制"))
+    else:
+        lines.append(tr("每日上限：{limit} token").format(limit=f"{limit:,}") if limit else tr("每日上限：不限"))
+    if running:
+        lines.append(tr("魔镜正在运行：用量每 5 分钟存一次盘，这里的数可能慢一点"))
+    _emit(as_json, info, "\n".join(lines))
+    return 0
+
+
+def _usage_log(args: list[str], as_json: bool) -> int:
+    """按每次请求的日志（logs/usage-年-月.jsonl）汇总一天：钱花在哪个程序、多大的批、缓存命中多少。"""
+    from . import usagelog
+    i = args.index("--log")
+    day = args[i + 1] if i + 1 < len(args) and not args[i + 1].startswith("--") else ""
+    if day and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        raise CliError(tr("日期要写成 年-月-日，比如 2026-10-07"), 2)
+    tail = _option(args, "--tail") if "--tail" in args else "0"
+    if not tail.isdigit():
+        raise CliError(tr("--tail 后面要跟条数"), 2)
+    recs = usagelog.read(day)
+    sm = usagelog.summarize(recs)
+    sm["day"] = day or time.strftime("%Y-%m-%d")
+    if int(tail):
+        sm["last"] = recs[-int(tail):]
+    if as_json or not recs:
+        _emit(as_json, sm, tr("{day} 没有记下翻译请求（日志在 {folder}）").format(day=sm["day"], folder=usagelog.log_dir()))
+        return 0
+    lines = [tr("{day}：请求 {requests} 次，输入 {tin} token（命中缓存 {cached}，{rate:.0%}），输出 {tout} token").format(
+                 day=sm["day"], requests=sm["requests"], tin=f"{sm['tokens_in']:,}", cached=f"{sm['cached']:,}",
+                 rate=sm["cache_hit_rate"], tout=f"{sm['tokens_out']:,}"),
+             tr("平均每次请求：原文 {chars} 字、输入 {tin} token；每次都带的固定说明（约 {overhead} token）大约占输入的 {share:.0%}")
+             .format(chars=sm["avg_chars_per_request"], tin=sm["avg_in_per_request"], overhead=usagelog.OVERHEAD_TOKENS,
+                     share=sm["overhead_share"])]
+    row = tr("{requests:>6} 次  输入 {tin:>10}  输出 {tout:>9}")
+    for title, groups, limit in ((tr("按程序："), sm["by_app"], 10), (tr("按一批的字数："), sm["by_batch_chars"], None),
+                                 (tr("按小时："), sm["by_hour"], None)):
+        lines += ["", title]
+        for name, c in list(groups.items())[:limit]:
+            name = f"{name}:00" if groups is sm["by_hour"] else name
+            lines.append(f"  {name:<28}" + row.format(requests=c["requests"], tin=f"{c['tokens_in']:,}",
+                                                      tout=f"{c['tokens_out']:,}"))
+    lines += [json.dumps(r, ensure_ascii=True) for r in sm.get("last", [])]
+    print("\n".join(lines))
+    return 0
+
+
+def cmd_status(cfg: AppConfig, args: list[str], as_json: bool) -> int:
+    from . import updater
+    method, reason = updater.install_method()
+    running = _running()
+    info = {"version": __version__, "config": str(config.config_path()), "running": running, "install": method,
+            "install_note": reason}
+    how = {"package": tr("在程序里直接更新"), "git": tr("git pull（源码版）")}.get(method, reason)
+    _emit(as_json, info, "\n".join([
+        tr("版本：{version}").format(version=__version__), tr("配置文件：{path}").format(path=info["config"]),
+        tr("魔镜正在运行") if running else tr("魔镜没在运行"), tr("更新方式：{how}").format(how=how)]))
+    return 0
+
+
 def _option(args: list[str], name: str) -> str:
     if name not in args or args.index(name) + 1 >= len(args):
         raise CliError(tr("{name} 后面要跟一个值").format(name=name), 2)
@@ -544,7 +644,8 @@ def cmd_version(cfg: AppConfig, args: list[str], as_json: bool) -> int:
 
 
 COMMANDS = {"config": cmd_config, "service": cmd_service, "models": cmd_models, "test": cmd_test,
-            "glossary": cmd_glossary, "update": cmd_update, "version": cmd_version}
+            "glossary": cmd_glossary, "usage": cmd_usage, "status": cmd_status, "update": cmd_update,
+            "version": cmd_version}
 
 
 def _own_console() -> bool:
@@ -556,7 +657,22 @@ def _own_console() -> bool:
         return False
 
 
+def _attach_console() -> None:
+    """DeskMirror.exe 是窗口程序，没有控制台：带参数运行时把输出接到启动它的命令行窗口上（推荐用 DeskMirrorCLI.exe）。"""
+    k32 = ctypes.WinDLL("kernel32")
+    if not getattr(sys, "frozen", False) or k32.GetConsoleWindow():
+        return
+    if k32.AttachConsole(-1):                   # ATTACH_PARENT_PROCESS
+        sys.stdout = sys.stderr = open("CONOUT$", "w", encoding="utf-8", errors="replace")     # noqa: SIM115
+
+
 def main(argv: list[str]) -> int:
+    _attach_console()
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")     # 输出到管道时，控制台代码页里没有的字（比如韩文模型名）不至于报错
+        except (AttributeError, ValueError):
+            pass
     as_json = "--json" in argv
     argv = [a for a in argv if a != "--json"]
     cfg = config.load()

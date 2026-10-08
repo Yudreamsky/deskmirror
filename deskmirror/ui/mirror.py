@@ -34,6 +34,16 @@ def _btn_font() -> QFont:
     return f
 
 
+def _meter_font() -> QFont:
+    f = QFont("Consolas")
+    f.setPixelSize(12)
+    return f
+
+
+# token 用量占的宽度按最长的样子留好：数字变了标签不跟着变宽变窄
+_METER_SAMPLE = "≈↑999.9k ↓999.9k"
+
+
 _EDGE_CURSORS = {
     "l": Qt.CursorShape.SizeHorCursor, "r": Qt.CursorShape.SizeHorCursor,
     "t": Qt.CursorShape.SizeVerCursor, "b": Qt.CursorShape.SizeVerCursor,
@@ -77,6 +87,10 @@ class MirrorFrame(QWidget):
         self.suspended = False               # 跟随的窗口最小化了：魔镜暂时收起
         self.paused = False                  # 用户点了“暂停”：按钮显示“继续”
         self.lang_label = ""                 # 语言按钮上的字，如“自动→中”（由程序按设置更新）
+        self.meter = ""                      # 今天用掉的 token，如“↑12.3k ↓4.1k”（空 = 不显示）
+        self.meter_tip = ""                  # 鼠标停在上面时显示的明细（由程序显示，见 app._hover_tip）
+        self.meter_hovered = False
+        self._meter_rect = QRect()
         self.winId()
         if layered.colorkey():
             layered.apply(self, alpha=1)       # 整体 1/255 不透明：看不见，但不是色键的地方接得住鼠标
@@ -98,7 +112,8 @@ class MirrorFrame(QWidget):
         scr = self._screen_for(m)
         self._tab_below = m[1] - BAND - TAB_H < scr[1]
         outer = geom.expand(m, BAND)
-        tab_w = max(min(max(400, (m[2] - m[0]) // 2), max(280, m[2] - m[0])), _TAB_LABEL_W + self._buttons_width())
+        tab_w = max(min(max(400, (m[2] - m[0]) // 2), max(280, m[2] - m[0])),
+                    _TAB_LABEL_W + self._buttons_width() + self._meter_width())
         if self._tab_below:
             tab = (m[0] - BAND, m[3] + BAND - 1, m[0] - BAND + tab_w, m[3] + BAND - 1 + TAB_H)
         else:
@@ -137,6 +152,9 @@ class MirrorFrame(QWidget):
 
     def _button_w(self, name: str, fm: QFontMetrics) -> int:
         return TAB_H - 4 if name in _ICONS else fm.horizontalAdvance(self._label(name)) + 14
+
+    def _meter_width(self) -> int:
+        return QFontMetrics(_meter_font()).horizontalAdvance(_METER_SAMPLE) + 10 if self.meter else 0
 
     def _buttons_width(self) -> int:
         fm = QFontMetrics(_btn_font())
@@ -187,6 +205,16 @@ class MirrorFrame(QWidget):
         if text != self.status or level != self.status_level:
             self.status, self.status_level = text, level
             self.update(self._local(self._tab))
+
+    def set_meter(self, text: str, tip: str) -> None:
+        self.meter_tip = tip
+        if text != self.meter:
+            relayout = bool(text) != bool(self.meter)       # 出现 / 消失时标签要变宽 / 变窄
+            self.meter = text
+            if relayout:
+                self._layout()
+            else:
+                self.update(self._local(self._tab))
 
     def set_grab_mode(self, on: bool) -> None:
         # 拖动途中先松开拖动键也没关系：按下时已经抓住鼠标，拖完为止。
@@ -270,6 +298,18 @@ class MirrorFrame(QWidget):
         left_btn = min((r.left() for r in self._buttons.values()), default=tab.right())
         fm = QFontMetrics(font)
         sx = tab.left() + 22 + fm.horizontalAdvance(title)      # 状态文字紧跟在标题后面
+        self._meter_rect = QRect()
+        if self.meter:
+            # token 用量：贴在按钮左边，像网速监控那样 ↑ 输入 ↓ 输出（宽度在 _layout 里留好了）
+            mw = self._meter_width()
+            self._meter_rect = QRect(left_btn - 4 - mw, tab.top(), mw, tab.height())
+            left_btn = self._meter_rect.left()
+            pen = p.pen()
+            p.setFont(_meter_font())
+            p.setPen(QColor(150, 200, 255))
+            p.drawText(self._meter_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, self.meter)
+            p.setFont(font)
+            p.setPen(pen)
         status_rect = QRect(sx, tab.top(), max(0, left_btn - 6 - sx), tab.height())
         p.drawText(status_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
                    fm.elidedText(self.status, Qt.TextElideMode.ElideRight, status_rect.width()))
@@ -340,6 +380,7 @@ class MirrorFrame(QWidget):
     def mouseMoveEvent(self, e) -> None:  # noqa: N802
         pos = e.position().toPoint()
         if self._drag is None:
+            self.meter_hovered = self._meter_rect.contains(pos)
             zone = self._zone(pos)
             hb = zone[4:] if zone.startswith("btn:") else ""
             if hb != self._hover_button:
@@ -404,6 +445,7 @@ class MirrorFrame(QWidget):
         self.rect_changed.emit(self.mirror, True)
 
     def leaveEvent(self, e) -> None:  # noqa: N802
+        self.meter_hovered = False
         if self._hover_button:
             self._hover_button = ""
             self.update(self._local(self._tab))

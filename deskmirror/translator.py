@@ -159,6 +159,8 @@ def _http_error(resp: httpx.Response) -> ServiceError:
     detail = str(detail)[:120]
     if code in (401, 403):
         return ServiceError(tr("密钥无效或没有权限（HTTP {code}）").format(code=code), retryable=False)
+    if code == 402:
+        return ServiceError(tr("账户余额不足（HTTP 402）：到服务商那里充值后点 ⟳ 继续"), retryable=False)
     if code == 404:
         return ServiceError(tr("地址或模型不存在（HTTP 404）{detail}").format(detail=detail), retryable=False)
     if code == 429:
@@ -167,8 +169,26 @@ def _http_error(resp: httpx.Response) -> ServiceError:
                         retryable=code >= 500)
 
 
-# 不认 "thinking" 参数的 OpenAI 兼容服务（按服务地址记住）：这次运行里不再带这个参数，免得每批都先报错再重发
-_NO_THINKING_PARAM: set[str] = set()
+# 不认附加参数（"thinking"、"stream_options"）的 OpenAI 兼容服务（按服务地址记住）：这次运行里不再带，
+# 免得每批都先报错再重发
+_NO_EXTRA_PARAMS: set[str] = set()
+
+_CJK = re.compile(r"[぀-ヿ㐀-鿿가-힯豈-﫿＀-￯]")
+
+
+def estimate_tokens(text: str) -> int:
+    """服务没报用量时按字数估算 token：中日韩文字约一字一个，其余约四个字符一个。"""
+    cjk = len(_CJK.findall(text))
+    return cjk + (len(text) - cjk + 3) // 4
+
+
+@dataclass
+class Usage:
+    """一次请求用掉的 token：输入（发过去的）、输出（模型写的）；exact=False 表示服务没报、是按字数估的。"""
+    tokens_in: int = 0
+    tokens_out: int = 0
+    exact: bool = False
+    cached: int = 0                   # 输入里命中服务商缓存的部分（DeepSeek、OpenAI 按低得多的价格计费）
 
 
 def _clean(text: str) -> str:
@@ -181,14 +201,21 @@ def _clean(text: str) -> str:
 def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: Callable[[int, str], None],
                      client: httpx.Client, cancel: threading.Event, context: str = "",
                      glossary: list[tuple[str, str]] | None = None, refs: list[tuple[str, str]] | None = None,
-                     source: str = "auto", dialog: list[tuple[str, str]] | None = None) -> None:
-    """发一批文字块，流式解析；全部完成后返回。失败抛 ServiceError。
+                     source: str = "auto", dialog: list[tuple[str, str]] | None = None) -> Usage:
+    """发一批文字块，流式解析；全部完成后返回这次用掉的 token。失败抛 ServiceError。
 
     context 是这批文字所在窗口的标题，帮模型判断场景（比如 CSS 文档里的属性名不该翻译）。
     """
     messages = [{"role": "system", "content": system_prompt(target, source)},
                 {"role": "user", "content": build_user_message(texts, context, glossary, refs, dialog)}]
     parser = SegmentParser(len(texts), on_segment)
+    usage = Usage()
+
+    def finish() -> Usage:
+        if not usage.exact:      # 服务没报用量（或中途取消）：按发出去和收回来的字数估
+            usage.tokens_in = sum(estimate_tokens(m["content"]) for m in messages)
+            usage.tokens_out = estimate_tokens(parser.raw)
+        return usage
     base = cfg.base_url.strip().rstrip("/")
     if not base:
         raise ServiceError(tr("还没有填写翻译服务地址"), retryable=False)
@@ -211,7 +238,7 @@ def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: 
                         raise _http_error(resp)
                     for line in resp.iter_lines():
                         if cancel.is_set():
-                            return
+                            return finish()
                         if not line.strip():
                             continue
                         data = json.loads(line)
@@ -221,6 +248,10 @@ def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: 
                         if piece:
                             parser.feed_raw(piece)
                         if data.get("done"):
+                            if isinstance(data.get("prompt_eval_count"), int) or isinstance(data.get("eval_count"), int):
+                                usage.tokens_in = int(data.get("prompt_eval_count") or 0)
+                                usage.tokens_out = int(data.get("eval_count") or 0)
+                                usage.exact = True
                             break
                     break
         else:
@@ -228,22 +259,27 @@ def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: 
             if cfg.api_key:
                 headers["Authorization"] = f"Bearer {cfg.api_key}"
             payload = {"model": cfg.model, "messages": messages, "temperature": cfg.temperature, "stream": True}
-            if cfg.disable_thinking and base not in _NO_THINKING_PARAM:
-                # DeepSeek 等服务默认开“思考”：翻译用不着，关掉快得多、也省钱（思考的字数按输出计费）
-                payload["thinking"] = {"type": "disabled"}
+            extras = base not in _NO_EXTRA_PARAMS
+            if extras:
+                payload["stream_options"] = {"include_usage": True}   # 最后一段带上这次用掉的 token
+                if cfg.disable_thinking:
+                    # DeepSeek 等服务默认开“思考”：翻译用不着，关掉快得多、也省钱（思考的字数按输出计费）
+                    payload["thinking"] = {"type": "disabled"}
             for attempt in range(2):
                 with client.stream("POST", f"{base}/chat/completions", json=payload, headers=headers) as resp:
                     if resp.status_code != 200:
                         resp.read()
-                        if attempt == 0 and "thinking" in payload and resp.status_code in (400, 422):
-                            payload.pop("thinking")  # 可能是不认这个参数：去掉重发一次，成功就记住这个服务
+                        if attempt == 0 and extras and resp.status_code in (400, 422):
+                            # 可能是不认附加参数：去掉重发一次，成功就记住这个服务
+                            payload.pop("thinking", None)
+                            payload.pop("stream_options", None)
                             continue
                         raise _http_error(resp)
                     if attempt == 1:
-                        _NO_THINKING_PARAM.add(base)
+                        _NO_EXTRA_PARAMS.add(base)
                     for line in resp.iter_lines():
                         if cancel.is_set():
-                            return
+                            return finish()
                         if not line.startswith("data:"):
                             continue
                         data = line[5:].strip()
@@ -255,6 +291,16 @@ def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: 
                             continue
                         if obj.get("error"):
                             raise ServiceError(tr("服务报错：{detail}").format(detail=str(obj["error"])[:120]))
+                        u = obj.get("usage")
+                        if isinstance(u, dict) and isinstance(u.get("prompt_tokens"), int):
+                            usage.tokens_in = u["prompt_tokens"]
+                            usage.tokens_out = int(u.get("completion_tokens") or 0)
+                            usage.exact = True
+                            # DeepSeek：prompt_cache_hit_tokens；OpenAI 等：prompt_tokens_details.cached_tokens
+                            details = u.get("prompt_tokens_details") or {}
+                            usage.cached = int(u.get("prompt_cache_hit_tokens")
+                                               or (details.get("cached_tokens") if isinstance(details, dict) else 0)
+                                               or 0)
                         choices = obj.get("choices") or []
                         if choices:
                             piece = (choices[0].get("delta") or {}).get("content") or ""
@@ -270,6 +316,7 @@ def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: 
     except httpx.HTTPError as e:
         raise ServiceError(tr("网络错误：{name}").format(name=type(e).__name__)) from None
     parser.close()
+    return finish()
 
 
 def make_client(cfg: LlmConfig, timeout_s: float | None = None) -> httpx.Client:
@@ -375,11 +422,11 @@ class TranslatorPool:
                     break
                 t0 = time.perf_counter()
                 try:
-                    stream_translate(self.cfg, batch.target, batch.texts,
-                                     lambda i, s, b=batch: self._on_event(("segment", b.batch_id, i, s)),
-                                     client, self._cancel, batch.context, batch.glossary, batch.refs,
-                                     batch.source, batch.dialog)
-                    self._on_event(("batch_done", batch.batch_id, None, time.perf_counter() - t0))
+                    usage = stream_translate(self.cfg, batch.target, batch.texts,
+                                             lambda i, s, b=batch: self._on_event(("segment", b.batch_id, i, s)),
+                                             client, self._cancel, batch.context, batch.glossary, batch.refs,
+                                             batch.source, batch.dialog)
+                    self._on_event(("batch_done", batch.batch_id, None, time.perf_counter() - t0, usage))
                 except ServiceError as e:
                     self._on_event(("batch_done", batch.batch_id, e, time.perf_counter() - t0))
                 except Exception as e:  # noqa: BLE001 - 不能让工作线程死掉

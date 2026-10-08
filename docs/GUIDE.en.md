@@ -134,8 +134,21 @@ under the mirror"):
     Password managers and banking or payment pages are never translated. The same switch is in Settings → Scope and
     privacy.
   - When such a window is inside the mirror, the tab says so.
-- **Usage**: the tray icon's tooltip and the settings page show how many requests and how much text were sent to the
-  translation service today (only counts are kept, never the content).
+- **Usage**: `↑12.3k ↓4.1k` on the mirror's tab is today's tokens sent to the translation service (↑ input, ↓ output);
+  hover over it for details (service, model, requests, input that hit the provider's cache). The tray icon's tooltip
+  and the settings page show it too. Where the service doesn't report usage, tokens are estimated from the text
+  length and marked "≈". Each request is also logged as one line in `logs/usage-YYYY-MM.jsonl` (counts and program
+  names only, no screen text); `usage --log` on the command line sums it up by program, batch size and hour.
+- **Cost guards**:
+  - After a while without keyboard or mouse input (5 minutes by default), only text inside the mirror is translated,
+    nothing elsewhere in the background (move the mouse and it carries on); subtitles inside the mirror are translated
+    as usual.
+  - Everything stops while the screen is locked or the screensaver runs (no capture, recognition or translation).
+  - A daily token cap for cloud services (1,000,000 by default, input + output): at the cap, new text is no longer
+    translated, existing translations stay, and it carries on the next day. Ollama on this PC has no cap.
+  - While a request is in flight, stray new lines wait up to 0.6 s and go out as one batch: every request carries
+    about 430 tokens of fixed instructions, so sending one or two lines at a time is poor value.
+  - When the balance runs out (HTTP 402), the tab says so and translation stops until you top up.
 - **Translation memory** (off by default): when on, translations are stored on this PC, encrypted with your Windows
   account, and reused the next time the same text appears, saving time and money. You can clear it any time in
   Settings (clicking Clear while memory is off also deletes files saved earlier). Text that differs only in numbers
@@ -197,14 +210,16 @@ Codex. With the download version use `DeskMirrorCLI.exe` in the DeskMirror folde
 
 | Command | What it does |
 |---|---|
-| `config keys` | What each setting means, which values it takes, and whether it needs a restart |
+| `config keys` | What each setting means, which values it takes, and whether it needs a restart (`config schema`: the same as JSON) |
 | `config list` / `config get NAME` | All settings / one setting (API keys show only their first and last characters) |
-| `config set NAME VALUE [NAME VALUE…]` | Change settings; out-of-range or malformed values are rejected rather than quietly changed. A VALUE of `-` is read from standard input (use it for API keys so they stay off the command line) |
+| `config set NAME VALUE [NAME VALUE…]` | Change settings; out-of-range or malformed values are rejected rather than quietly changed. A VALUE of `-` is read from standard input, `--env VAR` from an environment variable (use these for API keys so they stay off the command line) |
 | `config reset NAME` | Back to the default |
 | `service [NAME]` | List the preset translation services, or switch to one: deepseek, qwen, siliconflow, openai, ollama, ollama-openai, lmstudio |
 | `models [--vision]` | Models offered by the translation (or image translation) service |
 | `test` | Try the translation service with one short sentence |
 | `glossary list` / `add SOURCE TARGET [--app program.exe]` / `remove SOURCE` | Manage the glossary |
+| `usage` / `usage --log [DATE]` | Today's requests, characters and tokens / a day's per-request log summed up (by program, batch size, cache hits) |
+| `status` | Version, where the settings file is, whether DeskMirror is running, how it updates |
 
 Add `--json` for JSON output (ASCII only, for programs; on errors it has `"ok": false` and a non-zero exit code). The
 commands change `deskmirror.json`: a running DeskMirror picks up the changes within a second and says so in a tray

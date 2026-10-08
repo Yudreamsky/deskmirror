@@ -39,6 +39,15 @@ def _host_of(url: str) -> str:
         return url
 
 
+def _short_num(n: int) -> str:
+    """12345 → 12.3k，像网速那样短。"""
+    if n < 1000:
+        return str(n)
+    if n < 1_000_000:
+        return f"{n / 1000:.1f}k" if n < 100_000 else f"{n // 1000}k"
+    return f"{n / 1_000_000:.2f}M"
+
+
 def _setup_logging() -> None:
     logdir = ROOT / "logs"
     logdir.mkdir(exist_ok=True)
@@ -70,7 +79,26 @@ def _single_instance() -> object | None:
     return handle
 
 
+def _wait_for_exit(pid: int, timeout_ms: int = 20000) -> None:
+    """等旧进程退出（它占着“只能开一个”的锁），最多等 20 秒。"""
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.restype = ctypes.c_void_p
+    k32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    k32.CloseHandle.argtypes = [ctypes.c_void_p]
+    h = k32.OpenProcess(0x00100000, False, pid)        # SYNCHRONIZE
+    if h:
+        k32.WaitForSingleObject(h, timeout_ms)
+        k32.CloseHandle(h)
+
+
 def main() -> int:
+    if len(sys.argv) > 1 and not sys.argv[1].startswith("-"):
+        from .cli import main as cli_main          # DeskMirror.exe config …：输出接到启动它的命令行窗口上
+        return cli_main(sys.argv[1:])
+    # 1.2.0 之前的源码版（b613547）git pull 完会带着这个变量启动新版本，先退出旧的：等它退出再启动，不然会提示“已经在运行”
+    wait = os.environ.pop("DESKMIRROR_WAIT_PID", "")
+    if wait.isdigit():
+        _wait_for_exit(int(wait))
     _setup_logging()
     # 跟踪线程有不少 Python 代码；缩短 GIL 切换间隔，界面线程（画译文、拖魔镜）不会被它长时间挡住。
     sys.setswitchinterval(0.002)
@@ -176,8 +204,11 @@ def main() -> int:
             self._hover_since = 0.0
             self.tray = QSystemTrayIcon(make_icon())
             self.tray.setToolTip(tr("桌面魔镜"))
-            self._usage_seen = (0, 0)       # 引擎累计的请求数、字数（本次运行）
+            self._usage_seen = (0, 0, 0, 0, 0)   # 引擎累计的请求数、字数、输入 / 输出 / 命中缓存的 token（本次运行）
             self._usage_tip = ""
+            self._budget_hit: bool | None = False   # 今天的 token 用到上限了（None：还没告诉引擎）
+            self._away = False               # 锁屏 / 屏保中：完全停下
+            self._frugal = False             # 好一会儿没碰键盘鼠标：只翻镜框里的
             self._menu: QMenu | None = None
             self._build_menu()
             self.tray.activated.connect(self._on_tray)
@@ -215,7 +246,10 @@ def main() -> int:
             self._quit_event = _k32.CreateEventW(None, True, False, updater.QUIT_EVENT)
             self.update_dialog: UpdateDialog | None = None
             self._start_update_checks()
+            self._guard_timer = QTimer(self, interval=1000, timeout=self._guard_tick)
+            self._guard_timer.start()
             self.engine.start()
+            self._update_meter()
             qapp.aboutToQuit.connect(self.shutdown)
             self.debug = None
             port = os.environ.get("DESKMIRROR_DEBUG_PORT")
@@ -304,7 +338,7 @@ def main() -> int:
             self._usage_tip = ""                 # 托盘提示、标签上的状态按新语言重写
             snap = self.state.snapshot
             if snap is not None:
-                self._count_usage(snap.status)
+                self._count_engine_usage()
                 self._update_status(snap)
             elif self.state.paused:
                 for f in self.frames:
@@ -359,6 +393,7 @@ def main() -> int:
             x = min(base[0] + 60, scr[2] - w - 20)
             y = min(base[1] + 60, scr[3] - h - 20)
             f = self._new_frame((x, y, x + w, y + h))
+            self._update_meter()
             if not self.state.hidden:
                 f.show()
             self._sync_mirrors()
@@ -426,7 +461,7 @@ def main() -> int:
                          "截完在托盘菜单或右键魔镜标签里关掉。")
             else:
                 winapi.set_capture_visible(False)
-                QTimer.singleShot(300, lambda: self.state.shot_mode or self.engine.set_working(not self.state.paused))
+                QTimer.singleShot(300, lambda: self.state.shot_mode or self._apply_working())
                 msg = tr("已关闭截图模式：魔镜重新对截屏隐身，接着识别、翻译。")
                 for f in self.frames:
                     f.set_status(tr("继续工作，正在核对画面…"), "busy")
@@ -550,7 +585,7 @@ def main() -> int:
                 for o in self.overlays:
                     o.repaint_mirror()
             self._update_status(snap)
-            self._count_usage(snap.status)
+            self._count_engine_usage()
             if not self.state.paused:
                 self._feed_history(snap)
 
@@ -672,7 +707,7 @@ def main() -> int:
         def toggle_pause(self) -> None:
             """暂停：魔镜框还在，不截屏、不识别、不翻译（不花翻译费用），也不画译文；继续时重新核对画面。"""
             paused = self.state.paused = not self.state.paused
-            self.engine.set_working(not paused and not self.state.shot_mode)
+            self._apply_working()
             self.act_pause.setText(tr("继续翻译") if paused else tr("暂停（框留着，不识别、不翻译）"))
             status = (tr(PAUSED_TEXT), "paused") if paused else (tr("继续工作，正在核对画面…"), "busy")
             for f in self.frames:
@@ -702,26 +737,107 @@ def main() -> int:
                 self.history.raise_()
 
         def _count_usage(self, s: dict) -> None:
-            """当天发给翻译服务的请求数和字数（只有数量），显示在托盘提示里，跨重启累计。"""
-            req, chars = int(s.get("requests", 0)), int(s.get("sent_chars", 0))
-            d_req, d_chars = req - self._usage_seen[0], chars - self._usage_seen[1]
-            if d_req < 0 or d_chars < 0:     # 引擎重建过（换了翻译服务）：从头计
-                d_req, d_chars = max(0, req), max(0, chars)
-            self._usage_seen = (req, chars)
+            """当天发给翻译服务的请求数、字数和 token（只有数量），显示在托盘提示和魔镜标签上，跨重启累计。"""
+            now = (int(s.get("requests", 0)), int(s.get("sent_chars", 0)), int(s.get("tok_in", 0)),
+                   int(s.get("tok_out", 0)), int(s.get("tok_cached", 0)))
+            delta = [a - b for a, b in zip(now, self._usage_seen)]
+            if any(d < 0 for d in delta):    # 引擎重建过：从头计
+                delta = [max(0, a) for a in now]
+            self._usage_seen = now
             u = self.cfg.usage
             today = time.strftime("%Y-%m-%d")
             if u.date != today:
-                u.date, u.requests, u.chars = today, 0, 0
-            if d_req or d_chars:
-                u.requests += d_req
-                u.chars += d_chars
-            host = self.cfg.llm.base_url.split("//")[-1].split("/")[0]
-            where = tr("本机") if host.startswith(("127.0.0.1", "localhost")) else host
-            tip = tr("桌面魔镜 · 今天发给翻译服务（{where}）{requests} 次、{chars} 字").format(
-                where=where, requests=u.requests, chars=u.chars)
+                u.date, u.requests, u.chars, u.estimated = today, 0, 0, False
+                u.tokens_in = u.tokens_out = u.tokens_cached = 0
+            if any(delta):
+                u.requests += delta[0]
+                u.chars += delta[1]
+                u.tokens_in += delta[2]
+                u.tokens_out += delta[3]
+                u.tokens_cached += delta[4]
+            if s.get("tok_est") and delta[2]:
+                u.estimated = True
+            self._check_budget()
+            local = config.is_local_url(self.cfg.llm.base_url)
+            where = tr("本机") if local else _host_of(self.cfg.llm.base_url)
+            tip = tr("桌面魔镜 · 今天发给翻译服务（{where}）{requests} 次、{chars} 字，↑{tin} ↓{tout} token").format(
+                where=where, requests=u.requests, chars=u.chars, tin=_short_num(u.tokens_in),
+                tout=_short_num(u.tokens_out))
             if tip != self._usage_tip:
                 self._usage_tip = tip
                 self.tray.setToolTip(tip)
+            self._update_meter()
+
+        def _update_meter(self) -> None:
+            """魔镜标签上的 token 用量（像网速监控：↑ 输入 ↓ 输出），鼠标停在上面看明细。"""
+            u, g = self.cfg.usage, self.cfg.guard
+            approx = "≈" if u.estimated else ""
+            text = f"{approx}↑{_short_num(u.tokens_in)} ↓{_short_num(u.tokens_out)}" if g.show_meter else ""
+            local = config.is_local_url(self.cfg.llm.base_url)
+            lines = [tr("今天（{date}）用掉的 token：输入 {tin}，输出 {tout}").format(
+                         date=u.date or time.strftime("%Y-%m-%d"), tin=f"{u.tokens_in:,}", tout=f"{u.tokens_out:,}"),
+                     tr("翻译服务：{where} · {model}").format(
+                         where=tr("本机") if local else _host_of(self.cfg.llm.base_url), model=self.cfg.llm.model),
+                     tr("请求 {requests} 次，原文 {chars} 字").format(requests=u.requests, chars=u.chars)]
+            if u.tokens_cached:
+                lines.insert(1, tr("输入里命中服务商缓存 {cached}（{pct}%，按低得多的价格计费）").format(
+                    cached=f"{u.tokens_cached:,}", pct=round(100 * u.tokens_cached / max(1, u.tokens_in))))
+            lines.append(tr("每次请求的明细：logs 文件夹里的 usage-*.jsonl（只有数量，没有文字）"))
+            if u.estimated:
+                lines.append(tr("≈：服务没有报用量的部分是按字数估算的"))
+            if local:
+                lines.append(tr("本机服务不花钱，不受每日上限限制"))
+            elif g.daily_tokens:
+                lines.append(tr("每日上限 {limit} token，到了就停（设置 → 范围与隐私）").format(limit=f"{g.daily_tokens:,}"))
+            tip = "\n".join(lines)
+            for f in self.frames:
+                f.set_meter(text, tip)
+
+        def _check_budget(self) -> None:
+            """云端服务今天的 token 用到上限：停止发新的翻译请求（已有译文照常显示），换天或调高上限后自动恢复。"""
+            u, limit = self.cfg.usage, self.cfg.guard.daily_tokens
+            hit = (limit > 0 and not config.is_local_url(self.cfg.llm.base_url)
+                   and u.date == time.strftime("%Y-%m-%d") and u.tokens_in + u.tokens_out >= limit)
+            if hit == self._budget_hit:
+                return
+            was, self._budget_hit = self._budget_hit, hit
+            self.engine.set_budget_hit(hit)
+            if hit and was is False:          # 改了别的设置重新判断时不重复提示
+                log.warning("今天的 token 已用到上限 %d", limit)
+                self.tray.showMessage(tr("桌面魔镜"), tr(
+                    "今天发给翻译服务的 token 已经用到上限（{limit}），先停止翻译新的文字。"
+                    "可以在 设置 → 范围与隐私 里调高或关掉上限，明天自动恢复。").format(limit=f"{limit:,}"),
+                    QSystemTrayIcon.MessageIcon.Warning, 10000)
+
+        def _apply_working(self) -> None:
+            """截屏、识别、翻译要不要跑：用户暂停、截图模式、锁屏 / 屏保时都停下。"""
+            self.engine.set_working(not self.state.paused and not self.state.shot_mode and not self._away)
+
+        def _guard_tick(self) -> None:
+            """省钱保护：锁屏、屏保时完全停下；一段时间没碰键盘鼠标就只翻镜框里的（不在后台预译别处）。"""
+            g = self.cfg.guard
+            try:
+                away = g.pause_when_locked and winapi.away()
+                idle = winapi.idle_seconds()
+            except OSError:
+                return
+            if away != self._away:
+                self._away = away
+                log.info("锁屏 / 屏保：停下" if away else "回来了：继续")
+                self._apply_working()
+                self._update_status(self.state.snapshot)
+            frugal = g.idle_min > 0 and idle >= g.idle_min * 60
+            if frugal != self._frugal:
+                self._frugal = frugal
+                self.engine.set_frugal(frugal)
+            self._count_engine_usage()
+
+        def _count_engine_usage(self) -> None:
+            """直接读引擎的计数（暂停时引擎不发快照，暂停前发出的请求回来了也要记上）。"""
+            svc = self.engine.service
+            self._count_usage({"requests": svc["requests"], "sent_chars": svc.get("chars", 0),
+                               "tok_in": svc["tok_in"], "tok_out": svc["tok_out"], "tok_cached": svc["tok_cached"],
+                               "tok_est": svc["tok_est"]})
 
         def _update_status(self, snap) -> None:
             if self.state.paused:
@@ -731,6 +847,10 @@ def main() -> int:
             if self.state.shot_mode:
                 for f in self.frames:
                     f.set_status(tr("截图模式：译文暂停更新"), "paused")
+                return
+            if self._away:
+                for f in self.frames:
+                    f.set_status(tr("锁屏或屏保中：已停下，回来自动继续"), "paused")
                 return
             if snap is None:
                 return
@@ -750,6 +870,8 @@ def main() -> int:
                 text, level = tr("正在启动文字识别…"), "busy"
             elif s.get("paused"):
                 text, level = tr("翻译已暂停：{msg}（点 ⟳ 重试或改设置）").format(msg=s.get("service_msg")), "error"
+            elif s.get("budget"):
+                text, level = tr("今天的 token 已用到上限，停止翻译新文字（设置里可调）"), "error"
             elif s.get("service") == "error":
                 text, level = tr("翻译服务出错，稍后自动重试：{msg}").format(msg=s.get("service_msg")), "warn"
             elif in_failed:
@@ -762,6 +884,8 @@ def main() -> int:
                 text, level = tr("就绪 · 已翻译 {n} 块").format(n=s.get("done", 0)), "ok"
             if s.get("slow") and level == "ok":
                 text, level = text + tr(" · 服务较慢"), "warn"
+            if s.get("frugal") and level in ("ok", "busy"):
+                text += tr(" · 你不在：只翻镜框里的（省钱）")
             if s.get("chat_in_mirror") and level in ("ok", "busy"):
                 text += tr(" · 聊天窗口默认不翻译（右键标签可打开）")
             elif s.get("excluded_in_mirror") and level in ("ok", "busy"):
@@ -898,7 +1022,7 @@ def main() -> int:
         def _auto_check_update(self) -> None:
             """一天最多查一次；有新版本只在托盘提示，点了才打开检查更新的窗口（下载要用户再点）。"""
             today = time.strftime("%Y-%m-%d")
-            if not self.cfg.update.check_on_start or self.cfg.update.last_check == today:
+            if not self.cfg.update.auto_check or self.cfg.update.last_check == today:
                 return
             self.cfg.update.last_check = today
             self._save_timer.start()
@@ -1006,6 +1130,7 @@ def main() -> int:
                     new.mirror_rect = list(self.frame.mirror)
                     new.extra_mirrors = [list(f.mirror) for f in self.frames[1:]]
                     new.usage = self.cfg.usage      # 设置窗口打开期间的用量照样累计
+                    new.update.skip_version = self.cfg.update.skip_version
                     self.apply_config(new, clear_memory=dlg.clear_memory_requested)
                 self._settings = None
             dlg.finished.connect(done)
@@ -1015,6 +1140,7 @@ def main() -> int:
             """换上新的设置（设置窗口点了确定，或者配置文件被命令行改了），能马上生效的马上生效。"""
             if not new.ui_lang:
                 new.ui_lang = i18n.ui_lang_for(new.target_lang)
+            new.update.last_check = self.cfg.update.last_check      # 程序自己记的
             langs_changed = (new.source_lang, new.target_lang) != (self.cfg.source_lang, self.cfg.target_lang)
             ui_changed = new.ui_lang != i18n.ui_lang()
             need_restart = any(config.get_key(new, k) != config.get_key(self.cfg, k) for k in config.RESTART_KEYS)
@@ -1044,6 +1170,9 @@ def main() -> int:
             if ui_changed:
                 self.apply_ui_lang(self.cfg.ui_lang)
             self._register_keys()
+            self._budget_hit = None             # 上限可能改了：重新判断，并且一定告诉引擎
+            self._check_budget()
+            self._update_meter()
             if save:
                 self._save()
             for o in self.overlays:
@@ -1077,9 +1206,21 @@ def main() -> int:
                             winapi.keep_topmost(int(f.visual().winId()))
 
         def _hover_tip(self, now: float) -> None:
-            """鼠标停在被截断的译文上时，显示全文。"""
+            """鼠标停在被截断的译文上时，显示全文；停在标签上的 token 用量上时，显示明细。"""
             snap = self.state.snapshot
             x, y = winapi.cursor_pos()
+            meter = next((f for f in self._active_frames() if f.meter_hovered and f.isVisible()), None)
+            if meter is not None:
+                if self._tip_bid != -1:
+                    self._tip_bid = -1
+                    self.tip.setText(meter.meter_tip)
+                    self.tip.adjustSize()
+                    self.tip.move(x + 16, y + 20)
+                    self.tip.show()
+                return
+            if self._tip_bid == -1:
+                self._tip_bid = 0
+                self.tip.hide()
             target = None
             if snap is not None and not self.state.peek and not self.state.hidden and not self.state.paused \
                     and self._frame_at(x, y) is not None:
@@ -1508,6 +1649,8 @@ def main() -> int:
         def shutdown(self) -> None:
             log.info("正在退出")
             self.timer.stop()
+            self._guard_timer.stop()
+            self._count_engine_usage()
             self.hotkeys.unregister_all()
             self.cfg.mirror_rect = list(self.frame.mirror)
             self.cfg.extra_mirrors = [list(f.mirror) for f in self.frames[1:]]

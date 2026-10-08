@@ -73,6 +73,8 @@ class LlmConfig:
     num_ctx: int = 4096               # Ollama 每次必须一致，否则会重新加载模型
     keep_alive: str = "30m"
     consistency: bool = True          # 术语前后一致：附上本窗口里含同样词语的已有译文作参考（请求会长一些）
+    gather_ms: int = 600              # 已有请求在途时，零星的新文字最多等这么久凑成一批再发（每次请求都要带约 430 token
+                                      # 的固定说明，一两行字单独发很不划算）；0 = 不等
 
 
 @dataclass
@@ -174,16 +176,29 @@ class MemoryConfig:
 
 @dataclass
 class UsageConfig:
-    """当天发给翻译服务的请求数和字数（只有数量，不含任何文字）。"""
+    """当天发给翻译服务的请求数、字数和 token（只有数量，不含任何文字）。"""
     date: str = ""
     requests: int = 0
     chars: int = 0
+    tokens_in: int = 0                # 输入 token（发过去的：提示词、原文、参考译文）
+    tokens_out: int = 0               # 输出 token（模型写的译文）
+    tokens_cached: int = 0            # 输入里命中服务商缓存的（便宜得多）
+    estimated: bool = False           # 其中有服务没报用量、按字数估算的
+
+
+@dataclass
+class GuardConfig:
+    """省钱保护：人不在电脑前时少发请求，一天的 token 用到上限就停。"""
+    idle_min: int = 5                 # 这么多分钟没碰键盘鼠标：只翻镜框里的，不在后台预译别处；0 = 不管
+    pause_when_locked: bool = True    # 锁屏、屏保时完全停下（不截屏、不识别、不翻译）
+    daily_tokens: int = 1_000_000     # 云端服务一天最多用这么多 token（输入 + 输出），到了就停；0 = 不限。本机服务不限
+    show_meter: bool = True           # 魔镜标签上显示今天用掉的 token（↑ 输入 ↓ 输出）
 
 
 @dataclass
 class UpdateConfig:
     """检查新版本：只访问 GitHub 取最新版本号和更新说明，不发送任何屏幕内容。"""
-    check_on_start: bool = True       # 启动后在后台查一次（一天最多一次）；有新版只提示，点了才下载
+    auto_check: bool = True           # 启动后在后台查一次（一天最多一次）；有新版只提示，点了才下载
     last_check: str = ""              # 上次自动检查的日期
     skip_version: str = ""            # 点了“跳过这个版本”的版本号：自动检查不再提示它
 
@@ -206,7 +221,15 @@ class AppConfig:
     vision: VisionConfig = field(default_factory=VisionConfig)
     glossary: list[dict] = field(default_factory=list)   # [{src, dst, app}]，用户填写的术语表
     usage: UsageConfig = field(default_factory=UsageConfig)
+    guard: GuardConfig = field(default_factory=GuardConfig)
     update: UpdateConfig = field(default_factory=UpdateConfig)
+
+
+def is_local_url(base_url: str) -> bool:
+    """服务地址是不是本机（本机服务不花钱、不受 token 上限限制；看图翻译发本机也不用每次问）。"""
+    from urllib.parse import urlparse
+    host = (urlparse(base_url.strip() if "://" in base_url else "http://" + base_url.strip()).hostname or "").lower()
+    return host in ("127.0.0.1", "localhost", "::1") or host.endswith(".localhost")
 
 
 def config_path() -> Path:
@@ -277,7 +300,8 @@ RANGES: dict[str, tuple[float, float]] = {
     "llm.max_batch_items": (1, 32), "vision.timeout_s": (10, 600), "vision.max_side": (512, 3000),
     "style.min_font_px": (8, 32), "style.min_scale": (0.4, 1.0), "style.min_squash": (0.5, 1.0),
     "style.plate_opacity": (0.3, 1.0), "track.stable_ms": (100, 3000), "track.ring_px": (60, 2000),
-    "scope.near_px": (100, 3000),
+    "scope.near_px": (100, 3000), "llm.gather_ms": (0, 5000), "guard.idle_min": (0, 240),
+    "guard.daily_tokens": (0, 2_000_000_000),
 }
 
 

@@ -120,6 +120,21 @@ lagi kapan saja dari menu baki sistem). Lihat [panduan singkat](docs/QUICKSTART.
 | Menerjemahkan aplikasi obrolan (saat mengobrol dengan teman dari luar negeri) | Klik kanan tab atau ikon baki → "Translate chat apps" |
 | Terjemahan gambar (komik, huruf dekoratif, teks di dalam gambar) | Ctrl+Alt+V, atau klik "Image" di tab |
 | Pengaturan | Klik ⚙ di tab, atau klik kanan ikon baki |
+| Memperbarui ke versi baru | Klik kanan ikon baki → "Check for updates…" |
+
+### Pemakaian dan biaya
+
+- `↑12.3k ↓4.1k` di tab cermin adalah token yang dikirim ke layanan terjemahan hari ini (↑ masukan, ↓ keluaran);
+  arahkan kursor ke sana untuk rinciannya, termasuk bagian yang kena cache penyedia.
+- Setiap permintaan membawa sekitar 430 token instruksi tetap, jadi cara paling hemat adalah mengurangi permintaan
+  kecil: selama ada permintaan yang sedang berjalan, baris-baris baru yang muncul menunggu sebentar lalu dikirim
+  bersama. Cakupan terjemahan awal "Only the window under the mirror" dan "Only near the frame" jauh lebih murah
+  daripada "Whole screen".
+- Setelah beberapa saat tanpa masukan keyboard atau tetikus, hanya teks di dalam cermin yang diterjemahkan, dan
+  semuanya berhenti selama layar terkunci atau screensaver berjalan; layanan cloud berhenti di 1.000.000 token per hari
+  secara bawaan. Semua ini ada di Settings → Scope and privacy.
+- Setiap permintaan dicatat di `logs/usage-YYYY-MM.jsonl` (hanya jumlah dan nama program, tanpa teks layar);
+  `usage --log` di baris perintah (lihat bagian berikutnya) merangkumnya per program, ukuran permintaan, dan jam.
 
 ## Minta asisten AI mengaturnya
 
@@ -129,10 +144,11 @@ semuanya untuk Anda. DeskMirror yang sedang berjalan memakai perubahan itu dalam
 - Versi unduhan: `DeskMirrorCLI.exe` di folder DeskMirror. Dari kode sumber: `.venv\Scripts\python -m deskmirror`.
 - `config keys` menampilkan setiap pengaturan beserta artinya dan nilai yang boleh dipakai; `config list`,
   `config get`, `config set`, dan `config reset` untuk melihat dan mengubahnya; `service`, `models`, dan `test` untuk
-  mengganti layanan terjemahan, melihat daftar modelnya, dan memeriksa apakah layanannya bekerja. Tambahkan `--json`
-  untuk keluaran JSON.
-- Kunci API dibaca dari input standar (`config set llm.api_key -`), jadi tidak tertinggal di baris perintah. Kunci
-  disimpan terenkripsi dengan akun Windows Anda dan selalu ditampilkan hanya sebagai `sk-…1234`.
+  mengganti layanan terjemahan, melihat daftar modelnya, dan memeriksa apakah layanannya bekerja; `usage` menampilkan
+  token yang terpakai hari ini dan `status` apakah DeskMirror sedang berjalan. Tambahkan `--json` untuk keluaran JSON.
+- Kunci API dibaca dari input standar (`config set llm.api_key -`) atau dari variabel lingkungan
+  (`config set llm.api_key --env DEEPSEEK_API_KEY`), jadi tidak tertinggal di baris perintah. Kunci disimpan
+  terenkripsi dengan akun Windows Anda dan selalu ditampilkan hanya sebagai `sk-…1234`.
 
 Misalnya, untuk beralih ke DeepSeek dengan terjemahan bahasa Indonesia:
 
@@ -157,8 +173,9 @@ AI Anda:
   penting bagi Anda, pakai Ollama di PC Anda sendiri, atau persempit cakupan terjemahan awal dan tambahkan program ke
   daftar yang tidak diterjemahkan di Settings.
 - Kunci API dienkripsi dengan akun Windows Anda (DPAPI) dan disimpan di PC ini dalam `deskmirror.json`.
-- Log hanya mencatat waktu dan jumlah, tidak pernah teks di layar. "Remember translations" mati secara bawaan; bila
-  dinyalakan, terjemahan disimpan terenkripsi di PC ini.
+- Log hanya mencatat waktu dan jumlah, tidak pernah teks di layar; log pemakaian per permintaan juga mencatat nama
+  program tempat teks itu berada. "Remember translations" mati secara bawaan; bila dinyalakan, terjemahan disimpan
+  terenkripsi di PC ini.
 - Terjemahan gambar mengirim tangkapan layar isi bingkai ke model gambar yang diatur di Settings. Secara bawaan itu
   Ollama di PC Anda, jadi gambarnya tidak keluar; dengan layanan cloud, Anda selalu ditanya dulu sebelum gambar dikirim.
 - Pemeriksaan pembaruan menanyakan nomor versi terbaru dan catatan rilis ke GitHub, paling banyak sekali sehari

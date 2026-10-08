@@ -87,14 +87,24 @@ https://github.com/user-attachments/assets/3a04cbfd-9331-4180-9e04-9c29c09e237e
 | 翻译聊天软件（和外国同事、朋友聊天时） | 右键标签或托盘图标 → 勾选 “翻译聊天软件” |
 | 看图翻译（漫画、艺术字、图片里的字） | Ctrl+Alt+V，或点标签上的 “看图” |
 | 设置 | 点标签上的 ⚙，或右键托盘图标 |
+| 更新到新版本 | 右键托盘图标 →“检查更新…” |
+
+### 用量和省钱
+
+- 魔镜标签上的 `↑12.3k ↓4.1k` 是今天发给翻译服务的 token（↑ 输入、↓ 输出），鼠标停上去看明细，包括命中服务商缓存的部分。
+- 每次请求都会带约 430 token 的固定说明，所以最省的是少发零碎的小请求：有请求在途时，零星的新文字会等一下凑成一批再发；
+  预译范围选“只翻魔镜所在的窗口”或“只翻镜框附近”，比“整块屏幕”省得多。
+- 好一会儿没碰键盘鼠标就只翻镜框里的，锁屏、屏保时完全停下；云端服务默认一天最多用 100 万 token，到了就停。都在 设置 → 范围与隐私 里调。
+- 每次请求记在 `logs/usage-年-月.jsonl`（只有数量和程序名，没有屏幕上的字）；命令行的 `usage --log`（见下一节）
+  按程序、按批大小、按小时汇总，看钱花在哪了。
 
 ## 让 AI 帮你设置
 
 所有设置也都能用命令行改，Claude Code、Codex 这类 AI 助手可以替你从头设置好。改完，正在运行的魔镜一秒内自动生效。
 
 - 下载版：DeskMirror 文件夹里的 `DeskMirrorCLI.exe`；源码版：`.venv\Scripts\python -m deskmirror`。
-- `config keys` 列出每项设置的说明和能取的值；`config list`、`config get`、`config set`、`config reset` 查看和修改；`service`、`models`、`test` 换翻译服务、列出模型、试一下能不能用。加 `--json` 输出 JSON。
-- API Key 从标准输入读（`config set llm.api_key -`），不留在命令行里；用 Windows 账户加密保存，任何时候都只显示成 `sk-…1234`。
+- `config keys` 列出每项设置的说明和能取的值；`config list`、`config get`、`config set`、`config reset` 查看和修改；`service`、`models`、`test` 换翻译服务、列出模型、试一下能不能用；`usage` 看今天用了多少 token，`status` 看魔镜在不在运行。加 `--json` 输出 JSON。
+- API Key 从标准输入（`config set llm.api_key -`）或环境变量（`config set llm.api_key --env DEEPSEEK_API_KEY`）读，不留在命令行里；用 Windows 账户加密保存，任何时候都只显示成 `sk-…1234`。
 
 比如换成 DeepSeek、译成中文：
 
@@ -113,7 +123,7 @@ DeskMirrorCLI.exe test
 
 - 用云端翻译服务时，屏幕上识别出的文字和窗口标题会发给该服务。在意的话用本机 Ollama，或在设置里缩小预译范围、添加不翻译的程序。
 - API Key 用当前 Windows 账户加密（DPAPI）保存在本机的 `deskmirror.json`。
-- 日志只记录耗时和数量，不记录屏幕上的文字。“记住译文”默认关闭，打开后才会把译文加密存到本机。
+- 日志只记录耗时和数量，不记录屏幕上的文字（每次请求的用量日志还会记下文字在哪个程序里）。“记住译文”默认关闭，打开后才会把译文加密存到本机。
 - 看图翻译会把镜框里的截图发给设置里的看图模型。默认是本机 Ollama，画面不出本机；改成云端服务时，每次发图前都会先问你。
 - 检查更新：启动后每天最多一次向 GitHub 查最新版本号和更新说明，不发送任何屏幕内容；点了才下载。可以在设置 → 范围与隐私里关掉。
 

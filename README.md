@@ -114,6 +114,20 @@ Common actions:
 | Translate chat apps (when chatting with friends abroad) | Right-click the tab or the tray icon → "Translate chat apps" |
 | Image translation (comics, stylized text, text in pictures) | Ctrl+Alt+V, or click "Image" on the tab |
 | Settings | Click ⚙ on the tab, or right-click the tray icon |
+| Update to a new version | Right-click the tray icon → "Check for updates…" |
+
+### Usage and cost
+
+- `↑12.3k ↓4.1k` on the mirror tab is today's tokens sent to the translation service (↑ input, ↓ output); hover
+  over it for details, including how much hit the provider's cache.
+- Every request carries about 430 tokens of fixed instructions, so the cheapest thing is fewer tiny requests: while a
+  request is in flight, stray new lines wait a moment and go out together. The "Only the window under the mirror" and
+  "Only near the frame" pre-translation scopes cost much less than "Whole screen".
+- After a while without keyboard or mouse input only the text inside the mirror is translated, and everything stops
+  while the screen is locked; cloud services stop at 1,000,000 tokens a day by default. All of this is in
+  Settings → Scope and privacy.
+- Every request is logged to `logs/usage-YYYY-MM.jsonl` (counts and program names only, no screen text);
+  `usage --log` on the command line (see the next section) sums it up by program, batch size and hour.
 
 ## Let an AI assistant set it up
 
@@ -123,9 +137,11 @@ whole setup for you. A running DeskMirror picks up the changes within a second.
 - Download version: `DeskMirrorCLI.exe` in the DeskMirror folder. From source: `.venv\Scripts\python -m deskmirror`.
 - `config keys` lists every setting with what it means and which values it takes; `config list`, `config get`,
   `config set` and `config reset` read and change them; `service`, `models` and `test` switch the translation
-  service, list its models and check that it works. Add `--json` for JSON output.
-- API keys are read from standard input (`config set llm.api_key -`), so they stay off the command line. They are
-  stored encrypted with your Windows account and only ever shown as `sk-…1234`.
+  service, list its models and check that it works; `usage` shows today's tokens and `status` whether DeskMirror is
+  running. Add `--json` for JSON output.
+- API keys are read from standard input (`config set llm.api_key -`) or from an environment variable
+  (`config set llm.api_key --env DEEPSEEK_API_KEY`), so they stay off the command line. They are stored encrypted with
+  your Windows account and only ever shown as `sk-…1234`.
 
 For example, to switch to DeepSeek with English translations:
 
@@ -148,8 +164,8 @@ DeskMirrorCLI.exe test
   If that matters to you, use Ollama on your PC, or narrow the pre-translation scope and add programs to the
   do-not-translate list in Settings.
 - The API key is encrypted with your Windows account (DPAPI) and stored on this PC in `deskmirror.json`.
-- Logs record only timings and counts, never screen text. "Remember translations" is off by default; when it's on,
-  translations are stored encrypted on this PC.
+- Logs record only timings and counts, never screen text; the per-request usage log also notes which program the
+  text was in. "Remember translations" is off by default; when it's on, translations are stored encrypted on this PC.
 - Image translation sends a screenshot of the frame to the vision model set in Settings. By default that's Ollama on
   your PC, so the picture stays local; with a cloud service you are asked each time before a picture is sent.
 - Checking for updates asks GitHub for the latest version number and release notes, at most once a day after

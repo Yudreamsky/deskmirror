@@ -92,14 +92,22 @@ https://github.com/user-attachments/assets/949fc01b-9277-44ab-8253-7a7a5162d22c
 | 채팅 앱도 번역(외국 친구와 채팅할 때) | 탭이나 트레이 아이콘을 오른쪽 클릭 → 'Translate chat apps' |
 | 이미지 번역(만화, 장식 글꼴, 그림 속 글자) | Ctrl+Alt+V 또는 탭의 'Image' |
 | 설정 | 탭의 ⚙ 또는 트레이 아이콘을 오른쪽 클릭 |
+| 새 버전으로 업데이트 | 트레이 아이콘을 오른쪽 클릭 → 'Check for updates…' |
+
+### 사용량과 비용 절약
+
+- 미러 탭의 `↑12.3k ↓4.1k`는 오늘 번역 서비스에 보낸 토큰 수입니다(↑ 입력, ↓ 출력). 마우스를 올리면 제공업체 캐시에 맞은 부분까지 포함한 자세한 내역이 보입니다.
+- 요청마다 약 430토큰의 고정 지시문이 붙기 때문에, 자잘한 요청을 줄이는 것이 가장 큰 절약입니다. 진행 중인 요청이 있을 때 새로 나타난 짧은 글자들은 잠깐 기다렸다가 한 번에 묶어서 보냅니다. 미리 번역 범위는 'Whole screen'보다 'Only the window under the mirror'나 'Only near the frame'이 훨씬 적게 듭니다.
+- 한동안 키보드와 마우스를 쓰지 않으면 미러 안의 글자만 번역하고, 화면이 잠겨 있거나 화면 보호기가 도는 동안에는 완전히 멈춥니다. 클라우드 서비스는 기본으로 하루 100만 토큰까지 쓰고, 다 쓰면 멈춥니다. 모두 설정의 'Scope and privacy'에서 바꿀 수 있습니다.
+- 요청마다 `logs/usage-YYYY-MM.jsonl`에 기록합니다(개수와 프로그램 이름만 남고, 화면의 글자는 남지 않습니다). 명령줄의 `usage --log`(다음 절 참고)로 프로그램별, 요청 크기별, 시간대별로 합산해 볼 수 있습니다.
 
 ## AI에게 설정 맡기기
 
 모든 설정은 명령줄에서도 바꿀 수 있어서, Claude Code나 Codex 같은 AI 어시스턴트가 처음부터 끝까지 설정해 줄 수 있습니다. 실행 중인 DeskMirror는 바뀐 설정을 1초 안에 반영합니다.
 
 - 다운로드 버전: DeskMirror 폴더의 `DeskMirrorCLI.exe`. 소스에서 실행할 때: `.venv\Scripts\python -m deskmirror`.
-- `config keys`는 모든 설정의 설명과 가능한 값을 보여 주고, `config list`, `config get`, `config set`, `config reset`으로 확인하고 바꿉니다. `service`, `models`, `test`로 번역 서비스를 바꾸고, 모델 목록을 보고, 작동하는지 확인합니다. `--json`을 붙이면 JSON으로 출력합니다.
-- API 키는 표준 입력으로 읽습니다(`config set llm.api_key -`). 명령줄에 남지 않습니다. Windows 계정으로 암호화해 저장하고, 언제나 `sk-…1234`처럼만 표시합니다.
+- `config keys`는 모든 설정의 설명과 가능한 값을 보여 주고, `config list`, `config get`, `config set`, `config reset`으로 확인하고 바꿉니다. `service`, `models`, `test`로 번역 서비스를 바꾸고, 모델 목록을 보고, 작동하는지 확인하며, `usage`로 오늘 쓴 토큰 수를, `status`로 DeskMirror가 실행 중인지를 봅니다. `--json`을 붙이면 JSON으로 출력합니다.
+- API 키는 표준 입력(`config set llm.api_key -`)이나 환경 변수(`config set llm.api_key --env DEEPSEEK_API_KEY`)로 읽습니다. 명령줄에 남지 않습니다. Windows 계정으로 암호화해 저장하고, 언제나 `sk-…1234`처럼만 표시합니다.
 
 예를 들어 DeepSeek으로 바꾸고 한국어로 번역하려면:
 
@@ -118,7 +126,7 @@ DeskMirrorCLI.exe test
 
 - 클라우드 번역 서비스를 쓰면 화면에서 인식한 글자와 창 제목이 그 서비스로 전송됩니다. 신경 쓰인다면 로컬 Ollama를 쓰거나, 설정에서 미리 번역 범위를 좁히고 번역하지 않을 프로그램을 추가하세요.
 - API 키는 현재 Windows 계정으로 암호화(DPAPI)되어 이 PC의 `deskmirror.json`에 저장됩니다.
-- 로그에는 걸린 시간과 개수만 남고, 화면의 글자는 남지 않습니다. 'Remember translations'는 기본으로 꺼져 있고, 켰을 때만 번역문을 암호화해 이 PC에 저장합니다.
+- 로그에는 걸린 시간과 개수만 남고, 화면의 글자는 남지 않습니다(요청마다 남기는 사용량 로그에는 글자가 있던 프로그램 이름도 남습니다). 'Remember translations'는 기본으로 꺼져 있고, 켰을 때만 번역문을 암호화해 이 PC에 저장합니다.
 - 이미지 번역은 틀 안의 스크린샷을 설정에 지정한 이미지 모델로 보냅니다. 기본값은 로컬 Ollama라서 화면이 PC 밖으로 나가지 않고, 클라우드 서비스로 바꾸면 보낼 때마다 먼저 묻습니다.
 - 업데이트 확인: 시작한 뒤 하루에 한 번까지 GitHub에서 최신 버전 번호와 업데이트 내용만 받아 옵니다. 화면 내용은 보내지 않고, 다운로드는 눌렀을 때만 합니다. 설정의 'Scope and privacy'에서 끌 수 있습니다.
 

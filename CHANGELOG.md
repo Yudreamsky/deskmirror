@@ -2,13 +2,43 @@
 
 ## 未发布
 
+- **程序内更新**：托盘菜单、设置 → 关于里“检查更新”；启动后每天最多自动查一次（可以关掉，只向 GitHub 查版本号），有新版本在托盘提示。点“下载并更新”：下载、核对 SHA256，魔镜退出后换上新版本、自动重新打开，设置都留着，出错就换回旧版本。源码版用 git pull 更新。命令行 `update --check`、`update --yes`。（#5）
+- **命令行改设置，AI 助手能替你设置好**：`DeskMirrorCLI.exe`（源码版 `python -m deskmirror`）能查看、修改全部设置（`config list / get / set / reset / keys`），换翻译服务（`service deepseek` 等）、列出模型、测试连接、管理术语表、看用量（`usage`）和状态（`status`）；加 `--json` 输出 JSON。超出范围、格式不对的值直接报错；API Key 从标准输入或环境变量（`--env`）读、只显示前后几位。正在运行的魔镜一秒内自动载入改动（以前直接改配置文件要先退出魔镜），说明里加了“让 AI 帮你设置”一节。（#4）
+- **标签上显示 token 用量**：像网速监控那样显示今天的 ↑ 输入 ↓ 输出 token，鼠标停上去看明细（服务、模型、请求数、命中缓存的部分）。
+  用量读服务商报回来的数（OpenAI 兼容接口请它在最后报，Ollama 自带），报不了的按字数估算并标“≈”。托盘提示、设置里的用量也有 token。（#6）
+- **省钱保护**：好一会儿（默认 5 分钟）没碰键盘鼠标就只翻镜框里的，不在后台预译屏幕上别处的；锁屏、屏保时完全停下；云端服务一天的
+  token 用到上限（默认 100 万，0 = 不限）就停止翻译新文字。有请求在途时，零星的新文字等一下（最多 0.6 秒）凑成一批再发：
+  每次请求都带约 430 token 的固定说明，一两行字单独发，九成花在说明上。余额不足（HTTP 402）时说清楚、停下等充值。（#7）
+- **用量日志**：每次翻译请求记一行到 `logs/usage-年-月.jsonl`（只有数量和程序名，不记屏幕上的字），命令行 `usage --log` 按程序、批大小、小时汇总，并给出缓存命中率。（#7）
 - **Windows 10 上不再把自己的译文当原文**：Windows 10 不支持让半透明的窗口对截屏隐身，魔镜会截到自己画的译文、又翻一遍（日志里是“SetWindowDisplayAffinity 失败，错误码 8”）。现在启动时先试一下，不支持就改用色键窗口：看起来一样，鼠标操作也一样，只是底板总是不透明（这种电脑上设置里的“底板不透明度”不能调）。（#2）
 - **截图模式**：别的截图、录屏软件截不到魔镜，因为魔镜自己也靠截屏看字，截得到自己就会把译文当原文。现在托盘菜单或右键魔镜标签里可以打开“让截图工具截到魔镜”：期间译文定住不更新，关掉后接着识别、翻译。标签上的“截原图 / 截译图”照样能用。（#2）
 - **新手指南第 3 步能获取模型列表**：选云端服务时，填好 API Key 点“获取模型列表”，从服务商现有的模型里选，不用手填；换服务时不再留着上一家的模型名。（#3）
-- **命令行改设置，AI 助手能替你设置好**：`DeskMirrorCLI.exe`（源码版 `python -m deskmirror`）能查看、修改全部设置（`config list / get / set / reset / keys`），换翻译服务（`service deepseek` 等）、列出模型、测试连接、管理术语表；加 `--json` 输出 JSON。超出范围、格式不对的值直接报错；API Key 从标准输入读、只显示前后几位。正在运行的魔镜一秒内自动载入改动（以前直接改配置文件要先退出魔镜），说明里加了“让 AI 帮你设置”一节。（#4）
-- **程序内更新**：托盘菜单、设置 → 关于里“检查更新”；启动后每天最多自动查一次（可以关掉，只向 GitHub 查版本号），有新版本在托盘提示。点“下载并更新”：下载、核对 SHA256，魔镜退出后换上新版本、自动重新打开，设置都留着，出错就换回旧版本。源码版用 git pull 更新。命令行 `update --check`、`update --yes`。（#5）
 - **中文 Windows 上从源码安装不再失败**：依赖清单的注释改成英文，setup.bat、start.bat 让 Python 按 UTF-8 读写（以前 pip 按 GBK 读依赖清单就报错退出）。（#1）
 
+- **Updating from inside the app**: "Check for updates" in the tray menu and in Settings → About; after starting,
+  DeskMirror checks at most once a day (can be turned off; it only asks GitHub for the version number) and announces a
+  new version in the tray. "Download and update" downloads and verifies it (SHA256), then DeskMirror quits, switches
+  to the new version and reopens with your settings intact; if anything goes wrong the previous version is put back.
+  From source it updates with git pull. Command line: `update --check`, `update --yes`. (#5)
+- **Settings from the command line, so an AI assistant can set it up for you**: `DeskMirrorCLI.exe` (from source:
+  `python -m deskmirror`) reads and changes every setting (`config list / get / set / reset / keys`), switches the
+  translation service (`service deepseek` and others), lists models, tests the connection, manages the glossary and
+  shows usage (`usage`) and status (`status`); add `--json` for JSON output. Out-of-range or malformed values are
+  rejected; API keys are read from standard input or an environment variable (`--env`) and only shown in part. A
+  running DeskMirror picks up the changes within a second (editing the settings file used to require quitting it
+  first), and the README has a new "Let an AI assistant set it up" section. (#4)
+- **Token meter on the tab**: today's ↑ input ↓ output tokens, like a network monitor; hover for details (service,
+  model, requests, cached input). Uses the counts the service reports (OpenAI-compatible services are asked to report
+  them; Ollama always does) and estimates from text length otherwise, marked "≈". The tray tooltip and Settings show
+  tokens too. (#6)
+- **Cost guards**: after a while without keyboard or mouse input (5 minutes by default) only text inside the mirror is
+  translated; everything stops while the screen is locked or the screensaver runs; cloud services stop translating
+  new text at a daily token cap (1,000,000 by default, 0 = unlimited). While a request is in flight, stray new lines
+  wait up to 0.6 s and go out as one batch: every request carries about 430 tokens of fixed instructions. HTTP 402
+  (insufficient balance) is reported clearly and stops until you top up. (#7)
+- **Usage log**: one line per translation request in `logs/usage-YYYY-MM.jsonl` (counts and program names only, no
+  screen text); `usage --log` on the command line sums it up by program, batch size and hour, with the cache hit
+  rate. (#7)
 - **No more translating its own translations on Windows 10**: Windows 10 can't hide translucent windows from screen
   capture, so the mirror captured the translations it had drawn and translated them again (the log said
   "SetWindowDisplayAffinity 失败，错误码 8"). DeskMirror now checks at startup and, where needed, uses colour-key
@@ -21,17 +51,6 @@
 - **Fetch models in the quick start**: step 3 has a "Fetch models" button for cloud services that lists the models
   the service offers, so you can pick one instead of typing it; switching services no longer keeps the previous
   service's model name. (#3)
-- **Settings from the command line, so an AI assistant can set it up for you**: `DeskMirrorCLI.exe` (from source:
-  `python -m deskmirror`) reads and changes every setting (`config list / get / set / reset / keys`), switches the
-  translation service (`service deepseek` and others), lists models, tests the connection and manages the glossary;
-  add `--json` for JSON output. Out-of-range or malformed values are rejected; API keys are read from standard input
-  and only shown in part. A running DeskMirror picks up the changes within a second (editing the settings file used to
-  require quitting it first), and the README has a new "Let an AI assistant set it up" section. (#4)
-- **Updating from inside the app**: "Check for updates" in the tray menu and in Settings → About; after starting,
-  DeskMirror checks at most once a day (can be turned off; it only asks GitHub for the version number) and announces a
-  new version in the tray. "Download and update" downloads and verifies it (SHA256), then DeskMirror quits, switches
-  to the new version and reopens with your settings intact; if anything goes wrong the previous version is put back.
-  From source it updates with git pull. Command line: `update --check`, `update --yes`. (#5)
 - **Installing from source on Chinese Windows**: the requirements files are plain ASCII now, and setup.bat and
   start.bat run Python in UTF-8 mode (pip used to fail reading the requirements file as GBK). (#1)
 
