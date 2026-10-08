@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-__version__ = "1.1.1"
+__version__ = "1.2.0"
 CONTACT_EMAIL = "a885187@gmail.com"   # 作者邮箱（设置 → 关于）
 HOMEPAGE = "https://github.com/Yudreamsky/deskmirror"   # 项目主页（设置 → 关于）
 KOFI_URL = "https://ko-fi.com/dreamskyu"   # 海外打赏的 Ko-fi 主页（关于 → 打赏作者）；空着就不显示
