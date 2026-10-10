@@ -69,6 +69,7 @@ DOCS = {
     "style.min_squash": N_("放不下时最多横向压扁到原宽的多少"),
     "style.plate_opacity": N_("底板不透明度（1 = 完全盖住原文；Windows 10 上总是 1）"),
     "style.border_color": N_("魔镜边框的颜色，比如 #3D8BFD"),
+    "style.skin": N_("魔镜的样子：classic 经典 / glass 液态玻璃（边框一圈像弧形玻璃，折射后面的画面）"),
     "track.stable_ms": N_("区域静止多久后才识别新文字（毫秒）"),
     "track.dynamic_ms": N_("视频、游戏画面多久抓拍识别一次（毫秒）"),
     "track.subtitle_hold_ms": N_("字幕换句时旧译文最多留多久（毫秒）"),

@@ -328,6 +328,13 @@ class SettingsDialog(QDialog):
             self.opacity.setEnabled(False)             # 色键窗口画不了半透明，见 layered.py
             self.opacity.setToolTip(tr("这台电脑（Windows 10）上底板总是不透明"))
         lf.addRow(tr("底板不透明度"), self.opacity)
+        self.skin = QComboBox()
+        self.skin.addItem(tr("经典"), "classic")
+        self.skin.addItem(tr("液态玻璃"), "glass")
+        self.skin.setCurrentIndex(max(0, self.skin.findData(self.cfg.style.skin)))
+        self.skin.setToolTip(tr("液态玻璃：边框是一圈弧形的玻璃，后面的画面在边上被拉伸、弯折；"
+                                "标签、球是半透明的玻璃，后面是深色画面时自动换成烟灰色"))
+        lf.addRow(tr("皮肤"), self.skin)
         lay.addWidget(look)
         boot = QGroupBox(tr("启动"))
         bl = QVBoxLayout(boot)
@@ -447,6 +454,7 @@ class SettingsDialog(QDialog):
         c.track.wheel_predict = self.wheel_predict.isChecked()
         c.style.min_font_px = self.min_font.value()
         c.style.plate_opacity = float(self.opacity.value())
+        c.style.skin = self.skin.currentData()
         c.hotkeys.drag_modifiers = self.k_drag.text().strip()
         c.hotkeys.peek = self.k_peek.text().strip()
         c.hotkeys.refresh = self.k_refresh.text().strip()

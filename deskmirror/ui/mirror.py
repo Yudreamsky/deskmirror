@@ -4,8 +4,11 @@
 上方的小标签接收鼠标：拖标签（或左头的抓手）移动，拖到屏幕边缘收成球（见 dock.py），拖边框或四角调整大小；
 标签右侧是截原图、截译图、刷新、设置、隐藏按钮。按住拖动键（默认 Ctrl+Alt）时框内临时变成可拖动区域，松开即恢复穿透。
 Windows 10 上用色键窗口（见 layered.py）：这个窗口看不见、只接鼠标，看得见的边线和标签画在跟着它的 _Chrome 上。
+液态玻璃皮肤（见 glass.py）：边框是镜框外面一圈玻璃（也是拖它调整大小的地方），标签是浮在上面的玻璃长条。
 """
 from __future__ import annotations
+
+import time
 
 from PySide6.QtCore import QPoint, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QPainter, QPen
@@ -14,7 +17,7 @@ from PySide6.QtWidgets import QWidget
 from .. import geom, winapi
 from ..geom import Rect
 from ..i18n import N_, tr
-from . import layered
+from . import glass, layered
 
 BAND = 7          # 边框可抓取的宽度（像素）
 LINE = 2          # 可见边线宽度
@@ -22,6 +25,25 @@ TAB_H = 26
 MIN_W, MIN_H = 160, 90
 GRIP_X, GRIP_W, GRIP_H = 4, 18, 20     # 标签左头的抓手（六个点）
 _TITLE_X = GRIP_X + GRIP_W + 6         # “魔镜”两个字从这里开始
+_GLASS_IN = 5                          # 液态玻璃的标签两头是圆的：抓手、文字往里挪一点
+
+
+def band() -> int:
+    """边框可抓取的宽度：液态玻璃是整圈玻璃的宽度。"""
+    return glass.BAND if glass.active() else BAND
+
+
+def chrome_top() -> int:
+    """镜框上沿往上，边框和标签一共占多高（标签在上方时）。"""
+    return band() + (glass.GAP if glass.active() else 0) + TAB_H
+
+
+def _tab_top(m: Rect) -> int:
+    return m[1] - chrome_top() + (0 if glass.active() else 1)      # 经典样子：标签压住边框带最外一像素
+
+
+def _grip_x() -> int:
+    return GRIP_X + (_GLASS_IN if glass.active() else 0)
 
 _ICONS = {"refresh": "⟳", "settings": "⚙", "hide": "—"}
 _LABELS = {"shot_orig": N_("截原图"), "shot_trans": N_("截译图"), "look": N_("看图"), "pause": N_("暂停")}
@@ -32,7 +54,7 @@ _TAB_LABEL_W = 166                       # 抓手、“魔镜”和一小段状�
 
 def grip_offset() -> tuple[int, int]:
     """标签在上方时，抓手中心相对镜框开口左上角的位置（从球里拖出魔镜时，抓手就在鼠标底下）。"""
-    return (-BAND + GRIP_X + GRIP_W // 2, -BAND - TAB_H + 1 + TAB_H // 2)
+    return (-band() + _grip_x() + GRIP_W // 2, _tab_top((0, 0, 0, 0)) + TAB_H // 2)
 
 
 def _btn_font() -> QFont:
@@ -49,6 +71,35 @@ def _meter_font() -> QFont:
 
 # token 用量占的宽度按最长的样子留好：数字变了标签不跟着变宽变窄
 _METER_SAMPLE = "≈↑999.9k ↓999.9k"
+
+
+def _c(hex_: str, a: int = 255) -> QColor:
+    c = QColor(hex_)
+    c.setAlpha(a)
+    return c
+
+
+# 标签上的颜色：经典样子（深色标签）；液态玻璃的白玻璃、烟灰玻璃（照浏览器版）
+_CLASSIC = {
+    "ink": QColor(235, 238, 245), "meter": QColor(150, 200, 255), "radius": 4,
+    "status": {"ok": QColor(120, 220, 140), "busy": QColor(120, 180, 255), "warn": QColor(255, 200, 90),
+               "error": QColor(255, 110, 110), "paused": QColor(185, 185, 190)}, "status_other": QColor(200, 200, 200),
+    "icon_hover": QColor(255, 255, 255, 40), "btn": (QColor(255, 255, 255, 32), QColor(255, 255, 255, 70)),
+}
+_GLASS_LIGHT = {
+    "ink": _c("#1d1d1f"), "meter": _c("#48484a"), "radius": 9,
+    "status": {"ok": _c("#1a7f37"), "busy": _c("#0b57d0"), "warn": _c("#a15c00"), "error": _c("#c62828"),
+               "paused": _c("#6e6e73")}, "status_other": _c("#6e6e73"),
+    "icon_hover": _c("#ffffff", 235), "btn": (_c("#ffffff", 153), _c("#ffffff", 235)), "btn_edge": _c("#000000", 20),
+    "lang": (_c("#3d8bfd", 36), _c("#3d8bfd", 64)), "lang_ink": _c("#0b57d0"),
+}
+_GLASS_DARK = {
+    "ink": _c("#f5f5f7"), "meter": _c("#c7c7cc"), "radius": 9,
+    "status": {"ok": _c("#63d68a"), "busy": _c("#8ab8ff"), "warn": _c("#ffcc66"), "error": _c("#ff7b72"),
+               "paused": _c("#aeaeb2")}, "status_other": _c("#aeaeb2"),
+    "icon_hover": _c("#ffffff", 66), "btn": (_c("#ffffff", 36), _c("#ffffff", 66)), "btn_edge": _c("#ffffff", 30),
+    "lang": (_c("#3d8bfd", 71), _c("#3d8bfd", 110)), "lang_ink": _c("#cfe0ff"),
+}
 
 
 _EDGE_CURSORS = {
@@ -102,6 +153,12 @@ class MirrorFrame(QWidget):
         self.meter_tip = ""                  # 鼠标停在上面时显示的明细（由程序显示，见 app._hover_tip）
         self.meter_hovered = False
         self._meter_rect = QRect()
+        self.backdrop: glass.Backdrop | None = None   # 液态玻璃取后面的画面（由程序接上）
+        self._rim: glass.Rim | None = None
+        self._pill: glass.Pill | None = None
+        self.glass_renders = 0               # 玻璃重画了几块（调试、验收用）
+        self._glass_force = False            # 下一轮把玻璃全部重取一遍（边框颜色换了）
+        self._paint_clip: QRectF | None = None
         self.winId()
         if layered.colorkey():
             layered.apply(self, alpha=1)       # 整体 1/255 不透明：看不见，但不是色键的地方接得住鼠标
@@ -121,14 +178,15 @@ class MirrorFrame(QWidget):
     def _layout(self) -> None:
         m = self.mirror
         scr = self._screen_for(m)
-        self._tab_below = m[1] - BAND - TAB_H < scr[1]
-        outer = geom.expand(m, BAND)
+        bd = band()
+        self._tab_below = m[1] - chrome_top() < scr[1]
+        outer = geom.expand(m, bd)
         tab_w = max(min(max(400, (m[2] - m[0]) // 2), max(280, m[2] - m[0])),
-                    _TAB_LABEL_W + self._buttons_width() + self._meter_width())
-        if self._tab_below:
-            tab = (m[0] - BAND, m[3] + BAND - 1, m[0] - BAND + tab_w, m[3] + BAND - 1 + TAB_H)
-        else:
-            tab = (m[0] - BAND, m[1] - BAND - TAB_H + 1, m[0] - BAND + tab_w, m[1] - BAND + 1)
+                    _TAB_LABEL_W + self._buttons_width() + self._meter_width()
+                    + (2 * _GLASS_IN if glass.active() else 0))
+        # 标签在下方时和上方对称：离镜框下沿的距离和在上方时离上沿一样
+        top = m[3] + (m[1] - _tab_top(m)) - TAB_H if self._tab_below else _tab_top(m)
+        tab = (m[0] - bd, top, m[0] - bd + tab_w, top + TAB_H)
         full = geom.union(outer, tab)
         self._origin = (full[0], full[1])
         self._tab = tab
@@ -136,6 +194,8 @@ class MirrorFrame(QWidget):
         if self._chrome is not None:
             self._chrome.setGeometry(self.geometry())
         self._place_buttons()
+        if glass.active():
+            self.glass_refresh(time.perf_counter(), force=True)
         self.update()
 
     def visual(self) -> QWidget:
@@ -144,6 +204,8 @@ class MirrorFrame(QWidget):
 
     def showEvent(self, e) -> None:  # noqa: N802
         super().showEvent(e)
+        if glass.active() and not self.ghost:
+            self.glass_refresh(time.perf_counter(), force=True)     # 藏着的时候后面的画面可能变了
         if self._chrome is not None and not self.ghost:
             self._chrome.setGeometry(self.geometry())
             self._chrome.show()
@@ -175,7 +237,7 @@ class MirrorFrame(QWidget):
         tab = self._local(self._tab)
         size = TAB_H - 4
         fm = QFontMetrics(_btn_font())
-        x = tab.right() - 2
+        x = tab.right() - 2 - (_GLASS_IN if glass.active() else 0)
         self._buttons = {}
         for name in _ORDER:
             w = self._button_w(name, fm)
@@ -231,6 +293,8 @@ class MirrorFrame(QWidget):
         """变形期间（形状画在覆盖层上）：边线、标签都不画，窗口留着接住正在拖的鼠标。"""
         if on != self.ghost:
             self.ghost = on
+            if not on and glass.active():
+                self.glass_refresh(time.perf_counter(), force=True)
             if self._chrome is not None:
                 self._chrome.setVisible(not on and self.isVisible())
             self.update()
@@ -257,15 +321,17 @@ class MirrorFrame(QWidget):
             p.fillRect(event.rect(), Qt.GlobalColor.transparent)
             p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
             self._paint_grab(p, QColor(0, 0, 0, 1))      # 几乎透明（alpha=1）：看不见，但能接住鼠标
+            self._paint_clip = QRectF(event.rect())
             self._paint_chrome(p)
+            self._paint_clip = None
         else:
             # 色键窗口：这个窗口本身看不见，不是色键的地方接鼠标；看得见的画在 _Chrome 上（同一块跟着重画）
             p.fillRect(event.rect(), layered.key_color())
             black = QColor(0, 0, 0)
             self._paint_grab(p, black)
             inner = self._local(self.mirror)
-            for cx, cy in ((inner.left(), inner.top()), (inner.right(), inner.top()), (inner.left(), inner.bottom()),
-                           (inner.right(), inner.bottom())):
+            for cx, cy in (() if glass.active() else ((inner.left(), inner.top()), (inner.right(), inner.top()),
+                                                      (inner.left(), inner.bottom()), (inner.right(), inner.bottom()))):
                 p.fillRect(QRect(cx - 4, cy - 4, 9, 9), black)
             p.fillRect(self._local(self._tab), black)
             self._chrome.update(event.rect())
@@ -274,16 +340,20 @@ class MirrorFrame(QWidget):
     def _paint_grab(self, p: QPainter, color: QColor) -> None:
         """抓取带（框外一圈，拖它调整大小）；按住拖动键时连框内一起。"""
         inner = self._local(self.mirror)
-        outer = self._local(geom.expand(self.mirror, BAND))
-        p.fillRect(QRect(outer.left(), outer.top(), outer.width(), BAND), color)
-        p.fillRect(QRect(outer.left(), inner.bottom() + 1, outer.width(), BAND), color)
-        p.fillRect(QRect(outer.left(), inner.top(), BAND, inner.height()), color)
-        p.fillRect(QRect(inner.right() + 1, inner.top(), BAND, inner.height()), color)
+        bd = band()
+        outer = self._local(geom.expand(self.mirror, bd))
+        p.fillRect(QRect(outer.left(), outer.top(), outer.width(), bd), color)
+        p.fillRect(QRect(outer.left(), inner.bottom() + 1, outer.width(), bd), color)
+        p.fillRect(QRect(outer.left(), inner.top(), bd, inner.height()), color)
+        p.fillRect(QRect(inner.right() + 1, inner.top(), bd, inner.height()), color)
         if self.grab_mode:
             p.fillRect(inner, color)
 
     def _paint_chrome(self, p: QPainter, solid: bool = False) -> None:
         """看得见的边线、四角和标签。solid：色键窗口里只能画不透明的颜色。"""
+        if glass.active():
+            self._paint_glass(p, solid)
+            return
         inner = self._local(self.mirror)
         # 可见边线（画在框外，不压住镜内内容）
         color = layered.solid(self.color) if solid else self.color
@@ -308,24 +378,34 @@ class MirrorFrame(QWidget):
             p.drawRect(inner.adjusted(2, 2, -2, -2))
         self._paint_tab(p, solid)
 
+    def _palette(self) -> dict:
+        """标签上的颜色：经典（深色标签）；液态玻璃按后面的亮度用白玻璃（深色字）或烟灰玻璃（浅色字）。"""
+        if not glass.active():
+            return _CLASSIC
+        return _GLASS_DARK if self._pill is not None and self._pill.tone.dark else _GLASS_LIGHT
+
     def _paint_tab(self, p: QPainter, solid: bool = False) -> None:
         tab = self._local(self._tab)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(28, 30, 36, 255 if solid else 235))
-        p.drawRoundedRect(tab, 5, 5)
+        if glass.active():
+            self._glass_objects()
+            self._pill.paint(p, tab.left(), tab.top(), solid)
+        else:
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(28, 30, 36, 255 if solid else 235))
+            p.drawRoundedRect(tab, 5, 5)
+        pal = self._palette()
         self._paint_grip(p, solid)
         font = QFont("Microsoft YaHei UI")
         font.setPixelSize(13)
         p.setFont(font)
-        p.setPen(QColor(235, 238, 245))
+        p.setPen(pal["ink"])
         title = tr("魔镜") + ("📌" if self.pinned else "")
-        p.drawText(tab.adjusted(_TITLE_X, 0, 0, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, title)
-        colors = {"ok": QColor(120, 220, 140), "busy": QColor(120, 180, 255), "warn": QColor(255, 200, 90),
-                  "error": QColor(255, 110, 110), "paused": QColor(185, 185, 190)}
-        p.setPen(colors.get(self.status_level, QColor(200, 200, 200)))
+        title_x = _TITLE_X + (_GLASS_IN if glass.active() else 0)
+        p.drawText(tab.adjusted(title_x, 0, 0, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, title)
+        p.setPen(pal["status"].get(self.status_level, pal["status_other"]))
         left_btn = min((r.left() for r in self._buttons.values()), default=tab.right())
         fm = QFontMetrics(font)
-        sx = tab.left() + _TITLE_X + 12 + fm.horizontalAdvance(title)      # 状态文字紧跟在标题后面
+        sx = tab.left() + title_x + 12 + fm.horizontalAdvance(title)      # 状态文字紧跟在标题后面
         self._meter_rect = QRect()
         if self.meter:
             # token 用量：贴在按钮左边，像网速监控那样 ↑ 输入 ↓ 输出（宽度在 _layout 里留好了）
@@ -334,20 +414,24 @@ class MirrorFrame(QWidget):
             left_btn = self._meter_rect.left()
             pen = p.pen()
             p.setFont(_meter_font())
-            p.setPen(QColor(150, 200, 255))
+            p.setPen(pal["meter"])
             p.drawText(self._meter_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, self.meter)
             p.setFont(font)
             p.setPen(pen)
         status_rect = QRect(sx, tab.top(), max(0, left_btn - 6 - sx), tab.height())
         p.drawText(status_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
                    fm.elidedText(self.status, Qt.TextElideMode.ElideRight, status_rect.width()))
+        rad = pal["radius"]
+        if glass.active():
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
         for name, r in self._buttons.items():
+            hover = name == self._hover_button
             if name in _ICONS:
-                if name == self._hover_button:
+                if hover:
                     p.setPen(Qt.PenStyle.NoPen)
-                    p.setBrush(QColor(255, 255, 255, 40))
-                    p.drawRoundedRect(r, 4, 4)
-                p.setPen(QColor(235, 238, 245))
+                    p.setBrush(pal["icon_hover"])
+                    p.drawRoundedRect(r, rad, rad)
+                p.setPen(pal["ink"])
                 f = QFont("Segoe UI Symbol")
                 f.setPixelSize(15)
                 p.setFont(f)
@@ -355,40 +439,133 @@ class MirrorFrame(QWidget):
             else:
                 # 文字按钮：带底色，看得出能点；暂停中的“继续”用醒目的黄底
                 lit = name == "pause" and self.paused
+                lang = name == "lang" and "lang" in pal
                 p.setPen(Qt.PenStyle.NoPen)
                 if lit:
-                    p.setBrush(QColor(255, 200, 60, 255 if name == self._hover_button else 215))
+                    p.setBrush(QColor(255, 200, 60, 255 if hover else 215))
+                elif lang:
+                    p.setBrush(pal["lang"][1 if hover else 0])
                 else:
-                    p.setBrush(QColor(255, 255, 255, 70 if name == self._hover_button else 32))
-                p.drawRoundedRect(r, 4, 4)
-                p.setPen(QColor(30, 30, 34) if lit else QColor(235, 238, 245))
+                    p.setBrush(pal["btn"][1 if hover else 0])
+                p.drawRoundedRect(r, rad, rad)
+                if "btn_edge" in pal and not lit:
+                    p.setPen(QPen(pal["btn_edge"], 1.0))
+                    p.setBrush(Qt.BrushStyle.NoBrush)
+                    p.drawRoundedRect(QRectF(r).adjusted(0.5, 0.5, -0.5, -0.5), rad - 0.5, rad - 0.5)
+                p.setPen(QColor(30, 30, 34) if lit else pal["lang_ink"] if lang else pal["ink"])
                 p.setFont(_btn_font())
                 p.drawText(r, Qt.AlignmentFlag.AlignCenter, self._label(name))
 
     def _grip_rect(self) -> QRect:
         tab = self._local(self._tab)
-        return QRect(tab.left() + GRIP_X, tab.top() + (TAB_H - GRIP_H) // 2, GRIP_W, GRIP_H)
+        return QRect(tab.left() + _grip_x(), tab.top() + (TAB_H - GRIP_H) // 2, GRIP_W, GRIP_H)
 
     def _paint_grip(self, p: QPainter, solid: bool) -> None:
         """抓手：六个点，鼠标移上去或按住时变蓝（色键窗口里只能画不透明的颜色：先和标签底色混好）。"""
         lit = self._hover_grip or (self.dock is not None and self.dock.g is not None)
-        bg = QColor(61, 139, 253, 205) if lit else QColor(255, 255, 255, 38)
-        if solid:
-            a = bg.alphaF()
-            bg = QColor(round(28 + (bg.red() - 28) * a), round(30 + (bg.green() - 30) * a),
-                        round(36 + (bg.blue() - 36) * a))
         r = self._grip_rect()
         p.save()
-        p.setRenderHint(QPainter.RenderHint.Antialiasing, not solid)
+        if glass.active():
+            # 玻璃标签本身是不透明地画上去的：色键窗口里抓手照样可以半透明地叠在上面
+            dark = self._palette() is _GLASS_DARK
+            bg = QColor(61, 139, 253, 217) if lit else QColor(255, 255, 255, 31) if dark else QColor(0, 0, 0, 15)
+            dots = QColor(255, 255, 255) if lit else QColor(209, 209, 214) if dark else QColor(91, 91, 96)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        else:
+            bg = QColor(61, 139, 253, 205) if lit else QColor(255, 255, 255, 38)
+            if solid:
+                a = bg.alphaF()
+                bg = QColor(round(28 + (bg.red() - 28) * a), round(30 + (bg.green() - 30) * a),
+                            round(36 + (bg.blue() - 36) * a))
+            dots = QColor(238, 241, 246)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, not solid)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(bg)
         p.drawRoundedRect(r, 5, 5)
-        p.setBrush(QColor(238, 241, 246))
+        p.setBrush(dots)
         cx, cy = r.left() + r.width() / 2, r.top() + r.height() / 2
         for dx in (-3.0, 3.0):
             for dy in (-5.5, 0.0, 5.5):
                 p.drawEllipse(QRectF(cx + dx - 1.6, cy + dy - 1.6, 3.2, 3.2))
         p.restore()
+
+    # ------------------------------------------------------------------ 液态玻璃
+    def _paint_glass(self, p: QPainter, solid: bool) -> None:
+        """液态玻璃：镜框外一圈玻璃（折射后面的画面），浮在上面的玻璃标签。"""
+        self._glass_objects()
+        inner = self._local(self.mirror)
+        bd = glass.BAND
+        clip = self._paint_clip
+        self._rim.paint(p, inner.left() - bd, inner.top() - bd, solid, clip)
+        if self.grab_mode:
+            c = QColor(self.color)
+            c.setAlpha(60)
+            pen = QPen(layered.solid(c) if solid else c)
+            pen.setWidth(2 if solid else 4)
+            p.save()
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, not solid)
+            p.setPen(pen)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            r_in = max(0, glass.RADIUS - bd)
+            p.drawRoundedRect(QRectF(inner).adjusted(2, 2, -2, -2), r_in, r_in)
+            p.restore()
+        if clip is None or clip.intersects(QRectF(self._glass_area("tab"))):
+            self._paint_tab(p, solid)
+
+    def _glass_objects(self) -> None:
+        """按现在的大小准备边框、标签的玻璃（大小变了重算位移图）。"""
+        m = self.mirror
+        size = (m[2] - m[0], m[3] - m[1])
+        if self._rim is None or self._rim.size != size:
+            self._rim = glass.Rim(*size, self.color, solid=self._chrome is not None)
+        elif self._rim.color != self.color:
+            self._rim.set_color(self.color)              # 边框颜色换了：下一轮重取一遍
+            self._glass_force = True
+        tw = self._tab[2] - self._tab[0]
+        if self._pill is None or self._pill.size != (tw, TAB_H):
+            old = self._pill
+            self._pill = glass.Pill.tab(tw, TAB_H)
+            if old is not None:
+                self._pill.tone = old.tone            # 标签变宽变窄时深浅照旧，不闪
+
+    def glass_parts(self) -> dict[str, Rect]:
+        """液态玻璃要取后面画面的几块（屏幕坐标）：边框的上下左右四条、标签。"""
+        self._glass_objects()
+        ox, oy = self.mirror[0] - glass.BAND, self.mirror[1] - glass.BAND
+        parts = {name: lens.patch_rect(ox, oy) for name, lens in self._rim.lenses.items()}
+        parts["tab"] = self._pill.patch_rect(self._tab[0], self._tab[1])
+        return parts
+
+    def _glass_area(self, name: str) -> QRect:
+        """这一块玻璃在窗口里的范围（重画用）。"""
+        if name == "tab":
+            return self._local(self._tab).adjusted(-1, -1, 1, 5)        # 连下沿的影子
+        inner = self._local(self.mirror)
+        x0, y0, x1, y1 = self._rim.lenses[name].area
+        ox, oy = inner.left() - glass.BAND, inner.top() - glass.BAND
+        return QRect(ox + x0, oy + y0, x1 - x0, y1 - y0)
+
+    def glass_refresh(self, now: float, force: bool = False) -> None:
+        """液态玻璃：后面的画面变了的那几块重新取样、重画。force：位置、大小刚变过，全部重取（随后整个重画）。"""
+        if self.backdrop is None or self.ghost or not glass.active() or not self.isVisible():
+            return
+        solid = self._chrome is not None
+        parts = self.glass_parts()
+        if self._glass_force:
+            self._glass_force, force = False, True
+            self.update()
+        for name, rect in parts.items():
+            patch = self.backdrop.fresh(self, name, rect, now, force)
+            if patch is None:
+                continue
+            self.glass_renders += 1
+            if name == "tab":
+                if self._pill.render(patch, solid) and not force:
+                    self.update(self._local(self._tab))           # 深浅换了：字的颜色也换
+            else:
+                self._rim.render(name, patch, solid)
+            if not force:
+                self.visual().repaint(self._glass_area(name))
 
     # ------------------------------------------------------------------ 鼠标
     def _zone(self, pos: QPoint) -> str:
@@ -543,6 +720,8 @@ class _Chrome(QWidget):
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
         p.fillRect(event.rect(), layered.key_color())
+        self.frame._paint_clip = QRectF(event.rect())
         self.frame._paint_chrome(p, solid=True)
+        self.frame._paint_clip = None
         p.end()
         layered.painted(self)

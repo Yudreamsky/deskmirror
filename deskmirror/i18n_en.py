@@ -579,6 +579,15 @@ EN: dict[str, str] = {
         'Minimum font size',
     '底板不透明度':
         'Backing opacity',
+    '皮肤':
+        'Skin',
+    '经典':
+        'Classic',
+    '液态玻璃':
+        'Liquid glass',
+    '液态玻璃：边框是一圈弧形的玻璃，后面的画面在边上被拉伸、弯折；标签、球是半透明的玻璃，后面是深色画面时自动换成烟灰色':
+        'Liquid glass: the border is a ring of curved glass that stretches and bends what\'s behind it at the edge; '
+        'the tab and the ball are translucent glass that turns smoky grey over dark backgrounds',
     '按住后在镜内拖动':
         'Hold to drag inside the mirror',
     '按住显示原文':
@@ -744,6 +753,9 @@ EN: dict[str, str] = {
         'Plate opacity (1 = covers the original completely; always 1 on Windows 10)',
     '魔镜边框的颜色，比如 #3D8BFD':
         "Colour of the mirror's border, e.g. #3D8BFD",
+    '魔镜的样子：classic 经典 / glass 液态玻璃（边框一圈像弧形玻璃，折射后面的画面）':
+        "The mirror's look: classic / glass (liquid glass: the border is a ring of curved glass that refracts "
+        "what's behind it)",
     '区域静止多久后才识别新文字（毫秒）':
         'How long an area must stay still before new text is recognized (ms)',
     '视频、游戏画面多久抓拍识别一次（毫秒）':

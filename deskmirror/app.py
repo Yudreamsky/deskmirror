@@ -1,6 +1,7 @@
 """程序入口：托盘、快捷键、魔镜边框与覆盖层的联动、设置与退出。"""
 from __future__ import annotations
 
+import collections
 import ctypes
 import json
 import logging
@@ -113,7 +114,7 @@ def main() -> int:
     from .engine import Engine
     from .fieldtrans import FieldTranslator
     from .hotkeys import HoldShortcut, HotkeyManager, modifiers_down, parse_modifiers
-    from .ui import layered
+    from .ui import glass, layered
     from .ui.dock import Docker
     from .ui.mirror import MirrorFrame
     from .ui.overlay import Overlay, UiState
@@ -169,6 +170,8 @@ def main() -> int:
             self.cfg = cfg
             self.state = UiState(Renderer(cfg.style, binary=layered.colorkey()))
             self.state.frame_color = QColor(cfg.style.border_color)
+            glass.set_active(cfg.style.skin == "glass")
+            self.backdrop = glass.Backdrop(None)               # 液态玻璃取后面的画面（引擎建好后接上）
             mons = winapi.monitors()
             self.overlays = [Overlay(m, self.state) for m in mons]
             rect = tuple(cfg.mirror_rect) if cfg.mirror_rect else self._default_rect(mons)
@@ -179,6 +182,7 @@ def main() -> int:
                 self._new_frame(tuple(r))
             self._last_shot = ""
             self.engine = Engine(cfg, self.snapshot_ready.emit)
+            self.backdrop.engine = self.engine
             self._sync_mirrors()
             self.snapshot_ready.connect(self._on_snapshot)
             self.hotkeys = HotkeyManager(qapp)
@@ -250,6 +254,8 @@ def main() -> int:
             self.timer.timeout.connect(self._tick)
             self.timer.start()
             self._last_topmost = 0.0
+            self._glass_t = 0.0
+            self._glass_ms: collections.deque = collections.deque(maxlen=600)   # 每轮玻璃检查、重画用了多久（调试）
             self._settings: SettingsDialog | None = None
             self._save_timer = QTimer(self, singleShot=True, interval=800, timeout=self._save)
             # 用量每 5 分钟落一次盘（只有数量），中途崩溃也不至于丢掉一整天的统计
@@ -379,7 +385,9 @@ def main() -> int:
         # -------------------------------------------------------------- 多个魔镜、跟随窗口
         def _new_frame(self, rect: tuple) -> MirrorFrame:
             f = MirrorFrame(rect, self.cfg.style.border_color)
-            f.dock = Docker(f, self.state.shapes)
+            f.backdrop = self.backdrop
+            f.dock = Docker(f, self.state.shapes, self.state.balls)
+            f.dock.backdrop = self.backdrop
             f.dock.docked_changed.connect(lambda on, f=f: self._on_docked(f, on))
             f.dock.repaint.connect(self._repaint_screen)
             f.dock.committed.connect(self._save_mirrors)
@@ -472,6 +480,8 @@ def main() -> int:
                 return
             old = f.mirror
             self.frames.remove(f)
+            self.backdrop.forget(f)
+            self.backdrop.forget(f.dock)
             f.dock.close()
             f.close()
             self._sync_mirrors()
@@ -1294,6 +1304,7 @@ def main() -> int:
                 if f.color != QColor(self.cfg.style.border_color):
                     f.color = QColor(self.cfg.style.border_color)
                     f.update()
+            self._apply_skin()
             self.engine.update_llm(self.cfg)
             if clear_memory:
                 self.engine.inbox.put(("memory_clear", None))
@@ -1324,6 +1335,7 @@ def main() -> int:
             for f in self.frames:
                 f.set_grab_mode(mods and (f is under or f._drag is not None))
             self._hover_tip(now)
+            self._glass_tick(now)
             if now - self._last_cfg_check > 1.0:
                 self._last_cfg_check = now
                 self._check_config_file()
@@ -1342,6 +1354,38 @@ def main() -> int:
                     for f in self.frames:
                         if f.dock.docked and f.dock.ball.isVisible():
                             winapi.keep_topmost(int(f.dock.ball.winId()))
+
+        def _glass_tick(self, now: float) -> None:
+            """液态玻璃：边框、标签、球后面的画面变了就重新折射（截图模式下魔镜截得到自己，不更新）。"""
+            if not glass.active() or now - self._glass_t < 1 / 30:       # 后面一直在变（滚动、视频）时每秒最多 30 次
+                return
+            self._glass_t = now
+            self.backdrop.frozen = self.state.shot_mode
+            self.backdrop.begin()
+            if self.state.hidden:
+                return
+            for f in self.frames:
+                f.glass_refresh(now)
+                f.dock.glass_refresh(now)
+            self._glass_ms.append((time.perf_counter() - now) * 1000)
+
+        def _apply_skin(self) -> None:
+            """换皮肤（经典 / 液态玻璃）：边框宽度、标签位置跟着变，全部重画。"""
+            on = self.cfg.style.skin == "glass"
+            if on == glass.active():
+                return
+            glass.set_active(on)
+            log.info("皮肤：%s", "液态玻璃" if on else "经典")
+            if not on:
+                self.backdrop.close()
+                self.state.balls.clear()
+            for f in self.frames:
+                f._rim = f._pill = None
+                f._layout()
+                f.visual().update()
+                f.dock.glass_refresh(time.perf_counter(), force=True)
+            for o in self.overlays:
+                o.update()
 
         def _hover_tip(self, now: float) -> None:
             """鼠标停在被截断的译文上时，显示全文；停在标签上的 token 用量上时，显示明细。"""
@@ -1478,6 +1522,10 @@ def main() -> int:
                         "stamp": snap.stamp if snap else 0, "peek": self.state.peek,
                         "hidden": self.state.hidden, "paused": self.state.paused, "grab": self.frame.grab_mode,
                         "shot_mode": self.state.shot_mode, "colorkey": layered.colorkey(),
+                        "skin": "glass" if glass.active() else "classic",
+                        "glass_ms": ({"n": len(gm), "avg": round(sum(gm) / len(gm), 2), "max": round(max(gm), 2),
+                                      "p95": round(sorted(gm)[int(len(gm) * 0.95)], 2)}
+                                     if (gm := list(self._glass_ms)) else None),
                         "frame_hwnds": [[int(f.winId()), int(f.visual().winId())] for f in self.frames],
                         "engine_on": self._engine_on, "working": self.engine.working,
                         "mirrors": [{"rect": list(f.mirror), "bound": f.bound[0] if f.bound else 0,
@@ -1488,7 +1536,12 @@ def main() -> int:
                                                                 f.dock.ball.y() + f.dock.ball.height()],
                                      "ball_visible": f.dock.ball.isVisible(), "saved": f.dock.saved(),
                                      "shape": ([round(v, 1) for v in (sh.x, sh.y, sh.w, sh.h, sh.k)]
-                                               if (sh := f.dock.shape()) is not None else None)}
+                                               if (sh := f.dock.shape()) is not None else None),
+                                     "window": [f.x(), f.y(), f.x() + f.width(), f.y() + f.height()],
+                                     "glass": {"renders": f.glass_renders, "ball_renders": f.dock.glass_renders,
+                                               "dark": bool(f._pill is not None and f._pill.tone.dark),
+                                               "ball_at": (list(gb.at) if (gb := self.state.balls.get(id(f.dock)))
+                                                           is not None and gb.at is not None else None)}}
                                     for f in self.frames]}
             if cmd == "cfg":
                 # 程序此刻用的设置（测热载入用）；API Key 不给

@@ -104,6 +104,7 @@ class StyleConfig:
                                       # 更扁的只在快要伸出去、要缩得更小时才用；中日韩文字最多压到八成
     plate_opacity: float = 1.0        # 原位底板的不透明度（1 = 完全盖住原文）
     border_color: str = "#3D8BFD"
+    skin: str = "classic"             # 魔镜的样子：classic 经典 / glass 液态玻璃（边框一圈折射后面的画面，见 ui/glass.py）
 
 
 @dataclass
@@ -309,7 +310,7 @@ def _decrypt(value: str) -> str:
 CHOICES: dict[str, tuple[str, ...]] = {
     "source_lang": tuple(SOURCE_LANGS), "target_lang": tuple(LANGUAGES), "ui_lang": ("", "zh", "en"),
     "llm.protocol": ("ollama", "openai"), "vision.protocol": ("ollama", "openai"), "ocr.device": ("gpu", "cpu"),
-    "scope.mode": tuple(SCOPE_MODES), "input.target": ("",) + tuple(LANGUAGES),
+    "scope.mode": tuple(SCOPE_MODES), "input.target": ("",) + tuple(LANGUAGES), "style.skin": ("classic", "glass"),
 }
 # 改了要重启魔镜才生效的设置（启动时就定下来的：识别进程、截屏方式、处理哪些屏幕）
 RESTART_KEYS = ("ocr.device", "ocr.threads", "track.all_monitors", "track.wheel_predict", "track.prefer_dxgi")

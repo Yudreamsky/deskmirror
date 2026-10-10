@@ -11,6 +11,8 @@
 变形期间它只是不画东西。
 四条边都吸，只吸当前显示器的外边缘（两块屏相接的边不算）；顶边要把鼠标顶到最上沿才吸，免得把魔镜拖到菜单栏上
 就收起来。全程物理像素，门槛按显示器 DPI 缩放。
+液态玻璃皮肤（glass.py）：变形途中是不折射的玻璃样子（每帧都改大小，来不及取样）；收好的球按它后面的画面折射，
+滑出、藏回时从开始滑之前截好的一块里取样，每帧跟着重画。
 """
 from __future__ import annotations
 
@@ -25,8 +27,8 @@ from PySide6.QtWidgets import QWidget
 
 from .. import geom, winapi
 from ..geom import Rect
-from . import layered
-from .mirror import BAND, LINE, MIN_H, MIN_W, TAB_H, grip_offset
+from . import glass, layered
+from .mirror import LINE, MIN_H, MIN_W, TAB_H, chrome_top, grip_offset
 
 # 长度按 96 DPI 写，用的时候乘显示器的缩放
 BUB = 46            # 球的直径
@@ -54,16 +56,30 @@ class Shape:
     k: float
     dash: bool = False      # 虚线：松手就是魔镜（从边上拖出来的时候）
     text: bool = False      # 框里显示译文（按形状裁剪）
+    dark: bool = False      # 液态玻璃：后面是深色画面（烟灰玻璃）
 
     def box(self) -> Rect:
         """要重画的范围（含阴影）。"""
-        return (math.floor(self.x) - 4, math.floor(self.y) - 4,
-                math.ceil(self.x + self.w) + 4, math.ceil(self.y + self.h) + 6)
+        m = (6, 6, 6, 10) if glass.active() else (4, 4, 4, 6)
+        return (math.floor(self.x) - m[0], math.floor(self.y) - m[1],
+                math.ceil(self.x + self.w) + m[2], math.ceil(self.y + self.h) + m[3])
+
+
+def _edge() -> float:
+    """形状的边有多宽：经典是边线，液态玻璃是整圈玻璃。"""
+    return glass.BAND if glass.active() else LINE
+
+
+def _radius(s: Shape, k: float) -> float:
+    """圆角：经典从方角变到圆；液态玻璃从边框的圆角变到圆。"""
+    r0 = glass.RADIUS if glass.active() else 0.0
+    return r0 + (min(s.w, s.h) / 2 - r0) * k
 
 
 def frame_shape(m: Rect, dash: bool = False, text: bool = False) -> Shape:
-    """魔镜的样子（k = 0）：边线画在开口外面，和 mirror.py 一样。"""
-    return Shape(m[0] - LINE, m[1] - LINE, m[2] - m[0] + 2 * LINE, m[3] - m[1] + 2 * LINE, 0.0, dash, text)
+    """魔镜的样子（k = 0）：边线（液态玻璃是整圈玻璃）画在开口外面，和 mirror.py 一样。"""
+    e = _edge()
+    return Shape(m[0] - e, m[1] - e, m[2] - m[0] + 2 * e, m[3] - m[1] + 2 * e, 0.0, dash, text)
 
 
 def approach(cur: Shape, target: Shape, dt: float, tau: float = TAU) -> bool:
@@ -77,7 +93,7 @@ def approach(cur: Shape, target: Shape, dt: float, tau: float = TAU) -> bool:
             done = False
         else:
             setattr(cur, name, getattr(target, name))
-    cur.dash, cur.text = target.dash, target.text
+    cur.dash, cur.text, cur.dark = target.dash, target.text, target.dark
     return done
 
 
@@ -163,7 +179,7 @@ def dash_rect(x: float, y: float, grab: tuple[int, int], size: tuple[int, int], 
     整个留在这块屏幕里（上面的标签也露出来）；屏幕放不下就缩小。"""
     l, t, r, b = m.work
     margin = MARGIN * m.scale
-    top = t + BAND + TAB_H + 4 * m.scale
+    top = t + chrome_top() + 4 * m.scale
     w = int(min(size[0], max(MIN_W, r - l - 2 * margin)))
     h = int(min(size[1], max(MIN_H, b - top - margin)))
     nx, ny = x - grab[0], y - grab[1]
@@ -178,7 +194,7 @@ def default_dock(m_rect: Rect, mons: list) -> tuple[str, winapi.Monitor, float]:
     cx, cy = geom.center(m_rect)
     mon = monitor_at(cx, cy, mons)
     l, t, r, b = mon.work
-    tab_y = m_rect[1] - BAND - TAB_H / 2
+    tab_y = m_rect[1] - chrome_top() + TAB_H / 2
     cands = [(0, d, e, tab_y) for e, d in (("l", cx - l), ("r", r - cx)) if is_outer(mon, e, tab_y, mons)]
     cands += [(1, d, e, cx) for e, d in (("t", cy - t), ("b", b - cy)) if is_outer(mon, e, cx, mons)]
     if not cands:
@@ -209,15 +225,25 @@ def fit_rect(m: Rect, mons: list) -> Rect:
     w = max(MIN_W, min(m[2] - m[0], r - l - 40))
     h = max(MIN_H, min(m[3] - m[1], b - t - 80))
     x = min(max(m[0], l + 20), r - w - 20)
-    y = min(max(m[1], t + BAND + TAB_H + 20), b - h - 20)
+    y = min(max(m[1], t + chrome_top() + 20), b - h - 20)
     return (x, y, x + w, y + h)
 
 
 # ---------------------------------------------------------------------------------------------------- 画
-def paint_shape(p: QPainter, s: Shape, ox: int, oy: int, color: QColor, colorkey: bool) -> None:
-    """在覆盖层上画框或球（ox, oy：覆盖层左上角的屏幕坐标）。色键窗口只能画不透明的颜色，也不能抗锯齿。"""
+def paint_shape(p: QPainter, s: Shape, ox: int, oy: int, color: QColor, colorkey: bool,
+                ball: GlassBall | None = None) -> None:
+    """在覆盖层上画框或球（ox, oy：覆盖层左上角的屏幕坐标）。色键窗口只能画不透明的颜色，也不能抗锯齿。
+    ball：液态玻璃的球（按后面的画面折射好的），正好是给这个位置画的就用它。"""
     k = min(1.0, max(0.0, s.k))
     rect = QRectF(s.x - ox, s.y - oy, s.w, s.h)
+    if glass.active():
+        if ball is not None and ball.matches(s):
+            ball.paint(p, ox, oy, color, colorkey)
+        else:
+            glass.paint_morph(p, rect, _radius(s, k), k, color, s.dark, s.dash, colorkey)
+            if k > (0.85 if colorkey else 0.7):
+                _glyph(p, rect, k, QColor(255, 255, 255) if s.dark else QColor(color), colorkey)
+        return
     r = k * min(s.w, s.h) / 2
     p.save()
     p.setRenderHint(QPainter.RenderHint.Antialiasing, not colorkey)
@@ -246,23 +272,73 @@ def paint_shape(p: QPainter, s: Shape, ox: int, oy: int, color: QColor, colorkey
     rr = max(0.0, r - half)
     p.drawRoundedRect(rect.adjusted(half, half, -half, -half), rr, rr)
     if k > (0.85 if colorkey else 0.7):
-        font = QFont("Microsoft YaHei UI")
-        font.setPixelSize(max(8, int(min(s.w, s.h) * 0.43)))
-        font.setBold(True)
-        c = QColor(255, 255, 255)
-        if not colorkey:
-            c.setAlphaF(min(1.0, (k - 0.7) / 0.3))
-        p.setFont(font)
-        p.setPen(c)
-        p.drawText(rect, Qt.AlignmentFlag.AlignCenter, "镜")
+        _glyph(p, rect, k, QColor(255, 255, 255), colorkey)
     p.restore()
 
 
+def _glyph(p: QPainter, rect: QRectF, k: float, c: QColor, colorkey: bool, halo: QColor | None = None) -> None:
+    """球上的“镜”字（快变成球时渐显）。halo：字周围一圈淡淡的光晕（玻璃球上，背景花的时候也看得清）。"""
+    font = QFont("Microsoft YaHei UI")
+    font.setPixelSize(max(8, int(min(rect.width(), rect.height()) * 0.43)))
+    font.setBold(True)
+    c = QColor(c)
+    fade = 1.0 if colorkey else min(1.0, (k - 0.7) / 0.3)
+    c.setAlphaF(c.alphaF() * fade)
+    p.save()
+    p.setFont(font)
+    if halo is not None and not colorkey:
+        h = QColor(halo)
+        h.setAlphaF(h.alphaF() * fade)
+        p.setPen(h)
+        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1)):
+            p.drawText(rect.translated(dx, dy), Qt.AlignmentFlag.AlignCenter, "镜")
+    p.setPen(c)
+    p.drawText(rect, Qt.AlignmentFlag.AlignCenter, "镜")
+    p.restore()
+
+
+class GlassBall:
+    """液态玻璃皮肤下收好的球：按它后面的画面折射。at：是给哪个位置（屏幕坐标，取整）画的。"""
+
+    def __init__(self, d: int) -> None:
+        self.pill = glass.Pill.bubble(d)
+        self.at: tuple[int, int] | None = None
+
+    def matches(self, s: Shape) -> bool:
+        return self.at is not None and s.k >= 0.999 and round(s.w) == self.pill.size[0] \
+            and (round(s.x), round(s.y)) == self.at
+
+    def render(self, patch, x: int, y: int, colorkey: bool) -> None:
+        self.pill.render(patch, colorkey)
+        self.at = (x, y)
+
+    def paint(self, p: QPainter, ox: int, oy: int, color: QColor, colorkey: bool) -> None:
+        x, y = self.at[0] - ox, self.at[1] - oy
+        d = self.pill.size[0]
+        dark = self.pill.tone.dark
+        if not colorkey:
+            # 球下面一层柔和的影子（覆盖层鼠标穿透，影子大一点也没关系）
+            p.save()
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.setPen(Qt.PenStyle.NoPen)
+            for dy, grow, a in ((2.0, 0.5, 30), (3.5, 1.5, 18), (5.5, 3.0, 9)):
+                p.setBrush(QColor(0, 0, 0, a * (2 if dark else 1)))
+                p.drawEllipse(QRectF(x - grow, y + dy - grow, d + 2 * grow, d + 2 * grow))
+            p.restore()
+        self.pill.paint(p, x, y, colorkey)
+        if dark:
+            _glyph(p, QRectF(x, y, d, d), 1.0, QColor(255, 255, 255), colorkey, QColor(0, 0, 0, 70))
+        else:
+            ink = QColor(color).darker(150)
+            _glyph(p, QRectF(x, y, d, d), 1.0, ink, colorkey, QColor(255, 255, 255, 150))
+
+
 def opening_region(s: Shape, ox: int, oy: int) -> QRegion:
-    """框里显示译文的范围（覆盖层坐标）：边线里面，圆角跟着形状走。"""
+    """框里显示译文的范围（覆盖层坐标）：边线（液态玻璃是整圈玻璃）里面，圆角跟着形状走。"""
     k = min(1.0, max(0.0, s.k))
-    inner = QRectF(s.x - ox + LINE, s.y - oy + LINE, max(0.0, s.w - 2 * LINE), max(0.0, s.h - 2 * LINE))
-    r = max(0.0, k * min(s.w, s.h) / 2 - LINE)
+    e = _edge()
+    inner = QRectF(s.x - ox + e, s.y - oy + e, max(0.0, s.w - 2 * e), max(0.0, s.h - 2 * e))
+    r = max(0.0, _radius(s, k) - e)
     if r < 1:
         return QRegion(inner.toAlignedRect())
     path = QPainterPath()
@@ -371,7 +447,7 @@ class Docker(QObject):
     repaint = Signal(tuple)           # 覆盖层要重画的屏幕范围
     committed = Signal()              # 一次拖动、点开结束了：位置和吸附状态该存了
 
-    def __init__(self, frame, shapes: dict) -> None:
+    def __init__(self, frame, shapes: dict, balls: dict | None = None) -> None:
         super().__init__()
         self.frame = frame
         self.shapes = shapes
@@ -386,6 +462,10 @@ class Docker(QObject):
         self.hover_t = 0.0                # 鼠标什么时候移到球上的（0 = 不在球上）
         self.trace: collections.deque = collections.deque(maxlen=900)   # 最近的动画帧，验收时量帧间隔
         self.ball = Ball(self)
+        self.backdrop: glass.Backdrop | None = None   # 液态玻璃取后面的画面（由程序接上）
+        self.balls: dict = {} if balls is None else balls   # 液态玻璃的球（UiState.balls，覆盖层按 shapes 的键取）
+        self._slide_bg = None                 # 球滑出、藏回时取样用的背景：(屏幕范围, 画面)
+        self.glass_renders = 0
         self._t = 0.0
         self._docked_at = 0.0
         self._timer = QTimer(self)
@@ -447,7 +527,68 @@ class Docker(QObject):
         self._tuck_timer.stop()
         self.live = None
         self._clear_shape()
+        self.balls.pop(id(self), None)
         self.ball.close()
+
+    # ------------------------------------------------------------------ 液态玻璃的球
+    def _glass_ball(self, d: int) -> GlassBall:
+        gb = self.balls.get(id(self))
+        if gb is None or gb.pill.size[0] != d:
+            old = gb
+            gb = self.balls[id(self)] = GlassBall(d)
+            if old is not None:
+                gb.pill.tone = old.pill.tone
+        return gb
+
+    def _dark(self) -> bool:
+        """变形途中用白玻璃还是烟灰玻璃：跟着球（没有球就跟着魔镜的标签）。"""
+        gb = self.balls.get(id(self))
+        if gb is not None and gb.at is not None:
+            return gb.pill.tone.dark
+        pill = getattr(self.frame, "_pill", None)
+        return bool(pill is not None and pill.tone.dark)
+
+    def glass_refresh(self, now: float, force: bool = False) -> None:
+        """液态玻璃：收好的球后面的画面变了，重新折射、重画（滑动、变形途中不管，见 _step）。"""
+        if not glass.active() or self.backdrop is None or not self.docked or self.hidden or self.live is not None:
+            return
+        s = self.shape()
+        if s is None or s.k < 0.999:
+            return
+        x, y, d = round(s.x), round(s.y), round(s.w)
+        gb = self._glass_ball(d)
+        patch = self.backdrop.fresh(self, "ball", gb.pill.patch_rect(x, y), now, force or gb.at != (x, y))
+        if patch is None:
+            return
+        gb.render(patch, x, y, layered.colorkey())
+        self.glass_renders += 1
+        self.repaint.emit(s.box())
+
+    def _slide_backdrop(self, target: Shape) -> None:
+        """球要滑出或藏回：先把滑动经过的那一块背景截好，每帧从里面取样（不用每帧截屏）。"""
+        self._slide_bg = None
+        if not glass.active() or self.backdrop is None:
+            return
+        cur = self.shape() or target
+        gb = self._glass_ball(round(target.w))
+        area = geom.union(gb.pill.patch_rect(round(cur.x), round(cur.y)),
+                          gb.pill.patch_rect(round(target.x), round(target.y)))
+        img = None if self.backdrop.frozen else self.backdrop.grab(area)
+        if img is not None:
+            self._slide_bg = (area, img)
+
+    def _glass_follow(self, c: Shape) -> None:
+        """滑动途中：按球现在的位置从截好的背景里取样重画。"""
+        if self._slide_bg is None or c.k < 0.999:
+            return
+        area, img = self._slide_bg
+        x, y = round(c.x), round(c.y)
+        gb = self._glass_ball(round(c.w))
+        l, t, r, b = gb.pill.patch_rect(x, y)
+        if l < area[0] or t < area[1] or r > area[2] or b > area[3]:
+            return
+        gb.render(img[t - area[1]:b - area[1], l - area[0]:r - area[0]], x, y, layered.colorkey())
+        self.glass_renders += 1
 
     # ------------------------------------------------------------------ 拖动
     def frame_press(self, gp: QPoint) -> None:
@@ -579,6 +720,7 @@ class Docker(QObject):
         self._place_ball(self.shape())
         self.ball.setVisible(not self.hidden)
         self._docked_at = time.perf_counter()
+        self.glass_refresh(self._docked_at, force=True)
         self.committed.emit()
 
     def _landed(self) -> None:
@@ -624,7 +766,13 @@ class Docker(QObject):
 
     def _slide(self, tucked: bool) -> None:
         self.tucked = tucked
-        self._retarget(self._ball_shape(tucked), "slide", lambda: self._end_live(keep=True))
+        target = self._ball_shape(tucked)
+        self._slide_backdrop(target)
+        self._retarget(target, "slide", self._slid)
+
+    def _slid(self) -> None:
+        self._end_live(keep=True)
+        self._slide_bg = None
 
     def _ball_shape(self, tucked: bool) -> Shape:
         x, y, d = ball_rect(self.edge, self.along, self.mon, tucked)
@@ -672,6 +820,7 @@ class Docker(QObject):
         self._publish(c, old)
         if lv.kind == "slide":
             self._place_ball(c)
+            self._glass_follow(c)
         if done:
             self._timer.stop()
             cb, lv.on_settle = lv.on_settle, None
@@ -687,6 +836,8 @@ class Docker(QObject):
             self._clear_shape()
 
     def _publish(self, s: Shape, old: Rect | None) -> None:
+        if glass.active():
+            s.dark = self._dark()
         self.shapes[id(self)] = s
         box = s.box()
         self.repaint.emit(geom.union(old, box) if old is not None else box)

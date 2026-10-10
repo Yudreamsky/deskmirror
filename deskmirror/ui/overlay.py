@@ -29,6 +29,7 @@ class UiState:
         self.mirror: Rect = (0, 0, 0, 0)       # 主魔镜（状态、截图、调试命令用）
         self.mirrors: list[Rect] = []          # 所有显示中的魔镜（画译文用；收成球的、正在变形的不在里面）
         self.shapes: dict = {}                 # 正在变形的框和收起的球（dock.Shape）：变形中的译文按形状裁剪
+        self.balls: dict = {}                  # 液态玻璃皮肤：收好的球按后面的画面折射好的样子（dock.GlassBall），键同上
         self.frame_color = QColor("#3D8BFD")   # 魔镜边框的颜色（球也用它）
         self.snapshot: Snapshot | None = None
         self.peek = False           # 按住看原文
@@ -127,19 +128,19 @@ class Overlay(QWidget):
             p.end()
             return
         ml, mt = self.mon.rect[0], self.mon.rect[1]
-        shapes = [s for s in st.shapes.values() if geom.overlaps(s.box(), self.mon.rect)]
+        shapes = [(key, s) for key, s in st.shapes.items() if geom.overlaps(s.box(), self.mon.rect)]
         snap = st.snapshot
         if snap is not None and not st.paused:
             mirrors = [m for m in (geom.inter(mr, self.mon.rect) for mr in self._mirrors()) if not geom.empty(m)]
             # 变形中、框里要显示译文的形状：译文按形状（圆角跟着变）裁剪
-            openings = [(geom.inter(s.box(), self.mon.rect), opening_region(s, ml, mt)) for s in shapes if s.text]
+            openings = [(geom.inter(s.box(), self.mon.rect), opening_region(s, ml, mt)) for _k, s in shapes if s.text]
             if mirrors or openings:
                 if not st.peek:
                     self._paint_items(p, snap, mirrors, openings, ml, mt)
                 for mirror in mirrors:
                     self._paint_mirror(p, snap, mirror)
-        for s in shapes:
-            paint_shape(p, s, ml, mt, st.frame_color, self.colorkey)
+        for key, s in shapes:
+            paint_shape(p, s, ml, mt, st.frame_color, self.colorkey, st.balls.get(key))
         p.end()
 
     def _paint_items(self, p: QPainter, snap: Snapshot, mirrors: list[Rect], openings: list, ml: int, mt: int) -> None:

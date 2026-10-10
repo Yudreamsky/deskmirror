@@ -46,6 +46,7 @@ browser or extension.
 | Pause / resume | Click **Pause** on the tab (also in the tray menu): the frame stays, but nothing is captured, recognized or translated (no translation cost), and the mirror shows no translations. The button turns into a yellow **Resume**; click it to continue: the screen is checked again first, and anything already seen comes from the cache without new requests |
 | Settings | ⚙ on the tab, or right-click the tray icon → Settings… |
 | Getting started, About | Right-click the tray icon → Getting started… / About… (version, author's email, project page); the getting-started guide opens automatically on first launch |
+| Change the look (liquid glass) | Settings → Recognition and display → Display → **Skin** → "Liquid glass" (command line: `config set style.skin glass`), effective at once. The border becomes a ring of curved glass around the frame with rounded corners: what's behind it is stretched across the ring and bent around the corners, with a faint rainbow fringe at the edge. The tab becomes a strip of glass floating above the border, and the ball becomes a glass ball. The glass follows what's behind it: white glass over light pages, smoky glass over dark games and programs. The glass ring is also where you drag to resize. Choose "Classic" to get exactly the old look back |
 | Interface language | In step 1 of the getting-started guide you pick your native language: translations come out in it, and the interface is in Chinese (if you chose Simplified or Traditional Chinese) or in English (for any other language). Change it later in Settings → Recognition and display → Interface language; it takes effect at once |
 | Open another mirror | Right-click the tray icon → New mirror, or right-click the mirror's tab → New mirror (up to 4); right-click an extra mirror's tab to close it |
 | Make the mirror follow a window | Right-click the mirror's tab → Follow the window below: when the window moves or resizes, the mirror keeps its relative position; when the window is minimized the mirror hides, and when the window closes, following stops (the tab shows 📌) |
@@ -217,7 +218,7 @@ Other settings: the source and target languages (by default auto-detect → Simp
 in the getting-started guide; the language button on the tab changes them too), whether text recognition runs on the
 graphics card or the CPU (switch to the CPU while gaming so it doesn't compete with the game for the graphics card),
 whether all screens are processed (by default only the mirror's screen), mouse wheel prediction, the minimum font
-size, the backing opacity and the hotkeys.
+size, the backing opacity, the skin (classic / liquid glass) and the hotkeys.
 Changes to the recognition device, the screens and wheel prediction take effect the next time DeskMirror starts.
 
 ## Default parameters (adjustable in deskmirror.json)
@@ -238,6 +239,7 @@ the file directly: a running DeskMirror picks up the changes within a second.
 | `style.min_font_px` / `min_scale` | 11 / 0.75 | When a translation doesn't fit, it shrinks to at most 11 pixels or 75% of the original size. If there is plain space to the right it borrows it (often needed when Chinese or Japanese turns into English; never past text on the right or over pictures), then takes plain space below. Above a panel border, a picture or moving video it first shrinks a little more (down to 60% of the original size), and only then covers it; if it still doesn't fit, it is cut off and marked. English words are kept whole where possible |
 | `style.min_squash` | 0.6 | When English and similar text doesn't fit, it may be narrowed to 60% of its width: first to 80% (barely visible), then the font shrinks; narrower than that only when the text would otherwise spill out of its panel or shrink further. Chinese, Japanese and Korean text stops at 80% |
 | `style.plate_opacity` | 1.0 | Backing opacity (1 = the original is fully covered) |
+| `style.skin` | classic | The mirror's look: classic / glass (liquid glass). The refraction uses the screen pictures DeskMirror captures anyway, and only the part of the border whose background changed is redrawn; while paused or tucked away it takes a small capture every 0.25 seconds to see whether anything changed |
 
 ## Command line (let an AI assistant set it up)
 
