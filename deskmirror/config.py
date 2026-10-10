@@ -210,6 +210,8 @@ class AppConfig:
     ui_lang: str = ""                 # 界面语言 zh / en；空 = 还没定（第一次启动按 Windows 的语言猜）
     mirror_rect: list[int] = field(default_factory=list)  # [left, top, right, bottom]，物理像素
     extra_mirrors: list[list[int]] = field(default_factory=list)   # 另外开的魔镜（最多 3 个）
+    # 收成球的魔镜：和 [主魔镜] + extra_mirrors 一一对应，{} = 没收起，否则 {"edge": l/r/t/b, "x", "y": 球心}
+    docks: list[dict] = field(default_factory=list)
     first_run_tip: bool = True
     llm: LlmConfig = field(default_factory=LlmConfig)
     ocr: OcrConfig = field(default_factory=OcrConfig)
@@ -347,6 +349,9 @@ def validate(cfg: AppConfig) -> AppConfig:
     cfg.extra_mirrors = [list(r) for r in (cfg.extra_mirrors if isinstance(cfg.extra_mirrors, list) else [])
                          if isinstance(r, list) and len(r) == 4 and all(isinstance(v, int) for v in r)
                          and r[2] - r[0] >= 80 and r[3] - r[1] >= 60][:3]
+    cfg.docks = [d if isinstance(d, dict) and d.get("edge") in ("l", "r", "t", "b")
+                 and all(isinstance(d.get(k), int) and not isinstance(d.get(k), bool) for k in ("x", "y")) else {}
+                 for d in (cfg.docks if isinstance(cfg.docks, list) else [])][:4]
     return cfg
 
 

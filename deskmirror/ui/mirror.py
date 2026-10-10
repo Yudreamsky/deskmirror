@@ -1,8 +1,8 @@
 """魔镜边框：可拖动、可调整大小的矩形框。
 
 框内完全透明（逐像素透明 = 鼠标点击、选中、滚轮都落到下面的软件）；只有细边框和
-上方的小标签接收鼠标：拖标签移动，拖边框或四角调整大小；标签右侧是截原图、截译图、
-刷新、设置、隐藏按钮。按住拖动键（默认 Ctrl+Alt）时框内临时变成可拖动区域，松开即恢复穿透。
+上方的小标签接收鼠标：拖标签（或左头的抓手）移动，拖到屏幕边缘收成球（见 dock.py），拖边框或四角调整大小；
+标签右侧是截原图、截译图、刷新、设置、隐藏按钮。按住拖动键（默认 Ctrl+Alt）时框内临时变成可拖动区域，松开即恢复穿透。
 Windows 10 上用色键窗口（见 layered.py）：这个窗口看不见、只接鼠标，看得见的边线和标签画在跟着它的 _Chrome 上。
 """
 from __future__ import annotations
@@ -20,12 +20,19 @@ BAND = 7          # 边框可抓取的宽度（像素）
 LINE = 2          # 可见边线宽度
 TAB_H = 26
 MIN_W, MIN_H = 160, 90
+GRIP_X, GRIP_W, GRIP_H = 4, 18, 20     # 标签左头的抓手（六个点）
+_TITLE_X = GRIP_X + GRIP_W + 6         # “魔镜”两个字从这里开始
 
 _ICONS = {"refresh": "⟳", "settings": "⚙", "hide": "—"}
 _LABELS = {"shot_orig": N_("截原图"), "shot_trans": N_("截译图"), "look": N_("看图"), "pause": N_("暂停")}
 # 从右往左排：— ⚙ ⟳ 看图 截译图 截原图 语言 暂停
 _ORDER = ("hide", "settings", "refresh", "look", "shot_trans", "shot_orig", "lang", "pause")
-_TAB_LABEL_W = 150                       # “魔镜”和一小段状态文字至少要的宽度
+_TAB_LABEL_W = 166                       # 抓手、“魔镜”和一小段状态文字至少要的宽度
+
+
+def grip_offset() -> tuple[int, int]:
+    """标签在上方时，抓手中心相对镜框开口左上角的位置（从球里拖出魔镜时，抓手就在鼠标底下）。"""
+    return (-BAND + GRIP_X + GRIP_W // 2, -BAND - TAB_H + 1 + TAB_H // 2)
 
 
 def _btn_font() -> QFont:
@@ -49,7 +56,8 @@ _EDGE_CURSORS = {
     "t": Qt.CursorShape.SizeVerCursor, "b": Qt.CursorShape.SizeVerCursor,
     "lt": Qt.CursorShape.SizeFDiagCursor, "rb": Qt.CursorShape.SizeFDiagCursor,
     "rt": Qt.CursorShape.SizeBDiagCursor, "lb": Qt.CursorShape.SizeBDiagCursor,
-    "move": Qt.CursorShape.SizeAllCursor,
+    "move": Qt.CursorShape.SizeAllCursor, "tab": Qt.CursorShape.SizeAllCursor,
+    "grip": Qt.CursorShape.OpenHandCursor,
 }
 
 
@@ -78,7 +86,10 @@ class MirrorFrame(QWidget):
         self.status = ""
         self.status_level = "ok"     # ok / busy / warn / error
         self.grab_mode = False
-        self._drag: tuple[str, QPoint, Rect] | None = None
+        self._drag: tuple[str, QPoint, Rect] | None = None    # 调整大小、按住拖动键在框内拖（拖标签见 dock）
+        self.dock = None                     # 吸边成球（dock.Docker，由程序接上）：拖标签由它管
+        self.ghost = False                   # 正在变形成球（或从球变回来）：这个窗口不画东西，只接着鼠标
+        self._hover_grip = False
         self._tab_below = False
         self._buttons: dict[str, QRect] = {}
         self._hover_button = ""
@@ -133,7 +144,7 @@ class MirrorFrame(QWidget):
 
     def showEvent(self, e) -> None:  # noqa: N802
         super().showEvent(e)
-        if self._chrome is not None:
+        if self._chrome is not None and not self.ghost:
             self._chrome.setGeometry(self.geometry())
             self._chrome.show()
 
@@ -216,6 +227,14 @@ class MirrorFrame(QWidget):
             else:
                 self.update(self._local(self._tab))
 
+    def set_ghost(self, on: bool) -> None:
+        """变形期间（形状画在覆盖层上）：边线、标签都不画，窗口留着接住正在拖的鼠标。"""
+        if on != self.ghost:
+            self.ghost = on
+            if self._chrome is not None:
+                self._chrome.setVisible(not on and self.isVisible())
+            self.update()
+
     def set_grab_mode(self, on: bool) -> None:
         # 拖动途中先松开拖动键也没关系：按下时已经抓住鼠标，拖完为止。
         if on != self.grab_mode:
@@ -225,6 +244,14 @@ class MirrorFrame(QWidget):
     # ------------------------------------------------------------------ 绘制
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
+        if self.ghost:
+            if self._chrome is None:
+                p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+                p.fillRect(event.rect(), Qt.GlobalColor.transparent)
+            else:
+                p.fillRect(event.rect(), layered.key_color())
+            p.end()
+            return
         if self._chrome is None:
             p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
             p.fillRect(event.rect(), Qt.GlobalColor.transparent)
@@ -286,18 +313,19 @@ class MirrorFrame(QWidget):
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor(28, 30, 36, 255 if solid else 235))
         p.drawRoundedRect(tab, 5, 5)
+        self._paint_grip(p, solid)
         font = QFont("Microsoft YaHei UI")
         font.setPixelSize(13)
         p.setFont(font)
         p.setPen(QColor(235, 238, 245))
         title = tr("魔镜") + ("📌" if self.pinned else "")
-        p.drawText(tab.adjusted(10, 0, 0, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, title)
+        p.drawText(tab.adjusted(_TITLE_X, 0, 0, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, title)
         colors = {"ok": QColor(120, 220, 140), "busy": QColor(120, 180, 255), "warn": QColor(255, 200, 90),
                   "error": QColor(255, 110, 110), "paused": QColor(185, 185, 190)}
         p.setPen(colors.get(self.status_level, QColor(200, 200, 200)))
         left_btn = min((r.left() for r in self._buttons.values()), default=tab.right())
         fm = QFontMetrics(font)
-        sx = tab.left() + 22 + fm.horizontalAdvance(title)      # 状态文字紧跟在标题后面
+        sx = tab.left() + _TITLE_X + 12 + fm.horizontalAdvance(title)      # 状态文字紧跟在标题后面
         self._meter_rect = QRect()
         if self.meter:
             # token 用量：贴在按钮左边，像网速监控那样 ↑ 输入 ↓ 输出（宽度在 _layout 里留好了）
@@ -337,13 +365,40 @@ class MirrorFrame(QWidget):
                 p.setFont(_btn_font())
                 p.drawText(r, Qt.AlignmentFlag.AlignCenter, self._label(name))
 
+    def _grip_rect(self) -> QRect:
+        tab = self._local(self._tab)
+        return QRect(tab.left() + GRIP_X, tab.top() + (TAB_H - GRIP_H) // 2, GRIP_W, GRIP_H)
+
+    def _paint_grip(self, p: QPainter, solid: bool) -> None:
+        """抓手：六个点，鼠标移上去或按住时变蓝（色键窗口里只能画不透明的颜色：先和标签底色混好）。"""
+        lit = self._hover_grip or (self.dock is not None and self.dock.g is not None)
+        bg = QColor(61, 139, 253, 205) if lit else QColor(255, 255, 255, 38)
+        if solid:
+            a = bg.alphaF()
+            bg = QColor(round(28 + (bg.red() - 28) * a), round(30 + (bg.green() - 30) * a),
+                        round(36 + (bg.blue() - 36) * a))
+        r = self._grip_rect()
+        p.save()
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, not solid)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(bg)
+        p.drawRoundedRect(r, 5, 5)
+        p.setBrush(QColor(238, 241, 246))
+        cx, cy = r.left() + r.width() / 2, r.top() + r.height() / 2
+        for dx in (-3.0, 3.0):
+            for dy in (-5.5, 0.0, 5.5):
+                p.drawEllipse(QRectF(cx + dx - 1.6, cy + dy - 1.6, 3.2, 3.2))
+        p.restore()
+
     # ------------------------------------------------------------------ 鼠标
     def _zone(self, pos: QPoint) -> str:
         for name, r in self._buttons.items():
             if r.contains(pos):
                 return "btn:" + name
+        if self._grip_rect().contains(pos):
+            return "grip"
         if self._local(self._tab).contains(pos):
-            return "move"
+            return "tab"
         inner = self._local(self.mirror)
         if inner.contains(pos):
             return "move" if self.grab_mode else ""
@@ -368,23 +423,36 @@ class MirrorFrame(QWidget):
     def mousePressEvent(self, e) -> None:  # noqa: N802
         if e.button() == Qt.MouseButton.RightButton:
             zone = self._zone(e.position().toPoint())
-            if zone == "move" or zone.startswith("btn:"):
+            if zone in ("move", "tab", "grip") or zone.startswith("btn:"):
                 self.menu_requested.emit(e.globalPosition().toPoint())
             return
         if e.button() != Qt.MouseButton.LeftButton:
             return
         zone = self._zone(e.position().toPoint())
-        if zone and not zone.startswith("btn:"):
-            self._drag = (zone, e.globalPosition().toPoint(), self.mirror)
+        if zone in ("tab", "grip") and self.dock is not None:
+            # 拖标签：到了屏幕边缘就收成球（按住拖动键在框内拖不会收，能把魔镜放到屏幕最边上）
+            self.dock.frame_press(e.globalPosition().toPoint())
+            if zone == "grip":
+                self.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
+            self.update(self._local(self._tab))
+        elif zone and not zone.startswith("btn:"):
+            self._drag = ("move" if zone in ("tab", "grip") else zone, e.globalPosition().toPoint(), self.mirror)
+
+    def _dock_drag(self) -> bool:
+        return self.dock is not None and self.dock.g is not None and self.dock.g.src == "frame"
 
     def mouseMoveEvent(self, e) -> None:  # noqa: N802
         pos = e.position().toPoint()
+        if self._dock_drag():
+            self.dock.move(e.globalPosition().toPoint())
+            return
         if self._drag is None:
             self.meter_hovered = self._meter_rect.contains(pos)
             zone = self._zone(pos)
             hb = zone[4:] if zone.startswith("btn:") else ""
-            if hb != self._hover_button:
+            if hb != self._hover_button or (zone == "grip") != self._hover_grip:
                 self._hover_button = hb
+                self._hover_grip = zone == "grip"
                 self.update(self._local(self._tab))
             cur = _EDGE_CURSORS.get(zone)
             if cur is not None:
@@ -418,6 +486,12 @@ class MirrorFrame(QWidget):
         if e.button() != Qt.MouseButton.LeftButton:
             return
         pos = e.position().toPoint()
+        if self._dock_drag():
+            self.dock.release(e.globalPosition().toPoint())
+            if self._zone(pos) == "grip":
+                self.setCursor(QCursor(Qt.CursorShape.OpenHandCursor))
+            self.update(self._local(self._tab))
+            return
         if self._drag is None:
             zone = self._zone(pos)
             if zone == "btn:refresh":
@@ -446,8 +520,9 @@ class MirrorFrame(QWidget):
 
     def leaveEvent(self, e) -> None:  # noqa: N802
         self.meter_hovered = False
-        if self._hover_button:
+        if self._hover_button or self._hover_grip:
             self._hover_button = ""
+            self._hover_grip = False
             self.update(self._local(self._tab))
 
 

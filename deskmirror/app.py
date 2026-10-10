@@ -20,6 +20,7 @@ log = logging.getLogger("deskmirror")
 
 
 PAUSED_TEXT = N_("已暂停：不识别、不翻译（点“继续”恢复）")
+BALL_TIP = N_("魔镜收起来了，翻译已停下。点一下回到原来的地方，或者拖出来放到要翻译的地方。")
 
 
 def _qimage_bgr(img):
@@ -99,6 +100,7 @@ def main() -> int:
     wait = os.environ.pop("DESKMIRROR_WAIT_PID", "")
     if wait.isdigit():
         _wait_for_exit(int(wait))
+    autostart = "--autostart" in sys.argv[1:]          # 开机自启：魔镜都收成球待命
     _setup_logging()
     # 跟踪线程有不少 Python 代码；缩短 GIL 切换间隔，界面线程（画译文、拖魔镜）不会被它长时间挡住。
     sys.setswitchinterval(0.002)
@@ -111,6 +113,7 @@ def main() -> int:
     from .engine import Engine
     from .hotkeys import HoldShortcut, HotkeyManager, modifiers_down, parse_modifiers
     from .ui import layered
+    from .ui.dock import Docker
     from .ui.mirror import MirrorFrame
     from .ui.overlay import Overlay, UiState
     from .ui.render import Renderer
@@ -164,6 +167,7 @@ def main() -> int:
             super().__init__()
             self.cfg = cfg
             self.state = UiState(Renderer(cfg.style, binary=layered.colorkey()))
+            self.state.frame_color = QColor(cfg.style.border_color)
             mons = winapi.monitors()
             self.overlays = [Overlay(m, self.state) for m in mons]
             rect = tuple(cfg.mirror_rect) if cfg.mirror_rect else self._default_rect(mons)
@@ -217,10 +221,13 @@ def main() -> int:
             self.tray.messageClicked.connect(self._on_message_clicked)
             self.tray.show()
             self._register_keys()
+            self._engine_on = False
+            self._restore_docks()
             for o in self.overlays:
                 o.show()
             for f in self.frames:
-                f.show()
+                if not f.dock.docked:
+                    f.show()
             if winapi.capture_failures:
                 log.warning("有 %d 个窗口没能对截屏隐身（错误码 %s）", len(winapi.capture_failures),
                             sorted(set(winapi.capture_failures)))
@@ -248,7 +255,8 @@ def main() -> int:
             self._start_update_checks()
             self._guard_timer = QTimer(self, interval=1000, timeout=self._guard_tick)
             self._guard_timer.start()
-            self.engine.start()
+            if not self._all_docked():
+                self._start_engine()          # 都收成球了：等第一次展开再启动（识别模型那时才载入，开机更快）
             self._update_meter()
             qapp.aboutToQuit.connect(self.shutdown)
             self.debug = None
@@ -355,6 +363,10 @@ def main() -> int:
         # -------------------------------------------------------------- 多个魔镜、跟随窗口
         def _new_frame(self, rect: tuple) -> MirrorFrame:
             f = MirrorFrame(rect, self.cfg.style.border_color)
+            f.dock = Docker(f, self.state.shapes)
+            f.dock.docked_changed.connect(lambda on, f=f: self._on_docked(f, on))
+            f.dock.repaint.connect(self._repaint_screen)
+            f.dock.committed.connect(self._save_mirrors)
             f.rect_changed.connect(lambda r, final, f=f: self._on_frame_rect(f, r, final))
             f.refresh_clicked.connect(lambda f=f: self.refresh(f))
             f.settings_clicked.connect(self.open_settings)
@@ -371,13 +383,49 @@ def main() -> int:
             return f
 
         def _active_frames(self) -> list[MirrorFrame]:
-            return [f for f in self.frames if not f.suspended]
+            return [f for f in self.frames if not f.suspended and not f.dock.docked]
+
+        def _all_docked(self) -> bool:
+            return all(f.dock.docked for f in self.frames)
 
         def _sync_mirrors(self) -> None:
-            """把各个魔镜的位置交给覆盖层和跟踪引擎（第一个是主魔镜）。"""
+            """把各个魔镜的位置交给覆盖层和跟踪引擎（第一个是主魔镜）。收成球的不算；正在变形的，
+            译文由覆盖层按形状裁剪（state.shapes），引擎照样按它的位置先翻。"""
+            active = self._active_frames()
             self.state.mirror = self.frame.mirror
-            self.state.mirrors = [f.mirror for f in self._active_frames()]
-            self.engine.set_mirrors([self.frame.mirror] + [f.mirror for f in self._active_frames() if f is not self.frame])
+            self.state.mirrors = [f.mirror for f in active if f.dock.live is None]
+            main = self.frame if self.frame in active else (active[0] if active else self.frame)
+            self.engine.set_mirrors([main.mirror] + [f.mirror for f in active if f is not main])
+
+        def _start_engine(self) -> None:
+            if not self._engine_on:
+                self._engine_on = True
+                self.engine.start()
+
+        def _restore_docks(self) -> None:
+            """上次收成球的魔镜照样收着；开机自启时所有魔镜都收成球待命（点开或拖出来才开始截屏、识别）。"""
+            saved = self.cfg.docks
+            for i, f in enumerate(self.frames):
+                spot = saved[i] if i < len(saved) and saved[i] else None
+                if spot or autostart:
+                    f.dock.dock_now(spot)
+
+        def _on_docked(self, f: MirrorFrame, docked: bool) -> None:
+            """魔镜收成球：它那里不再显示译文；所有魔镜都收起来了就停下截屏、识别、翻译（不花 token）。
+            展开（点球、从边上拖出来）：接着工作，像点了“继续”一样重新核对画面。"""
+            self._sync_mirrors()
+            self._apply_working()
+            if not docked:
+                self._start_engine()
+                if not self.state.paused and not self.state.shot_mode and not self._away:
+                    f.set_status(tr("继续工作，正在核对画面…"), "busy")
+            for o in self.overlays:
+                o.repaint_mirror(f.shown_rect)
+            f.shown_rect = f.mirror
+
+        def _repaint_screen(self, box: tuple) -> None:
+            for o in self.overlays:
+                o.repaint_rect(box)
 
         def add_mirror(self) -> None:
             if len(self.frames) >= 4:
@@ -397,6 +445,8 @@ def main() -> int:
             if not self.state.hidden:
                 f.show()
             self._sync_mirrors()
+            self._apply_working()
+            self._start_engine()
             self._save_mirrors()
             for o in self.overlays:
                 o.repaint_mirror()
@@ -406,15 +456,22 @@ def main() -> int:
                 return
             old = f.mirror
             self.frames.remove(f)
+            f.dock.close()
             f.close()
             self._sync_mirrors()
+            self._apply_working()
             self._save_mirrors()
             for o in self.overlays:
                 o.repaint_mirror(old)
 
+        def _keep_mirrors(self, cfg) -> None:
+            """魔镜的位置、收没收成球是程序自己记的：换设置、重新载入时照搬现在的。"""
+            cfg.mirror_rect = list(self.frame.mirror)
+            cfg.extra_mirrors = [list(f.mirror) for f in self.frames[1:]]
+            cfg.docks = [f.dock.saved() for f in self.frames]
+
         def _save_mirrors(self) -> None:
-            self.cfg.mirror_rect = list(self.frame.mirror)
-            self.cfg.extra_mirrors = [list(f.mirror) for f in self.frames[1:]]
+            self._keep_mirrors(self.cfg)
             self._save_timer.start()
 
         def _frame_menu(self, f: MirrorFrame, pos) -> None:
@@ -510,7 +567,7 @@ def main() -> int:
             f.set_pinned(False)
             if f.suspended:
                 f.suspended = False
-                if not self.state.hidden:
+                if not self.state.hidden and not f.dock.docked:
                     f.show()
                 self._sync_mirrors()
 
@@ -518,7 +575,7 @@ def main() -> int:
             """跟随窗口的魔镜：窗口动了就按相对位置跟着走；窗口最小化时收起，关掉了就取消跟随。"""
             changed = False
             for f in list(self.frames):
-                if f.bound is None:
+                if f.bound is None or f.dock.docked or f.dock.busy:
                     continue
                 hwnd, rel, last = f.bound
                 wr = winapi.window_rect(hwnd)
@@ -810,8 +867,9 @@ def main() -> int:
                     QSystemTrayIcon.MessageIcon.Warning, 10000)
 
         def _apply_working(self) -> None:
-            """截屏、识别、翻译要不要跑：用户暂停、截图模式、锁屏 / 屏保时都停下。"""
-            self.engine.set_working(not self.state.paused and not self.state.shot_mode and not self._away)
+            """截屏、识别、翻译要不要跑：用户暂停、截图模式、锁屏 / 屏保、魔镜都收成球时都停下。"""
+            self.engine.set_working(not self.state.paused and not self.state.shot_mode and not self._away
+                                    and not self._all_docked())
 
         def _guard_tick(self) -> None:
             """省钱保护：锁屏、屏保时完全停下；一段时间没碰键盘鼠标就只翻镜框里的（不在后台预译别处）。"""
@@ -1110,10 +1168,11 @@ def main() -> int:
         def toggle_visible(self) -> None:
             self.state.hidden = not self.state.hidden
             for f in self.frames:
-                f.setVisible(not self.state.hidden and not f.suspended)
+                f.dock.set_hidden(self.state.hidden)
+                f.setVisible(not self.state.hidden and not f.suspended and not f.dock.docked)
             self.act_toggle.setText(tr("显示魔镜") if self.state.hidden else tr("隐藏魔镜"))
             for o in self.overlays:
-                o.repaint_mirror()
+                o.update()
 
         def open_settings(self) -> None:
             if self._settings is not None and self._settings.isVisible():
@@ -1127,8 +1186,7 @@ def main() -> int:
             def done(result: int) -> None:
                 if result:
                     new = config.validate(dlg.collect())
-                    new.mirror_rect = list(self.frame.mirror)
-                    new.extra_mirrors = [list(f.mirror) for f in self.frames[1:]]
+                    self._keep_mirrors(new)
                     new.usage = self.cfg.usage      # 设置窗口打开期间的用量照样累计
                     new.update.skip_version = self.cfg.update.skip_version
                     self.apply_config(new, clear_memory=dlg.clear_memory_requested)
@@ -1156,6 +1214,7 @@ def main() -> int:
             self.act_chat.setChecked(self.cfg.scope.translate_chat)
             self.act_chat.blockSignals(False)
             self.state.renderer.set_style(self.cfg.style)
+            self.state.frame_color = QColor(self.cfg.style.border_color)
             for f in self.frames:
                 if f.color != QColor(self.cfg.style.border_color):
                     f.color = QColor(self.cfg.style.border_color)
@@ -1176,7 +1235,7 @@ def main() -> int:
             if save:
                 self._save()
             for o in self.overlays:
-                o.repaint_mirror()
+                o.update()                      # 球的颜色也可能换了
             if need_restart:
                 self.tray.showMessage(tr("桌面魔镜"), tr("识别设备、屏幕范围和滚动跟随的更改在下次启动时生效。"),
                                       QSystemTrayIcon.MessageIcon.Information, 5000)
@@ -1204,6 +1263,9 @@ def main() -> int:
                         winapi.keep_topmost(int(f.winId()))
                         if f.visual() is not f:                  # 色键窗口：看得见的那层压在接鼠标的那层上面
                             winapi.keep_topmost(int(f.visual().winId()))
+                    for f in self.frames:
+                        if f.dock.docked and f.dock.ball.isVisible():
+                            winapi.keep_topmost(int(f.dock.ball.winId()))
 
         def _hover_tip(self, now: float) -> None:
             """鼠标停在被截断的译文上时，显示全文；停在标签上的 token 用量上时，显示明细。"""
@@ -1215,10 +1277,24 @@ def main() -> int:
                     self._tip_bid = -1
                     self.tip.setText(meter.meter_tip)
                     self.tip.adjustSize()
-                    self.tip.move(x + 16, y + 20)
+                    self._place_tip(x, y)
                     self.tip.show()
                 return
             if self._tip_bid == -1:
+                self._tip_bid = 0
+                self.tip.hide()
+            ball = next((f.dock for f in self.frames if f.dock.docked and f.dock.hover_t and not f.dock.busy
+                         and f.dock.ball.isVisible()), None)
+            if ball is not None:
+                # 鼠标停在收起的球上：说一下怎么用
+                if self._tip_bid != -2 and now - ball.hover_t > 0.6:
+                    self._tip_bid = -2
+                    self.tip.setText(tr(BALL_TIP))
+                    self.tip.adjustSize()
+                    self._place_tip(x, y)
+                    self.tip.show()
+                return
+            if self._tip_bid == -2:
                 self._tip_bid = 0
                 self.tip.hide()
             target = None
@@ -1244,8 +1320,23 @@ def main() -> int:
             if not self.tip.isVisible() and now - self._hover_since > 0.35:
                 self.tip.setText(target.text)
                 self.tip.adjustSize()
-                self.tip.move(x + 16, y + 20)
+                self._place_tip(x, y)
                 self.tip.show()
+
+        def _place_tip(self, x: int, y: int) -> None:
+            """提示放在鼠标右下方；贴着屏幕右边、下边时放到另一侧，别伸出屏幕。"""
+            w, h = self.tip.width(), self.tip.height()
+            tx, ty = x + 16, y + 20
+            for m in winapi.monitors():
+                if geom.contains_pt(m.rect, x, y):
+                    l, t, r, b = m.work
+                    if tx + w > r:
+                        tx = x - 12 - w
+                    if ty + h > b:
+                        ty = y - 12 - h
+                    tx, ty = max(l, tx), max(t, ty)
+                    break
+            self.tip.move(tx, ty)
 
         def _save_usage(self) -> None:
             u = self.cfg.usage
@@ -1289,8 +1380,7 @@ def main() -> int:
                 log.warning("配置文件被改过但格式不对，没有载入")
                 return
             new = config.load()
-            new.mirror_rect = list(self.frame.mirror)
-            new.extra_mirrors = [list(f.mirror) for f in self.frames[1:]]
+            self._keep_mirrors(new)
             new.usage = self.cfg.usage
             self._cfg_stamp = self._cfg_seen = self._config_stamp()
             log.info("配置文件被别的程序改过，已重新载入")
@@ -1313,8 +1403,17 @@ def main() -> int:
                         "hidden": self.state.hidden, "paused": self.state.paused, "grab": self.frame.grab_mode,
                         "shot_mode": self.state.shot_mode, "colorkey": layered.colorkey(),
                         "frame_hwnds": [[int(f.winId()), int(f.visual().winId())] for f in self.frames],
+                        "engine_on": self._engine_on, "working": self.engine.working,
                         "mirrors": [{"rect": list(f.mirror), "bound": f.bound[0] if f.bound else 0,
-                                     "suspended": f.suspended, "visible": f.isVisible()} for f in self.frames]}
+                                     "suspended": f.suspended, "visible": f.isVisible(), "docked": f.dock.docked,
+                                     "edge": f.dock.edge, "tucked": f.dock.tucked, "busy": f.dock.busy,
+                                     "ghost": f.ghost, "ball": [f.dock.ball.x(), f.dock.ball.y(),
+                                                                f.dock.ball.x() + f.dock.ball.width(),
+                                                                f.dock.ball.y() + f.dock.ball.height()],
+                                     "ball_visible": f.dock.ball.isVisible(), "saved": f.dock.saved(),
+                                     "shape": ([round(v, 1) for v in (sh.x, sh.y, sh.w, sh.h, sh.k)]
+                                               if (sh := f.dock.shape()) is not None else None)}
+                                    for f in self.frames]}
             if cmd == "cfg":
                 # 程序此刻用的设置（测热载入用）；API Key 不给
                 return {k: config.get_key(self.cfg, k) for k in req.get("keys", ()) if not k.endswith("api_key")}
@@ -1604,10 +1703,31 @@ def main() -> int:
                 self.take_shot(req.get("kind", "trans"))
                 return {"ok": True, "path": self._last_shot}
             if cmd == "buttons":
-                # 标签上各按钮的屏幕位置（测试脚本用真实鼠标去点）
-                ox, oy = self.frame._origin
-                return {n: [r.left() + ox, r.top() + oy, r.right() + 1 + ox, r.bottom() + 1 + oy]
-                        for n, r in self.frame._buttons.items()}
+                # 标签上各按钮、抓手的屏幕位置（测试脚本用真实鼠标去点、去拖）
+                f = self.frames[int(req.get("index", 0))]
+                ox, oy = f._origin
+                out = {n: [r.left() + ox, r.top() + oy, r.right() + 1 + ox, r.bottom() + 1 + oy]
+                       for n, r in f._buttons.items()}
+                g = f._grip_rect()
+                out["grip"] = [g.left() + ox, g.top() + oy, g.right() + 1 + ox, g.bottom() + 1 + oy]
+                out["tab"] = list(f._tab)
+                return out
+            if cmd == "dock":
+                # 不要动画直接收成球（spot：{"edge", "x", "y"}，不给就吸到近的一边）；unfold：点开
+                f = self.frames[int(req.get("index", 0))]
+                if req.get("unfold"):
+                    f.dock.unfold()
+                else:
+                    f.dock.dock_now(req.get("spot"))
+                return {"ok": True, "docked": f.dock.docked}
+            if cmd == "dock_trace":
+                # 吸边动画最近的帧（时间与 now 同一时间轴、形状），验收时量帧间隔、看形状怎么变
+                f = self.frames[int(req.get("index", 0))]
+                since = float(req.get("since", 0)) + self.engine.started
+                rows = [[round(t - self.engine.started, 4), *rest] for t, *rest in f.dock.trace if t >= since]
+                if req.get("clear"):
+                    f.dock.trace.clear()
+                return {"frames": rows}
             return {"error": f"unknown cmd {cmd}"}
 
         def _record_background(self, region: tuple):
@@ -1652,16 +1772,17 @@ def main() -> int:
             self._guard_timer.stop()
             self._count_engine_usage()
             self.hotkeys.unregister_all()
-            self.cfg.mirror_rect = list(self.frame.mirror)
-            self.cfg.extra_mirrors = [list(f.mirror) for f in self.frames[1:]]
+            self._keep_mirrors(self.cfg)
             self._save()
             if self.debug is not None:
                 self.debug.close()
             self.engine.stop()
-            self.engine.join(6.0)
+            if self._engine_on:
+                self.engine.join(6.0)
             for o in self.overlays:
                 o.close()
             for f in self.frames:
+                f.dock.close()
                 f.close()
             self.tip.close()
             self.history.close()

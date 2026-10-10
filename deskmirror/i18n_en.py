@@ -8,6 +8,9 @@ EN: dict[str, str] = {
     # app.py
     '已暂停：不识别、不翻译（点“继续”恢复）':
         'Paused: not recognizing or translating (click “Resume” to continue)',
+    '魔镜收起来了，翻译已停下。点一下回到原来的地方，或者拖出来放到要翻译的地方。':
+        'The mirror is tucked away and translation has stopped. Click to put it back where it was, '
+        'or drag it out onto what you want translated.',
     '桌面魔镜':
         'DeskMirror',
     '魔镜已经在运行了（看看右下角托盘图标）。':
@@ -597,6 +600,8 @@ EN: dict[str, str] = {
         "the mirror's position: drag the mirror to change it",
     '另外开的魔镜：在魔镜标签上右键来开、关':
         "extra mirrors: open and close them by right-clicking a mirror's tab",
+    '收成球的魔镜：拖到屏幕边缘来收，点一下球或者拖出来展开':
+        'mirrors tucked into a ball: drag one to a screen edge to tuck it away; click the ball or drag it out to open it',
     '术语表：用 glossary 命令改':
         'the glossary: use the glossary command',
     '当天用量：程序自己记':

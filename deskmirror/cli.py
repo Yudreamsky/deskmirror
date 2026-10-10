@@ -29,6 +29,7 @@ RESTART = config.RESTART_KEYS
 READONLY = {
     "mirror_rect": N_("魔镜的位置：拖魔镜来改"),
     "extra_mirrors": N_("另外开的魔镜：在魔镜标签上右键来开、关"),
+    "docks": N_("收成球的魔镜：拖到屏幕边缘来收，点一下球或者拖出来展开"),
     "glossary": N_("术语表：用 glossary 命令改"),
     "usage": N_("当天用量：程序自己记"),
     "update.last_check": N_("上次自动检查更新的日期：程序自己记"),
