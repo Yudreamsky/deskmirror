@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QSpinBox,
                                QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
-from .. import winapi
+from .. import autostart, winapi
 from . import layered
 from .about import AboutPage
 from ..config import (DEFAULT_EXCLUDE_APPS, DEFAULT_EXCLUDE_TITLES, LANGUAGES, OPENAI_PRESETS, SCOPE_MODES,
@@ -328,6 +328,13 @@ class SettingsDialog(QDialog):
             self.opacity.setToolTip(tr("这台电脑（Windows 10）上底板总是不透明"))
         lf.addRow(tr("底板不透明度"), self.opacity)
         lay.addWidget(look)
+        boot = QGroupBox(tr("启动"))
+        bl = QVBoxLayout(boot)
+        self.autostart = QCheckBox(tr("开机时自动启动桌面魔镜（收成球待命：点开或拖出来才开始识别、翻译）"))
+        self.autostart.setChecked(autostart.enabled())      # 以注册表为准（任务管理器里禁用了也算没开）
+        self.autostart_was = self.autostart.isChecked()
+        bl.addWidget(self.autostart)
+        lay.addWidget(boot)
         lay.addStretch(1)
         return page
 

@@ -21,6 +21,11 @@ browser or extension.
   translated paragraphs appear one by one.
 - **Quit**: right-click the tray icon → Quit. The mirror, the overlays and the background recognition process all
   close together.
+- **Start with Windows** (off by default): Settings → Recognition and display → Startup, or on the command line
+  `config set autostart true`. After you sign in, the mirror waits tucked away as a ball at the edge of the screen,
+  without capturing or recognizing anything; it starts when you click the ball or drag it out (text recognition gets
+  ready only then, so it doesn't slow down startup). It's stored in Windows' startup list, so you can also turn it off
+  under Startup apps in Task Manager.
 - To see the log: `start.bat debug` (runs with a console window). The log file is `logs\deskmirror.log`; it records
   only timings and counts, never screen text.
 
@@ -30,6 +35,8 @@ browser or extension.
 |---|---|
 | Move the mirror | Drag the dark tab above the mirror, or **hold Ctrl+Alt** and drag anywhere inside the frame |
 | Resize it | Drag the blue border or one of the four corners |
+| Tuck it away as a ball | Drag the tab (or the six-dot grip at its left end) towards the edge of the screen. When the mouse reaches the edge, the mirror shrinks into a ball stuck to that edge and **translation stops** (when every mirror is tucked away, nothing is captured or recognized and no tokens are spent). Let go and the ball slides halfway into the edge; move the mouse onto it and it slides out. Any of the four edges works, except edges where two screens meet; the top edge only counts when you push the mouse all the way up, so dragging the mirror onto a menu bar doesn't tuck it away. Dragging inside the frame with Ctrl+Alt held never tucks it away, so you can still put the mirror right against the edge |
+| Bring it back | **Click the ball**: the mirror goes back to where it was and carries on translating. Or **drag the ball out**: once it leaves the edge it opens into a dashed frame that follows the mouse, translation starts and translations already appear inside; let go and the mirror lands there. Drag it back to the edge and it becomes a ball again. Whether it's tucked away, and where, is remembered for the next start |
 | Use the program underneath | Just click, select text and scroll inside the frame; it all goes to the program underneath |
 | Peek at the original | **Hold Ctrl+Alt+O**; release it to get the translation back |
 | Refresh inside the frame | **Ctrl+Alt+T**, or click ⟳ on the tab (checks again, recognizes again and retries failed translations; the cache elsewhere is not affected) |
@@ -247,8 +254,9 @@ restart, and the command tells you so.
 - **Reset to default settings**: quit DeskMirror, delete `deskmirror.json` in the program folder (the unzipped folder,
   or the project folder when running from source) and start it again (the API key is removed too and has to be
   entered again).
-- **Uninstall**: quit DeskMirror and delete the whole program folder. It doesn't change any system settings and
-  doesn't start with Windows.
+- **Uninstall**: quit DeskMirror and delete the whole program folder. It doesn't change any system settings. If you
+  turned on starting with Windows, turn it off first (Settings → Recognition and display, or `config set autostart
+  false`); otherwise Windows' startup list keeps an entry pointing at a program that's gone.
 
 ## Known limitations
 

@@ -496,6 +496,11 @@ EN: dict[str, str] = {
         'Scroll following',
     '显示':
         'Display',
+    '启动':
+        'Startup',
+    '开机时自动启动桌面魔镜（收成球待命：点开或拖出来才开始识别、翻译）':
+        'Start DeskMirror with Windows (it waits tucked away as a ball and starts recognizing and translating '
+        'when you click it or drag it out)',
     '界面语言':
         'Interface language',
     '最小字号':
@@ -620,6 +625,9 @@ EN: dict[str, str] = {
         'Translation service address, e.g. https://api.deepseek.com or http://127.0.0.1:11434',
     '翻译用的模型名（models 命令列出服务现有的模型）':
         'Model used for translation (the models command lists what the service offers)',
+    '开机时自动启动桌面魔镜（启动后收成球待命，点开或拖出来才开始识别）；写在 Windows 的启动项里，不在配置文件里':
+        "Start DeskMirror with Windows (it waits tucked away as a ball and starts recognizing when you click it or "
+        "drag it out); stored in Windows' startup list, not in the config file",
     '翻译服务的 API Key（本机 Ollama 不用填）；用 Windows 账户加密存在本机':
         'API key of the translation service (not needed for Ollama on this PC); stored on this PC, encrypted with your Windows account',
     '译文的随机程度，越低越稳定':
@@ -720,6 +728,10 @@ EN: dict[str, str] = {
         "The model name can't be empty",
     '正在运行的魔镜一秒内会自动载入。':
         'The running mirror will pick this up within a second.',
+    '已写进 Windows 的启动项，下次开机生效。':
+        "Saved to Windows' startup list; it takes effect the next time Windows starts.",
+    '开机启动没设上：{error}':
+        "Couldn't set up starting with Windows: {error}",
     '魔镜没在运行，下次启动时生效。':
         "DeskMirror isn't running; this takes effect the next time it starts.",
     '这个服务没有默认模型：先用 models 命令看看有哪些，再 config set llm.model 名字。':

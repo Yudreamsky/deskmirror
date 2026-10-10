@@ -13,7 +13,7 @@ import time
 
 os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "0")  # 全程用物理像素，和截屏坐标一致
 
-from . import ROOT, __version__, config, geom, i18n, winapi  # noqa: E402
+from . import ROOT, __version__, autostart as boot, config, geom, i18n, winapi  # noqa: E402
 from .i18n import N_, tr  # noqa: E402
 
 log = logging.getLogger("deskmirror")
@@ -274,6 +274,11 @@ def main() -> int:
             self.about: AboutDialog | None = None
             if cfg.first_run_tip:
                 QTimer.singleShot(1200, self.open_guide)     # 第一次启动：新手指南（看完或关掉就不再自动打开）
+            try:
+                if boot.refresh():
+                    log.info("程序挪了地方：开机启动项改成现在的路径")
+            except OSError as e:
+                log.warning("开机启动项更新失败：%s", e)
 
         # -------------------------------------------------------------- 托盘菜单、界面语言
         def _build_menu(self) -> None:
@@ -1190,9 +1195,22 @@ def main() -> int:
                     new.usage = self.cfg.usage      # 设置窗口打开期间的用量照样累计
                     new.update.skip_version = self.cfg.update.skip_version
                     self.apply_config(new, clear_memory=dlg.clear_memory_requested)
+                    if dlg.autostart.isChecked() != dlg.autostart_was:
+                        self.set_autostart(dlg.autostart.isChecked())
                 self._settings = None
             dlg.finished.connect(done)
             dlg.show()
+
+        def set_autostart(self, on: bool) -> None:
+            """开机自动启动：写进 / 删掉 Windows 的启动项（不在配置文件里）。"""
+            try:
+                boot.set_enabled(on)
+            except OSError as e:
+                log.warning("开机启动项写不进去：%s", e)
+                self.tray.showMessage(tr("桌面魔镜"), tr("开机启动没设上：{error}").format(error=e),
+                                      QSystemTrayIcon.MessageIcon.Warning, 6000)
+                return
+            log.info("开机自动启动：%s", "打开" if on else "关闭")
 
         def apply_config(self, new, save: bool = True, clear_memory: bool = False) -> None:
             """换上新的设置（设置窗口点了确定，或者配置文件被命令行改了），能马上生效的马上生效。"""
