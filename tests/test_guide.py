@@ -228,8 +228,8 @@ class EnglishUiTest(unittest.TestCase):
         cfg.ui_lang = "en"
         d = SettingsDialog(cfg)
         self.assertEqual([d.tabs.tabText(i) for i in range(d.tabs.count())],
-                         ["Translation service", "Scope and privacy", "Glossary", "Recognition and display", "Hotkeys",
-                          "About"])
+                         ["Translation service", "Scope and privacy", "Glossary", "Recognition and display", "Text boxes",
+                          "Hotkeys", "About"])
         self.assertEqual(d.source.itemText(0), "Auto-detect")
         self.assertEqual(d.ui_lang.currentData(), "en")
         d.ui_lang.setCurrentIndex(d.ui_lang.findData("zh"))

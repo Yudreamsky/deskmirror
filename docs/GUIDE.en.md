@@ -21,6 +21,11 @@ browser or extension.
   translated paragraphs appear one by one.
 - **Quit**: right-click the tray icon → Quit. The mirror, the overlays and the background recognition process all
   close together.
+- **Start with Windows** (off by default): Settings → Recognition and display → Startup, or on the command line
+  `config set autostart true`. After you sign in, the mirror waits tucked away as a ball at the edge of the screen,
+  without capturing or recognizing anything; it starts when you click the ball or drag it out (text recognition gets
+  ready only then, so it doesn't slow down startup). It's stored in Windows' startup list, so you can also turn it off
+  under Startup apps in Task Manager.
 - To see the log: `start.bat debug` (runs with a console window). The log file is `logs\deskmirror.log`; it records
   only timings and counts, never screen text.
 
@@ -30,6 +35,8 @@ browser or extension.
 |---|---|
 | Move the mirror | Drag the dark tab above the mirror, or **hold Ctrl+Alt** and drag anywhere inside the frame |
 | Resize it | Drag the blue border or one of the four corners |
+| Tuck it away as a ball | Drag the tab (or the six-dot grip at its left end) towards the edge of the screen. When the mouse reaches the edge, the mirror shrinks into a ball stuck to that edge and **translation stops** (when every mirror is tucked away, nothing is captured or recognized and no tokens are spent). Let go and the ball slides halfway into the edge; move the mouse onto it and it slides out. Any of the four edges works, except edges where two screens meet; the top edge only counts when you push the mouse all the way up, so dragging the mirror onto a menu bar doesn't tuck it away. Dragging inside the frame with Ctrl+Alt held never tucks it away, so you can still put the mirror right against the edge |
+| Bring it back | **Click the ball**: the mirror goes back to where it was and carries on translating. Or **drag the ball out**: once it leaves the edge it opens into a dashed frame that follows the mouse, translation starts and translations already appear inside; let go and the mirror lands there. Drag it back to the edge and it becomes a ball again. Whether it's tucked away, and where, is remembered for the next start |
 | Use the program underneath | Just click, select text and scroll inside the frame; it all goes to the program underneath |
 | Peek at the original | **Hold Ctrl+Alt+O**; release it to get the translation back |
 | Refresh inside the frame | **Ctrl+Alt+T**, or click ⟳ on the tab (checks again, recognizes again and retries failed translations; the cache elsewhere is not affected) |
@@ -39,6 +46,7 @@ browser or extension.
 | Pause / resume | Click **Pause** on the tab (also in the tray menu): the frame stays, but nothing is captured, recognized or translated (no translation cost), and the mirror shows no translations. The button turns into a yellow **Resume**; click it to continue: the screen is checked again first, and anything already seen comes from the cache without new requests |
 | Settings | ⚙ on the tab, or right-click the tray icon → Settings… |
 | Getting started, About | Right-click the tray icon → Getting started… / About… (version, author's email, project page); the getting-started guide opens automatically on first launch |
+| Change the look (liquid glass) | Settings → Recognition and display → Display → **Skin** → "Liquid glass" (command line: `config set style.skin glass`), effective at once. The border becomes a ring of curved glass around the frame with rounded corners: what's behind it is stretched across the ring and bent around the corners, with a faint rainbow fringe at the edge. The tab becomes a strip of glass floating above the border, and the ball becomes a glass ball. The glass follows what's behind it: white glass over light pages, smoky glass over dark games and programs. The glass ring is also where you drag to resize. Choose "Classic" to get exactly the old look back |
 | Interface language | In step 1 of the getting-started guide you pick your native language: translations come out in it, and the interface is in Chinese (if you chose Simplified or Traditional Chinese) or in English (for any other language). Change it later in Settings → Recognition and display → Interface language; it takes effect at once |
 | Open another mirror | Right-click the tray icon → New mirror, or right-click the mirror's tab → New mirror (up to 4); right-click an extra mirror's tab to close it |
 | Make the mirror follow a window | Right-click the mirror's tab → Follow the window below: when the window moves or resizes, the mirror keeps its relative position; when the window is minimized the mirror hides, and when the window closes, following stops (the tab shows 📌) |
@@ -110,6 +118,36 @@ Recognition and translation order: first everything inside the mirror, then a ri
 after ring outwards until the whole screen is covered; content that hasn't changed isn't recognized or translated
 again.
 
+## Text box translation (turn what you type into another language)
+
+When chatting with colleagues abroad, answering an email or writing a comment: type in your own language in any
+program's text box, then **press Space three times** and the whole box turns into the other language (by default
+Simplified Chinese if your own language is English, otherwise English; choose in Settings → Text boxes). **Press Space
+three times again to switch back to the original**, and again for the translation; switching back and forth reuses
+the remembered text, so it doesn't ask for a new translation or spend tokens. Ctrl+Z undoes it too. It's off by
+default; turn it on in Settings → Text boxes (command line: `config set input.enabled true`).
+
+- At most half a second between presses; holding Space down, or Space with Ctrl / Alt / Shift / Win, doesn't count,
+  and neither does pressing Space at the start of a line (indenting). With a Chinese input method the first Space often
+  picks a candidate; just press once more (any three presses in a row count).
+- Or press the shortcut **Ctrl+Alt+J** (change it in Settings → Hotkeys): no Spaces needed; press it again for the
+  original.
+- If you keep typing or switch windows while it's translating, the box isn't replaced; a small note next to the box
+  says why.
+- The text goes back in by pasting (select all, then paste), so the editors in chat apps that keep their own copy of
+  the text really change too and what you send is the translation. Pasting borrows the clipboard and then puts your
+  previous clipboard back; the borrowed paste stays out of clipboard history (Win+V).
+- The text is read with Windows UI Automation (what screen readers use). Some programs draw their own interface and
+  their text boxes can't be read: there, pressing Space three times does nothing, and the shortcut copies the text out
+  with Ctrl+A and Ctrl+C to read it (that copy does go into clipboard history).
+- Privacy: it only listens to Space and Ctrl, Alt, Shift and Win; other keys are neither looked at nor recorded.
+  Password boxes are never touched. The text and its translation are kept in memory only (the last 20 pairs), never
+  written to disk. Usage counts towards today's tokens and the daily limit as usual; the usage log records counts only.
+- Left alone by default (change it in Settings): browsers (if the
+  [browser version](https://github.com/Yudreamsky/deskmirror-browser) is installed it also answers three Spaces in web
+  pages, and both would swap the text), code editors and terminals (where pressing Space several times is common).
+  Boxes with more than 4,000 characters aren't translated either.
+
 ## Translation scope and privacy
 
 Settings → "Scope and privacy" (the tray menu also has "Pre-translation scope" and "Don't translate the program
@@ -180,7 +218,7 @@ Other settings: the source and target languages (by default auto-detect → Simp
 in the getting-started guide; the language button on the tab changes them too), whether text recognition runs on the
 graphics card or the CPU (switch to the CPU while gaming so it doesn't compete with the game for the graphics card),
 whether all screens are processed (by default only the mirror's screen), mouse wheel prediction, the minimum font
-size, the backing opacity and the hotkeys.
+size, the backing opacity, the skin (classic / liquid glass) and the hotkeys.
 Changes to the recognition device, the screens and wheel prediction take effect the next time DeskMirror starts.
 
 ## Default parameters (adjustable in deskmirror.json)
@@ -201,6 +239,7 @@ the file directly: a running DeskMirror picks up the changes within a second.
 | `style.min_font_px` / `min_scale` | 11 / 0.75 | When a translation doesn't fit, it shrinks to at most 11 pixels or 75% of the original size. If there is plain space to the right it borrows it (often needed when Chinese or Japanese turns into English; never past text on the right or over pictures), then takes plain space below. Above a panel border, a picture or moving video it first shrinks a little more (down to 60% of the original size), and only then covers it; if it still doesn't fit, it is cut off and marked. English words are kept whole where possible |
 | `style.min_squash` | 0.6 | When English and similar text doesn't fit, it may be narrowed to 60% of its width: first to 80% (barely visible), then the font shrinks; narrower than that only when the text would otherwise spill out of its panel or shrink further. Chinese, Japanese and Korean text stops at 80% |
 | `style.plate_opacity` | 1.0 | Backing opacity (1 = the original is fully covered) |
+| `style.skin` | classic | The mirror's look: classic / glass (liquid glass). The refraction uses the screen pictures DeskMirror captures anyway, and only the part of the border whose background changed is redrawn; while paused or tucked away it takes a small capture every 0.25 seconds to see whether anything changed |
 
 ## Command line (let an AI assistant set it up)
 
@@ -247,8 +286,9 @@ restart, and the command tells you so.
 - **Reset to default settings**: quit DeskMirror, delete `deskmirror.json` in the program folder (the unzipped folder,
   or the project folder when running from source) and start it again (the API key is removed too and has to be
   entered again).
-- **Uninstall**: quit DeskMirror and delete the whole program folder. It doesn't change any system settings and
-  doesn't start with Windows.
+- **Uninstall**: quit DeskMirror and delete the whole program folder. It doesn't change any system settings. If you
+  turned on starting with Windows, turn it off first (Settings → Recognition and display, or `config set autostart
+  false`); otherwise Windows' startup list keeps an entry pointing at a program that's gone.
 
 ## Known limitations
 

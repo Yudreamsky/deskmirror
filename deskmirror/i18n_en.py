@@ -8,6 +8,9 @@ EN: dict[str, str] = {
     # app.py
     '已暂停：不识别、不翻译（点“继续”恢复）':
         'Paused: not recognizing or translating (click “Resume” to continue)',
+    '魔镜收起来了，翻译已停下。点一下回到原来的地方，或者拖出来放到要翻译的地方。':
+        'The mirror is tucked away and translation has stopped. Click to put it back where it was, '
+        'or drag it out onto what you want translated.',
     '桌面魔镜':
         'DeskMirror',
     '魔镜已经在运行了（看看右下角托盘图标）。':
@@ -493,12 +496,98 @@ EN: dict[str, str] = {
         'Scroll following',
     '显示':
         'Display',
+    # 输入框翻译（fieldtrans.py、设置、命令行）
+    '翻译正在打字的输入框，再按一次换回原文（打开输入框翻译时才有）':
+        'Translate the text box you are typing in; press again for the original (only when text box translation is on)',
+    '输入框翻译：在别的软件的输入框里打完母语，连按三次空格（或按 hotkeys.input），整个框换成另一种语言，再按换回原文；要听键盘（只听空格），默认关':
+        'Text box translation: after typing in your own language in another program, press Space three times (or '
+        'hotkeys.input) to turn the whole box into another language, and again to switch back; it listens to the '
+        'keyboard (only the Space key), so it is off by default',
+    '输入框翻译成什么语言；空着 = 母语是英文时译成简体中文，否则译成英文':
+        'Language to turn text boxes into; empty = Simplified Chinese if your own language is English, otherwise English',
+    '输入框翻译不管的程序（exe 文件名，逗号分隔）；默认是浏览器（浏览器版自己会翻）、写代码的编辑器和命令行':
+        'Programs text box translation leaves alone (exe names, comma-separated); by default browsers (the browser '
+        'version handles those), code editors and terminals',
+    '翻译中…':
+        'Translating…',
+    '今天的 token 已用到上限，没有翻译（设置 → 范围与隐私 里可以调）':
+        "Today's token limit has been reached, so nothing was translated (change it in Settings → Scope and privacy)",
+    '翻译失败：服务没有返回译文':
+        'Translation failed: the service returned no translation',
+    '翻译失败：{error}':
+        'Translation failed: {error}',
+    '窗口换了，没有替换':
+        'You switched windows, so the text was not replaced',
+    '密码框不翻译':
+        'Password boxes are never translated',
+    '框里没有字':
+        'The box is empty',
+    '框里的字变了，没有替换':
+        'The text changed, so it was not replaced',
+    '已换回原文 · 再连按三次空格（或 {key}）换成译文':
+        'Original back · Space 3× (or {key}) again for the translation',
+    '已翻译 · 再连按三次空格（或 {key}）换回原文':
+        'Translated · Space 3× (or {key}) again for the original',
+    '这里没有能打字的输入框':
+        "There's no text box to type in here",
+    '这个输入框没有接受粘贴，没有替换':
+        "This box didn't accept the paste, so nothing was replaced",
+    '{app} 在输入框翻译不管的程序里（设置 → 输入框翻译 里可以改）':
+        '{app} is on the list of programs text box translation leaves alone (change it in Settings → Text boxes)',
+    '框里的字太多（超过 {n} 字），没有翻译':
+        'Too much text in the box (over {n} characters), so it was not translated',
+    '读不到框里的字':
+        "Couldn't read the text in the box",
+    '剪贴板用不了，没有替换：{error}':
+        "The clipboard isn't available, so the text was not replaced: {error}",
+    '输入框翻译':
+        'Text boxes',
+    '打开输入框翻译':
+        'Turn on text box translation',
+    '自动：母语是英文时译成简体中文，否则译成英文':
+        'Automatic: Simplified Chinese if your own language is English, otherwise English',
+    '翻译成':
+        'Translate into',
+    '不管的程序':
+        'Leave these alone',
+    '翻译输入框（打开输入框翻译时）':
+        'Translate the text box (when text box translation is on)',
+    '默认不管浏览器（装了桌面魔镜浏览器版的话，它在网页里也会响应三次空格，两边会各换一次）、写代码的编辑器和命令行（连按空格很常见）。':
+        'By default browsers are left alone (if the DeskMirror browser extension is installed it also answers three '
+        'Spaces in web pages, and both would swap the text), and so are code editors and terminals (where pressing '
+        'Space several times is common).',
+    '只听空格和 Ctrl、Alt、Shift、Win 键，别的按键不看、不记。框里的字和译文只放在内存里（最近 20 对），不写硬盘。写回去时借用剪贴板粘贴，粘完放回你原来的内容，借用的那一下不进剪贴板历史。密码框一概不碰。读不到框里的字的软件，连按三次空格不起作用；按快捷键时会用 Ctrl+A、Ctrl+C 复制出来读（这时你的字会进剪贴板历史）。':
+        'It only listens to Space and Ctrl, Alt, Shift and Win; other keys are neither looked at nor recorded. The text '
+        'and its translation are kept in memory only (the last 20 pairs), never written to disk. To put the text back '
+        'it borrows the clipboard to paste, then puts your previous clipboard back; the borrowed paste stays out of '
+        'clipboard history. Password boxes are never touched. In programs whose text boxes cannot be read, pressing '
+        'Space three times does nothing; the shortcut then copies the text out with Ctrl+A and Ctrl+C to read it (that '
+        'copy does go into clipboard history).',
+    '在别的软件的输入框里用母语打完字，连按三次空格（或按快捷键 {key}），整个框换成下面选的语言；再连按三次换回原文，再按又换成译文。来回换用记着的字，不再请求翻译。Ctrl+Z 能撤回。':
+        'After typing in your own language in another program, press Space three times (or the shortcut {key}) to turn '
+        'the whole box into the language below; press three times again for the original, and again for the '
+        'translation. Switching back and forth reuses the remembered text without asking for a new translation. '
+        'Ctrl+Z undoes it.',
+    '启动':
+        'Startup',
+    '开机时自动启动桌面魔镜（收成球待命：点开或拖出来才开始识别、翻译）':
+        'Start DeskMirror with Windows (it waits tucked away as a ball and starts recognizing and translating '
+        'when you click it or drag it out)',
     '界面语言':
         'Interface language',
     '最小字号':
         'Minimum font size',
     '底板不透明度':
         'Backing opacity',
+    '皮肤':
+        'Skin',
+    '经典':
+        'Classic',
+    '液态玻璃':
+        'Liquid glass',
+    '液态玻璃：边框是一圈弧形的玻璃，后面的画面在边上被拉伸、弯折；标签、球是半透明的玻璃，后面是深色画面时自动换成烟灰色':
+        'Liquid glass: the border is a ring of curved glass that stretches and bends what\'s behind it at the edge; '
+        'the tab and the ball are translucent glass that turns smoky grey over dark backgrounds',
     '按住后在镜内拖动':
         'Hold to drag inside the mirror',
     '按住显示原文':
@@ -597,6 +686,8 @@ EN: dict[str, str] = {
         "the mirror's position: drag the mirror to change it",
     '另外开的魔镜：在魔镜标签上右键来开、关':
         "extra mirrors: open and close them by right-clicking a mirror's tab",
+    '收成球的魔镜：拖到屏幕边缘来收，点一下球或者拖出来展开':
+        'mirrors tucked into a ball: drag one to a screen edge to tuck it away; click the ball or drag it out to open it',
     '术语表：用 glossary 命令改':
         'the glossary: use the glossary command',
     '当天用量：程序自己记':
@@ -615,6 +706,9 @@ EN: dict[str, str] = {
         'Translation service address, e.g. https://api.deepseek.com or http://127.0.0.1:11434',
     '翻译用的模型名（models 命令列出服务现有的模型）':
         'Model used for translation (the models command lists what the service offers)',
+    '开机时自动启动桌面魔镜（启动后收成球待命，点开或拖出来才开始识别）；写在 Windows 的启动项里，不在配置文件里':
+        "Start DeskMirror with Windows (it waits tucked away as a ball and starts recognizing when you click it or "
+        "drag it out); stored in Windows' startup list, not in the config file",
     '翻译服务的 API Key（本机 Ollama 不用填）；用 Windows 账户加密存在本机':
         'API key of the translation service (not needed for Ollama on this PC); stored on this PC, encrypted with your Windows account',
     '译文的随机程度，越低越稳定':
@@ -659,6 +753,9 @@ EN: dict[str, str] = {
         'Plate opacity (1 = covers the original completely; always 1 on Windows 10)',
     '魔镜边框的颜色，比如 #3D8BFD':
         "Colour of the mirror's border, e.g. #3D8BFD",
+    '魔镜的样子：classic 经典 / glass 液态玻璃（边框一圈像弧形玻璃，折射后面的画面）':
+        "The mirror's look: classic / glass (liquid glass: the border is a ring of curved glass that refracts "
+        "what's behind it)",
     '区域静止多久后才识别新文字（毫秒）':
         'How long an area must stay still before new text is recognized (ms)',
     '视频、游戏画面多久抓拍识别一次（毫秒）':
@@ -715,6 +812,10 @@ EN: dict[str, str] = {
         "The model name can't be empty",
     '正在运行的魔镜一秒内会自动载入。':
         'The running mirror will pick this up within a second.',
+    '已写进 Windows 的启动项，下次开机生效。':
+        "Saved to Windows' startup list; it takes effect the next time Windows starts.",
+    '开机启动没设上：{error}':
+        "Couldn't set up starting with Windows: {error}",
     '魔镜没在运行，下次启动时生效。':
         "DeskMirror isn't running; this takes effect the next time it starts.",
     '这个服务没有默认模型：先用 models 命令看看有哪些，再 config set llm.model 名字。':

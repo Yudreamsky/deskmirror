@@ -1,6 +1,7 @@
 """覆盖层：每个显示器一个铺满屏幕的透明窗口，只在魔镜矩形内画译文。
 
 窗口本身不随魔镜移动（译文锚定在屏幕上），移动魔镜只改变裁剪范围并重画进出的区域。
+魔镜收成球、从球变回来的形状也画在这里（见 dock.py）：变形期间译文按形状裁剪。
 窗口鼠标穿透、不抢焦点、对截屏隐身（不会把自己的译文当原文识别）。Windows 10 上是色键窗口，见 layered.py。
 """
 from __future__ import annotations
@@ -16,6 +17,7 @@ from .. import geom, winapi
 from ..geom import Rect
 from ..scene import Snapshot
 from . import layered
+from .dock import opening_region, paint_shape
 from .render import Renderer
 
 
@@ -25,7 +27,10 @@ class UiState:
     def __init__(self, renderer: Renderer) -> None:
         self.renderer = renderer
         self.mirror: Rect = (0, 0, 0, 0)       # 主魔镜（状态、截图、调试命令用）
-        self.mirrors: list[Rect] = []          # 所有显示中的魔镜（画译文用）
+        self.mirrors: list[Rect] = []          # 所有显示中的魔镜（画译文用；收成球的、正在变形的不在里面）
+        self.shapes: dict = {}                 # 正在变形的框和收起的球（dock.Shape）：变形中的译文按形状裁剪
+        self.balls: dict = {}                  # 液态玻璃皮肤：收好的球按后面的画面折射好的样子（dock.GlassBall），键同上
+        self.frame_color = QColor("#3D8BFD")   # 魔镜边框的颜色（球也用它）
         self.snapshot: Snapshot | None = None
         self.peek = False           # 按住看原文
         self.hidden = False         # 魔镜隐藏
@@ -70,10 +75,16 @@ class Overlay(QWidget):
         return QRect(r[0] - l, r[1] - t, r[2] - r[0], r[3] - r[1])
 
     def _mirrors(self) -> list[Rect]:
-        return self.state.mirrors or [self.state.mirror]
+        return self.state.mirrors
+
+    def repaint_rect(self, r: Rect) -> None:
+        """重画屏幕上的一块（变形中的形状、滑动的球）。"""
+        c = geom.inter(r, self.mon.rect)
+        if not geom.empty(c):
+            self.update(self.local(c))
 
     def repaint_mirror(self, old: Rect | None = None) -> None:
-        """重画所有魔镜的范围（以及移动前的范围）。"""
+        """重画所有魔镜的范围（以及移动前的范围、变形中显示译文的形状）。"""
         reg = QRegion()
         for mr in self._mirrors():
             m = geom.inter(mr, self.mon.rect)
@@ -83,6 +94,10 @@ class Overlay(QWidget):
             o = geom.inter(old, self.mon.rect)
             if not geom.empty(o):
                 reg = reg.united(QRegion(self.local(o)))
+        for s in self.state.shapes.values():
+            c = geom.inter(s.box(), self.mon.rect)
+            if s.text and not geom.empty(c):         # 变形中框里的译文：新快照来了也要重画
+                reg = reg.united(QRegion(self.local(c)))
         if not reg.isEmpty():
             self.update(reg)
 
@@ -109,34 +124,43 @@ class Overlay(QWidget):
             p.fillRect(event.rect(), Qt.GlobalColor.transparent)
             p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
         st = self.state
-        snap = st.snapshot
-        if snap is None or st.hidden or st.paused:
-            p.end()
-            return
-        mirrors = [m for m in (geom.inter(mr, self.mon.rect) for mr in self._mirrors()) if not geom.empty(m)]
-        if not mirrors:
+        if st.hidden:
             p.end()
             return
         ml, mt = self.mon.rect[0], self.mon.rect[1]
-        if not st.peek:
-            self._paint_items(p, snap, mirrors, ml, mt)
-        for mirror in mirrors:
-            self._paint_mirror(p, snap, mirror)
+        shapes = [(key, s) for key, s in st.shapes.items() if geom.overlaps(s.box(), self.mon.rect)]
+        snap = st.snapshot
+        if snap is not None and not st.paused:
+            mirrors = [m for m in (geom.inter(mr, self.mon.rect) for mr in self._mirrors()) if not geom.empty(m)]
+            # 变形中、框里要显示译文的形状：译文按形状（圆角跟着变）裁剪
+            openings = [(geom.inter(s.box(), self.mon.rect), opening_region(s, ml, mt)) for _k, s in shapes if s.text]
+            if mirrors or openings:
+                if not st.peek:
+                    self._paint_items(p, snap, mirrors, openings, ml, mt)
+                for mirror in mirrors:
+                    self._paint_mirror(p, snap, mirror)
+        for key, s in shapes:
+            paint_shape(p, s, ml, mt, st.frame_color, self.colorkey, st.balls.get(key))
         p.end()
 
-    def _paint_items(self, p: QPainter, snap: Snapshot, mirrors: list[Rect], ml: int, mt: int) -> None:
-        """每段译文只画一次：几个魔镜重叠时，重叠处不会叠出更深的底板。"""
+    def _paint_items(self, p: QPainter, snap: Snapshot, mirrors: list[Rect], openings: list, ml: int, mt: int) -> None:
+        """每段译文只画一次：几个魔镜重叠时，重叠处不会叠出更深的底板。openings：变形中的形状
+        （大致范围, 覆盖层坐标的裁剪区域）。"""
+        boxes = mirrors + [b for b, _reg in openings]
         area = QRegion()
-        if len(mirrors) > 1:
+        if len(boxes) > 1 or openings:
             for m in mirrors:
                 area = area.united(QRegion(self.local(m)))
+            for _b, reg in openings:
+                area = area.united(reg)
+        single = len(boxes) == 1 and not openings
         for item in snap.items:
-            if not any(geom.overlaps(item.room, m) or geom.overlaps(item.rect, m) for m in mirrors):
+            if not any(geom.overlaps(item.room, m) or geom.overlaps(item.rect, m) for m in boxes):
                 continue
             img = self.state.renderer.get(item)
             x, y = item.rect[0] + img.dx - ml, item.rect[1] + img.dy - mt
             for clip in item.clips:
-                if len(mirrors) == 1:
+                if single:
                     c = geom.inter(clip, mirrors[0])
                     if geom.empty(c):
                         continue

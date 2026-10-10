@@ -212,6 +212,10 @@ class Engine(threading.Thread):
         self._prev_frame_t = 0.0
         self._vel_shown: set[int] = set()     # 正按速度外推显示的画布（停下后要撤回外推）
         self.working = True                   # 用户点了“暂停”就是 False：不截屏、不识别、不翻译（魔镜框还在）
+        # 每一帧屏幕上变了哪些地方（屏幕坐标）：液态玻璃皮肤据此判断边框、标签后面的画面要不要重新取样
+        self.changes: collections.deque = collections.deque(maxlen=256)
+        self.change_seq = 0
+        self._chg_lock = threading.Lock()
         self._geo_frame_t = 0.0
         self._last_others = 0.0
         self._all_infos: list[winapi.Monitor] = []
@@ -842,11 +846,29 @@ class Engine(threading.Thread):
         return [self.blocks[int(i)] for i in bids[hit] if int(i) in self.blocks]
 
     # ------------------------------------------------------------------ 帧分析
+    def changes_since(self, seq: int) -> tuple[int, list[Rect] | None]:
+        """（界面线程调用）第 seq 帧以后屏幕上变了哪些地方；记录不全（隔太久没问）时是 None，当作哪里都可能变了。"""
+        with self._chg_lock:
+            cur = self.change_seq
+            if cur == seq:
+                return cur, []
+            if not self.changes or self.changes[0][0] > seq + 1:
+                return cur, None
+            return cur, [r for s, rects in self.changes if s > seq for r in rects]
+
+    def _note_change(self, m: Mon, fr) -> None:
+        ox, oy = m.origin
+        rects = [m.rect] if fr.full else [(l + ox, t + oy, r + ox, b + oy) for l, t, r, b in fr.dirty]
+        with self._chg_lock:
+            self.change_seq += 1
+            self.changes.append((self.change_seq, rects))
+
     def _on_frame(self, m: Mon, fr) -> None:
         t0 = time.perf_counter()
         self._cur_frame_t = fr.time
         self._prev_frame_t = m.last_ft or fr.time
         m.bgra = fr.image
+        self._note_change(m, fr)
         m.last_ft = fr.time
         m.frames += 1
         w, h = m.size

@@ -1,6 +1,7 @@
 """程序入口：托盘、快捷键、魔镜边框与覆盖层的联动、设置与退出。"""
 from __future__ import annotations
 
+import collections
 import ctypes
 import json
 import logging
@@ -13,13 +14,14 @@ import time
 
 os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "0")  # 全程用物理像素，和截屏坐标一致
 
-from . import ROOT, __version__, config, geom, i18n, winapi  # noqa: E402
+from . import ROOT, __version__, autostart as boot, config, geom, i18n, winapi  # noqa: E402
 from .i18n import N_, tr  # noqa: E402
 
 log = logging.getLogger("deskmirror")
 
 
 PAUSED_TEXT = N_("已暂停：不识别、不翻译（点“继续”恢复）")
+BALL_TIP = N_("魔镜收起来了，翻译已停下。点一下回到原来的地方，或者拖出来放到要翻译的地方。")
 
 
 def _qimage_bgr(img):
@@ -99,6 +101,7 @@ def main() -> int:
     wait = os.environ.pop("DESKMIRROR_WAIT_PID", "")
     if wait.isdigit():
         _wait_for_exit(int(wait))
+    autostart = "--autostart" in sys.argv[1:]          # 开机自启：魔镜都收成球待命
     _setup_logging()
     # 跟踪线程有不少 Python 代码；缩短 GIL 切换间隔，界面线程（画译文、拖魔镜）不会被它长时间挡住。
     sys.setswitchinterval(0.002)
@@ -109,8 +112,10 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication, QLabel, QMenu, QMessageBox, QSystemTrayIcon
 
     from .engine import Engine
+    from .fieldtrans import FieldTranslator
     from .hotkeys import HoldShortcut, HotkeyManager, modifiers_down, parse_modifiers
-    from .ui import layered
+    from .ui import glass, layered
+    from .ui.dock import Docker
     from .ui.mirror import MirrorFrame
     from .ui.overlay import Overlay, UiState
     from .ui.render import Renderer
@@ -164,6 +169,9 @@ def main() -> int:
             super().__init__()
             self.cfg = cfg
             self.state = UiState(Renderer(cfg.style, binary=layered.colorkey()))
+            self.state.frame_color = QColor(cfg.style.border_color)
+            glass.set_active(cfg.style.skin == "glass")
+            self.backdrop = glass.Backdrop(None)               # 液态玻璃取后面的画面（引擎建好后接上）
             mons = winapi.monitors()
             self.overlays = [Overlay(m, self.state) for m in mons]
             rect = tuple(cfg.mirror_rect) if cfg.mirror_rect else self._default_rect(mons)
@@ -174,6 +182,7 @@ def main() -> int:
                 self._new_frame(tuple(r))
             self._last_shot = ""
             self.engine = Engine(cfg, self.snapshot_ready.emit)
+            self.backdrop.engine = self.engine
             self._sync_mirrors()
             self.snapshot_ready.connect(self._on_snapshot)
             self.hotkeys = HotkeyManager(qapp)
@@ -200,6 +209,13 @@ def main() -> int:
             self.tip.setMaximumWidth(560)
             self.tip.winId()
             winapi.exclude_from_capture(int(self.tip.winId()))
+            # 输入框翻译的小提示：贴在别的软件的输入框光标下面（“翻译中…”“已翻译 · 再连按三次空格换回原文”）
+            self.field_tip = QLabel(None, Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint
+                                    | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.WindowTransparentForInput
+                                    | Qt.WindowType.WindowDoesNotAcceptFocus)
+            self.field_tip.winId()
+            winapi.exclude_from_capture(int(self.field_tip.winId()))
+            self._field_tip_timer = QTimer(self, singleShot=True, timeout=self.field_tip.hide)
             self._tip_bid = 0
             self._hover_since = 0.0
             self.tray = QSystemTrayIcon(make_icon())
@@ -216,11 +232,17 @@ def main() -> int:
             self._message_until = 0.0
             self.tray.messageClicked.connect(self._on_message_clicked)
             self.tray.show()
+            self.field = FieldTranslator(cfg)
+            self.field.tip.connect(self._show_field_tip)
+            self.field.used.connect(self._count_field_usage)
             self._register_keys()
+            self._engine_on = False
+            self._restore_docks()
             for o in self.overlays:
                 o.show()
             for f in self.frames:
-                f.show()
+                if not f.dock.docked:
+                    f.show()
             if winapi.capture_failures:
                 log.warning("有 %d 个窗口没能对截屏隐身（错误码 %s）", len(winapi.capture_failures),
                             sorted(set(winapi.capture_failures)))
@@ -232,6 +254,8 @@ def main() -> int:
             self.timer.timeout.connect(self._tick)
             self.timer.start()
             self._last_topmost = 0.0
+            self._glass_t = 0.0
+            self._glass_ms: collections.deque = collections.deque(maxlen=600)   # 每轮玻璃检查、重画用了多久（调试）
             self._settings: SettingsDialog | None = None
             self._save_timer = QTimer(self, singleShot=True, interval=800, timeout=self._save)
             # 用量每 5 分钟落一次盘（只有数量），中途崩溃也不至于丢掉一整天的统计
@@ -248,7 +272,8 @@ def main() -> int:
             self._start_update_checks()
             self._guard_timer = QTimer(self, interval=1000, timeout=self._guard_tick)
             self._guard_timer.start()
-            self.engine.start()
+            if not self._all_docked():
+                self._start_engine()          # 都收成球了：等第一次展开再启动（识别模型那时才载入，开机更快）
             self._update_meter()
             qapp.aboutToQuit.connect(self.shutdown)
             self.debug = None
@@ -266,6 +291,11 @@ def main() -> int:
             self.about: AboutDialog | None = None
             if cfg.first_run_tip:
                 QTimer.singleShot(1200, self.open_guide)     # 第一次启动：新手指南（看完或关掉就不再自动打开）
+            try:
+                if boot.refresh():
+                    log.info("程序挪了地方：开机启动项改成现在的路径")
+            except OSError as e:
+                log.warning("开机启动项更新失败：%s", e)
 
         # -------------------------------------------------------------- 托盘菜单、界面语言
         def _build_menu(self) -> None:
@@ -355,6 +385,12 @@ def main() -> int:
         # -------------------------------------------------------------- 多个魔镜、跟随窗口
         def _new_frame(self, rect: tuple) -> MirrorFrame:
             f = MirrorFrame(rect, self.cfg.style.border_color)
+            f.backdrop = self.backdrop
+            f.dock = Docker(f, self.state.shapes, self.state.balls)
+            f.dock.backdrop = self.backdrop
+            f.dock.docked_changed.connect(lambda on, f=f: self._on_docked(f, on))
+            f.dock.repaint.connect(self._repaint_screen)
+            f.dock.committed.connect(self._save_mirrors)
             f.rect_changed.connect(lambda r, final, f=f: self._on_frame_rect(f, r, final))
             f.refresh_clicked.connect(lambda f=f: self.refresh(f))
             f.settings_clicked.connect(self.open_settings)
@@ -371,13 +407,49 @@ def main() -> int:
             return f
 
         def _active_frames(self) -> list[MirrorFrame]:
-            return [f for f in self.frames if not f.suspended]
+            return [f for f in self.frames if not f.suspended and not f.dock.docked]
+
+        def _all_docked(self) -> bool:
+            return all(f.dock.docked for f in self.frames)
 
         def _sync_mirrors(self) -> None:
-            """把各个魔镜的位置交给覆盖层和跟踪引擎（第一个是主魔镜）。"""
+            """把各个魔镜的位置交给覆盖层和跟踪引擎（第一个是主魔镜）。收成球的不算；正在变形的，
+            译文由覆盖层按形状裁剪（state.shapes），引擎照样按它的位置先翻。"""
+            active = self._active_frames()
             self.state.mirror = self.frame.mirror
-            self.state.mirrors = [f.mirror for f in self._active_frames()]
-            self.engine.set_mirrors([self.frame.mirror] + [f.mirror for f in self._active_frames() if f is not self.frame])
+            self.state.mirrors = [f.mirror for f in active if f.dock.live is None]
+            main = self.frame if self.frame in active else (active[0] if active else self.frame)
+            self.engine.set_mirrors([main.mirror] + [f.mirror for f in active if f is not main])
+
+        def _start_engine(self) -> None:
+            if not self._engine_on:
+                self._engine_on = True
+                self.engine.start()
+
+        def _restore_docks(self) -> None:
+            """上次收成球的魔镜照样收着；开机自启时所有魔镜都收成球待命（点开或拖出来才开始截屏、识别）。"""
+            saved = self.cfg.docks
+            for i, f in enumerate(self.frames):
+                spot = saved[i] if i < len(saved) and saved[i] else None
+                if spot or autostart:
+                    f.dock.dock_now(spot)
+
+        def _on_docked(self, f: MirrorFrame, docked: bool) -> None:
+            """魔镜收成球：它那里不再显示译文；所有魔镜都收起来了就停下截屏、识别、翻译（不花 token）。
+            展开（点球、从边上拖出来）：接着工作，像点了“继续”一样重新核对画面。"""
+            self._sync_mirrors()
+            self._apply_working()
+            if not docked:
+                self._start_engine()
+                if not self.state.paused and not self.state.shot_mode and not self._away:
+                    f.set_status(tr("继续工作，正在核对画面…"), "busy")
+            for o in self.overlays:
+                o.repaint_mirror(f.shown_rect)
+            f.shown_rect = f.mirror
+
+        def _repaint_screen(self, box: tuple) -> None:
+            for o in self.overlays:
+                o.repaint_rect(box)
 
         def add_mirror(self) -> None:
             if len(self.frames) >= 4:
@@ -397,6 +469,8 @@ def main() -> int:
             if not self.state.hidden:
                 f.show()
             self._sync_mirrors()
+            self._apply_working()
+            self._start_engine()
             self._save_mirrors()
             for o in self.overlays:
                 o.repaint_mirror()
@@ -406,15 +480,24 @@ def main() -> int:
                 return
             old = f.mirror
             self.frames.remove(f)
+            self.backdrop.forget(f)
+            self.backdrop.forget(f.dock)
+            f.dock.close()
             f.close()
             self._sync_mirrors()
+            self._apply_working()
             self._save_mirrors()
             for o in self.overlays:
                 o.repaint_mirror(old)
 
+        def _keep_mirrors(self, cfg) -> None:
+            """魔镜的位置、收没收成球是程序自己记的：换设置、重新载入时照搬现在的。"""
+            cfg.mirror_rect = list(self.frame.mirror)
+            cfg.extra_mirrors = [list(f.mirror) for f in self.frames[1:]]
+            cfg.docks = [f.dock.saved() for f in self.frames]
+
         def _save_mirrors(self) -> None:
-            self.cfg.mirror_rect = list(self.frame.mirror)
-            self.cfg.extra_mirrors = [list(f.mirror) for f in self.frames[1:]]
+            self._keep_mirrors(self.cfg)
             self._save_timer.start()
 
         def _frame_menu(self, f: MirrorFrame, pos) -> None:
@@ -510,7 +593,7 @@ def main() -> int:
             f.set_pinned(False)
             if f.suspended:
                 f.suspended = False
-                if not self.state.hidden:
+                if not self.state.hidden and not f.dock.docked:
                     f.show()
                 self._sync_mirrors()
 
@@ -518,7 +601,7 @@ def main() -> int:
             """跟随窗口的魔镜：窗口动了就按相对位置跟着走；窗口最小化时收起，关掉了就取消跟随。"""
             changed = False
             for f in list(self.frames):
-                if f.bound is None:
+                if f.bound is None or f.dock.docked or f.dock.busy:
                     continue
                 hwnd, rel, last = f.bound
                 wr = winapi.window_rect(hwnd)
@@ -564,7 +647,9 @@ def main() -> int:
         def _register_keys(self) -> None:
             hk = self.cfg.hotkeys
             errors = self.hotkeys.register({"peek": hk.peek, "refresh": hk.refresh, "toggle": hk.toggle_visible,
-                                            "history": hk.history, "vision": hk.vision})
+                                            "history": hk.history, "vision": hk.vision,
+                                            # 输入框翻译打开时才占用它的快捷键
+                                            "input": hk.input if self.cfg.input.enabled else ""})
             try:
                 self._drag_mods = parse_modifiers(hk.drag_modifiers)
             except ValueError as e:
@@ -793,6 +878,47 @@ def main() -> int:
             for f in self.frames:
                 f.set_meter(text, tip)
 
+        def _count_field_usage(self, u: dict) -> None:
+            """输入框翻译用掉的 token 也算进今天的用量（和每日上限）；用量日志照样只记数量。"""
+            from . import usagelog
+            self._count_engine_usage()                  # 先按日期换天
+            us = self.cfg.usage
+            us.requests += 1
+            us.chars += int(u["chars"])
+            us.tokens_in += int(u["tokens_in"])
+            us.tokens_out += int(u["tokens_out"])
+            us.tokens_cached += int(u["cached"])
+            if not u["exact"]:
+                us.estimated = True
+            self._count_engine_usage()                  # 托盘提示、标签上的用量、每日上限
+            usagelog.write(model=self.cfg.llm.model, host=usagelog.host_of(self.cfg.llm.base_url), app=u["app"],
+                           kind="input", segments=u["segments"], chars=u["chars"], tokens_in=u["tokens_in"],
+                           tokens_out=u["tokens_out"], cached=u["cached"], exact=u["exact"], secs=u["secs"])
+
+        def _show_field_tip(self, text: str, level: str, anchor, ms: int) -> None:
+            """输入框翻译的提示：贴在输入框光标下面（下面放不下就放上面），过一会儿自己消失。"""
+            color = {"busy": "#3d8bfd", "ok": "#3fb950", "err": "#e5534b"}.get(level, "#3d8bfd")
+            t = self.field_tip
+            t.setStyleSheet("QLabel{background:#202329;color:#f2f4f8;border:1px solid %s;border-radius:6px;"
+                            "padding:5px 9px;font:13px 'Microsoft YaHei UI';}" % color)
+            t.setText(text)
+            t.adjustSize()
+            x, y = int(anchor[0]), int(anchor[3]) + 6
+            for m in winapi.monitors():
+                if geom.contains_pt(m.rect, anchor[0], anchor[1]):
+                    l, top, r, b = m.work
+                    if y + t.height() > b:
+                        y = int(anchor[1]) - 6 - t.height()
+                    x = max(l, min(x, r - t.width()))
+                    y = max(top, y)
+                    break
+            t.move(x, y)
+            t.show()
+            if ms:
+                self._field_tip_timer.start(ms)
+            else:
+                self._field_tip_timer.stop()
+
         def _check_budget(self) -> None:
             """云端服务今天的 token 用到上限：停止发新的翻译请求（已有译文照常显示），换天或调高上限后自动恢复。"""
             u, limit = self.cfg.usage, self.cfg.guard.daily_tokens
@@ -802,6 +928,7 @@ def main() -> int:
                 return
             was, self._budget_hit = self._budget_hit, hit
             self.engine.set_budget_hit(hit)
+            self.field.budget_hit = hit
             if hit and was is False:          # 改了别的设置重新判断时不重复提示
                 log.warning("今天的 token 已用到上限 %d", limit)
                 self.tray.showMessage(tr("桌面魔镜"), tr(
@@ -810,8 +937,9 @@ def main() -> int:
                     QSystemTrayIcon.MessageIcon.Warning, 10000)
 
         def _apply_working(self) -> None:
-            """截屏、识别、翻译要不要跑：用户暂停、截图模式、锁屏 / 屏保时都停下。"""
-            self.engine.set_working(not self.state.paused and not self.state.shot_mode and not self._away)
+            """截屏、识别、翻译要不要跑：用户暂停、截图模式、锁屏 / 屏保、魔镜都收成球时都停下。"""
+            self.engine.set_working(not self.state.paused and not self.state.shot_mode and not self._away
+                                    and not self._all_docked())
 
         def _guard_tick(self) -> None:
             """省钱保护：锁屏、屏保时完全停下；一段时间没碰键盘鼠标就只翻镜框里的（不在后台预译别处）。"""
@@ -920,6 +1048,8 @@ def main() -> int:
                 self.toggle_history()
             elif action == "vision":
                 self.look()
+            elif action == "input":
+                self.field.hotkey()
 
         def _on_peek(self, on: bool) -> None:
             self.state.peek = on
@@ -1110,10 +1240,11 @@ def main() -> int:
         def toggle_visible(self) -> None:
             self.state.hidden = not self.state.hidden
             for f in self.frames:
-                f.setVisible(not self.state.hidden and not f.suspended)
+                f.dock.set_hidden(self.state.hidden)
+                f.setVisible(not self.state.hidden and not f.suspended and not f.dock.docked)
             self.act_toggle.setText(tr("显示魔镜") if self.state.hidden else tr("隐藏魔镜"))
             for o in self.overlays:
-                o.repaint_mirror()
+                o.update()
 
         def open_settings(self) -> None:
             if self._settings is not None and self._settings.isVisible():
@@ -1127,14 +1258,26 @@ def main() -> int:
             def done(result: int) -> None:
                 if result:
                     new = config.validate(dlg.collect())
-                    new.mirror_rect = list(self.frame.mirror)
-                    new.extra_mirrors = [list(f.mirror) for f in self.frames[1:]]
+                    self._keep_mirrors(new)
                     new.usage = self.cfg.usage      # 设置窗口打开期间的用量照样累计
                     new.update.skip_version = self.cfg.update.skip_version
                     self.apply_config(new, clear_memory=dlg.clear_memory_requested)
+                    if dlg.autostart.isChecked() != dlg.autostart_was:
+                        self.set_autostart(dlg.autostart.isChecked())
                 self._settings = None
             dlg.finished.connect(done)
             dlg.show()
+
+        def set_autostart(self, on: bool) -> None:
+            """开机自动启动：写进 / 删掉 Windows 的启动项（不在配置文件里）。"""
+            try:
+                boot.set_enabled(on)
+            except OSError as e:
+                log.warning("开机启动项写不进去：%s", e)
+                self.tray.showMessage(tr("桌面魔镜"), tr("开机启动没设上：{error}").format(error=e),
+                                      QSystemTrayIcon.MessageIcon.Warning, 6000)
+                return
+            log.info("开机自动启动：%s", "打开" if on else "关闭")
 
         def apply_config(self, new, save: bool = True, clear_memory: bool = False) -> None:
             """换上新的设置（设置窗口点了确定，或者配置文件被命令行改了），能马上生效的马上生效。"""
@@ -1156,10 +1299,12 @@ def main() -> int:
             self.act_chat.setChecked(self.cfg.scope.translate_chat)
             self.act_chat.blockSignals(False)
             self.state.renderer.set_style(self.cfg.style)
+            self.state.frame_color = QColor(self.cfg.style.border_color)
             for f in self.frames:
                 if f.color != QColor(self.cfg.style.border_color):
                     f.color = QColor(self.cfg.style.border_color)
                     f.update()
+            self._apply_skin()
             self.engine.update_llm(self.cfg)
             if clear_memory:
                 self.engine.inbox.put(("memory_clear", None))
@@ -1169,6 +1314,7 @@ def main() -> int:
                     f.set_lang_label(self._lang_label())
             if ui_changed:
                 self.apply_ui_lang(self.cfg.ui_lang)
+            self.field.apply(self.cfg)
             self._register_keys()
             self._budget_hit = None             # 上限可能改了：重新判断，并且一定告诉引擎
             self._check_budget()
@@ -1176,7 +1322,7 @@ def main() -> int:
             if save:
                 self._save()
             for o in self.overlays:
-                o.repaint_mirror()
+                o.update()                      # 球的颜色也可能换了
             if need_restart:
                 self.tray.showMessage(tr("桌面魔镜"), tr("识别设备、屏幕范围和滚动跟随的更改在下次启动时生效。"),
                                       QSystemTrayIcon.MessageIcon.Information, 5000)
@@ -1189,6 +1335,7 @@ def main() -> int:
             for f in self.frames:
                 f.set_grab_mode(mods and (f is under or f._drag is not None))
             self._hover_tip(now)
+            self._glass_tick(now)
             if now - self._last_cfg_check > 1.0:
                 self._last_cfg_check = now
                 self._check_config_file()
@@ -1204,6 +1351,41 @@ def main() -> int:
                         winapi.keep_topmost(int(f.winId()))
                         if f.visual() is not f:                  # 色键窗口：看得见的那层压在接鼠标的那层上面
                             winapi.keep_topmost(int(f.visual().winId()))
+                    for f in self.frames:
+                        if f.dock.docked and f.dock.ball.isVisible():
+                            winapi.keep_topmost(int(f.dock.ball.winId()))
+
+        def _glass_tick(self, now: float) -> None:
+            """液态玻璃：边框、标签、球后面的画面变了就重新折射（截图模式下魔镜截得到自己，不更新）。"""
+            if not glass.active() or now - self._glass_t < 1 / 30:       # 后面一直在变（滚动、视频）时每秒最多 30 次
+                return
+            self._glass_t = now
+            self.backdrop.frozen = self.state.shot_mode
+            self.backdrop.begin()
+            if self.state.hidden:
+                return
+            for f in self.frames:
+                f.glass_refresh(now)
+                f.dock.glass_refresh(now)
+            self._glass_ms.append((time.perf_counter() - now) * 1000)
+
+        def _apply_skin(self) -> None:
+            """换皮肤（经典 / 液态玻璃）：边框宽度、标签位置跟着变，全部重画。"""
+            on = self.cfg.style.skin == "glass"
+            if on == glass.active():
+                return
+            glass.set_active(on)
+            log.info("皮肤：%s", "液态玻璃" if on else "经典")
+            if not on:
+                self.backdrop.close()
+                self.state.balls.clear()
+            for f in self.frames:
+                f._rim = f._pill = None
+                f._layout()
+                f.visual().update()
+                f.dock.glass_refresh(time.perf_counter(), force=True)
+            for o in self.overlays:
+                o.update()
 
         def _hover_tip(self, now: float) -> None:
             """鼠标停在被截断的译文上时，显示全文；停在标签上的 token 用量上时，显示明细。"""
@@ -1215,10 +1397,24 @@ def main() -> int:
                     self._tip_bid = -1
                     self.tip.setText(meter.meter_tip)
                     self.tip.adjustSize()
-                    self.tip.move(x + 16, y + 20)
+                    self._place_tip(x, y)
                     self.tip.show()
                 return
             if self._tip_bid == -1:
+                self._tip_bid = 0
+                self.tip.hide()
+            ball = next((f.dock for f in self.frames if f.dock.docked and f.dock.hover_t and not f.dock.busy
+                         and f.dock.ball.isVisible()), None)
+            if ball is not None:
+                # 鼠标停在收起的球上：说一下怎么用
+                if self._tip_bid != -2 and now - ball.hover_t > 0.6:
+                    self._tip_bid = -2
+                    self.tip.setText(tr(BALL_TIP))
+                    self.tip.adjustSize()
+                    self._place_tip(x, y)
+                    self.tip.show()
+                return
+            if self._tip_bid == -2:
                 self._tip_bid = 0
                 self.tip.hide()
             target = None
@@ -1244,8 +1440,23 @@ def main() -> int:
             if not self.tip.isVisible() and now - self._hover_since > 0.35:
                 self.tip.setText(target.text)
                 self.tip.adjustSize()
-                self.tip.move(x + 16, y + 20)
+                self._place_tip(x, y)
                 self.tip.show()
+
+        def _place_tip(self, x: int, y: int) -> None:
+            """提示放在鼠标右下方；贴着屏幕右边、下边时放到另一侧，别伸出屏幕。"""
+            w, h = self.tip.width(), self.tip.height()
+            tx, ty = x + 16, y + 20
+            for m in winapi.monitors():
+                if geom.contains_pt(m.rect, x, y):
+                    l, t, r, b = m.work
+                    if tx + w > r:
+                        tx = x - 12 - w
+                    if ty + h > b:
+                        ty = y - 12 - h
+                    tx, ty = max(l, tx), max(t, ty)
+                    break
+            self.tip.move(tx, ty)
 
         def _save_usage(self) -> None:
             u = self.cfg.usage
@@ -1289,8 +1500,7 @@ def main() -> int:
                 log.warning("配置文件被改过但格式不对，没有载入")
                 return
             new = config.load()
-            new.mirror_rect = list(self.frame.mirror)
-            new.extra_mirrors = [list(f.mirror) for f in self.frames[1:]]
+            self._keep_mirrors(new)
             new.usage = self.cfg.usage
             self._cfg_stamp = self._cfg_seen = self._config_stamp()
             log.info("配置文件被别的程序改过，已重新载入")
@@ -1312,9 +1522,27 @@ def main() -> int:
                         "stamp": snap.stamp if snap else 0, "peek": self.state.peek,
                         "hidden": self.state.hidden, "paused": self.state.paused, "grab": self.frame.grab_mode,
                         "shot_mode": self.state.shot_mode, "colorkey": layered.colorkey(),
+                        "skin": "glass" if glass.active() else "classic",
+                        "glass_ms": ({"n": len(gm), "avg": round(sum(gm) / len(gm), 2), "max": round(max(gm), 2),
+                                      "p95": round(sorted(gm)[int(len(gm) * 0.95)], 2)}
+                                     if (gm := list(self._glass_ms)) else None),
                         "frame_hwnds": [[int(f.winId()), int(f.visual().winId())] for f in self.frames],
+                        "engine_on": self._engine_on, "working": self.engine.working,
                         "mirrors": [{"rect": list(f.mirror), "bound": f.bound[0] if f.bound else 0,
-                                     "suspended": f.suspended, "visible": f.isVisible()} for f in self.frames]}
+                                     "suspended": f.suspended, "visible": f.isVisible(), "docked": f.dock.docked,
+                                     "edge": f.dock.edge, "tucked": f.dock.tucked, "busy": f.dock.busy,
+                                     "ghost": f.ghost, "ball": [f.dock.ball.x(), f.dock.ball.y(),
+                                                                f.dock.ball.x() + f.dock.ball.width(),
+                                                                f.dock.ball.y() + f.dock.ball.height()],
+                                     "ball_visible": f.dock.ball.isVisible(), "saved": f.dock.saved(),
+                                     "shape": ([round(v, 1) for v in (sh.x, sh.y, sh.w, sh.h, sh.k)]
+                                               if (sh := f.dock.shape()) is not None else None),
+                                     "window": [f.x(), f.y(), f.x() + f.width(), f.y() + f.height()],
+                                     "glass": {"renders": f.glass_renders, "ball_renders": f.dock.glass_renders,
+                                               "dark": bool(f._pill is not None and f._pill.tone.dark),
+                                               "ball_at": (list(gb.at) if (gb := self.state.balls.get(id(f.dock)))
+                                                           is not None and gb.at is not None else None)}}
+                                    for f in self.frames]}
             if cmd == "cfg":
                 # 程序此刻用的设置（测热载入用）；API Key 不给
                 return {k: config.get_key(self.cfg, k) for k in req.get("keys", ()) if not k.endswith("api_key")}
@@ -1606,10 +1834,48 @@ def main() -> int:
                 self.take_shot(req.get("kind", "trans"))
                 return {"ok": True, "path": self._last_shot}
             if cmd == "buttons":
-                # 标签上各按钮的屏幕位置（测试脚本用真实鼠标去点）
-                ox, oy = self.frame._origin
-                return {n: [r.left() + ox, r.top() + oy, r.right() + 1 + ox, r.bottom() + 1 + oy]
-                        for n, r in self.frame._buttons.items()}
+                # 标签上各按钮、抓手的屏幕位置（测试脚本用真实鼠标去点、去拖）
+                f = self.frames[int(req.get("index", 0))]
+                ox, oy = f._origin
+                out = {n: [r.left() + ox, r.top() + oy, r.right() + 1 + ox, r.bottom() + 1 + oy]
+                       for n, r in f._buttons.items()}
+                g = f._grip_rect()
+                out["grip"] = [g.left() + ox, g.top() + oy, g.right() + 1 + ox, g.bottom() + 1 + oy]
+                out["tab"] = list(f._tab)
+                return out
+            if cmd == "dock":
+                # 不要动画直接收成球（spot：{"edge", "x", "y"}，不给就吸到近的一边）；unfold：点开
+                f = self.frames[int(req.get("index", 0))]
+                if req.get("unfold"):
+                    f.dock.unfold()
+                else:
+                    f.dock.dock_now(req.get("spot"))
+                return {"ok": True, "docked": f.dock.docked}
+            if cmd == "field":
+                # 输入框翻译的状态（测试用）；set：改输入框翻译的设置；hotkey：像按了快捷键一样翻译前台的输入框
+                if req.get("set"):
+                    import copy
+                    new = copy.deepcopy(self.cfg)
+                    for k, v in req["set"].items():
+                        setattr(new.input, k, v)
+                    self.cfg.input = config.validate(new).input
+                    self.field.apply(self.cfg)
+                    self._register_keys()
+                if req.get("hotkey"):
+                    self.field.hotkey()
+                lst = self.field.listener
+                return {"enabled": self.cfg.input.enabled, "listening": bool(lst and lst.ok), "busy": self.field.busy,
+                        "memo": len(self.field.memo.pairs), "last": self.field.last, "runs": self.field.runs,
+                        "uia": getattr(self.field, "uia_ok", False),
+                        "tip": self.field_tip.text() if self.field_tip.isVisible() else ""}
+            if cmd == "dock_trace":
+                # 吸边动画最近的帧（时间与 now 同一时间轴、形状），验收时量帧间隔、看形状怎么变
+                f = self.frames[int(req.get("index", 0))]
+                since = float(req.get("since", 0)) + self.engine.started
+                rows = [[round(t - self.engine.started, 4), *rest] for t, *rest in f.dock.trace if t >= since]
+                if req.get("clear"):
+                    f.dock.trace.clear()
+                return {"frames": rows}
             return {"error": f"unknown cmd {cmd}"}
 
         def _record_background(self, region: tuple):
@@ -1654,18 +1920,21 @@ def main() -> int:
             self._guard_timer.stop()
             self._count_engine_usage()
             self.hotkeys.unregister_all()
-            self.cfg.mirror_rect = list(self.frame.mirror)
-            self.cfg.extra_mirrors = [list(f.mirror) for f in self.frames[1:]]
+            self._keep_mirrors(self.cfg)
             self._save()
             if self.debug is not None:
                 self.debug.close()
             self.engine.stop()
-            self.engine.join(6.0)
+            if self._engine_on:
+                self.engine.join(6.0)
             for o in self.overlays:
                 o.close()
             for f in self.frames:
+                f.dock.close()
                 f.close()
             self.tip.close()
+            self.field.close()
+            self.field_tip.close()
             self.history.close()
             if self.guide is not None:
                 self.guide.blockSignals(True)      # 退出程序时关掉的不算看过，下次还会弹出

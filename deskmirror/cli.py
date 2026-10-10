@@ -20,7 +20,7 @@ import time
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 
-from . import __version__, config, i18n, keys
+from . import __version__, autostart, config, i18n, keys
 from .config import OPENAI_PRESETS, AppConfig, LlmConfig
 from .i18n import N_, tr
 
@@ -29,6 +29,7 @@ RESTART = config.RESTART_KEYS
 READONLY = {
     "mirror_rect": N_("魔镜的位置：拖魔镜来改"),
     "extra_mirrors": N_("另外开的魔镜：在魔镜标签上右键来开、关"),
+    "docks": N_("收成球的魔镜：拖到屏幕边缘来收，点一下球或者拖出来展开"),
     "glossary": N_("术语表：用 glossary 命令改"),
     "usage": N_("当天用量：程序自己记"),
     "update.last_check": N_("上次自动检查更新的日期：程序自己记"),
@@ -61,12 +62,14 @@ DOCS = {
     "hotkeys.toggle_visible": N_("隐藏 / 显示魔镜"),
     "hotkeys.history": N_("历史面板（回看刚才的字幕、对话）"),
     "hotkeys.vision": N_("看图翻译"),
+    "hotkeys.input": N_("翻译正在打字的输入框，再按一次换回原文（打开输入框翻译时才有）"),
     "style.font_family": N_("译文的字体"),
     "style.min_font_px": N_("放不下时字最小缩到多少像素"),
     "style.min_scale": N_("放不下时最多缩到原字号的多少"),
     "style.min_squash": N_("放不下时最多横向压扁到原宽的多少"),
     "style.plate_opacity": N_("底板不透明度（1 = 完全盖住原文；Windows 10 上总是 1）"),
     "style.border_color": N_("魔镜边框的颜色，比如 #3D8BFD"),
+    "style.skin": N_("魔镜的样子：classic 经典 / glass 液态玻璃（边框一圈像弧形玻璃，折射后面的画面）"),
     "track.stable_ms": N_("区域静止多久后才识别新文字（毫秒）"),
     "track.dynamic_ms": N_("视频、游戏画面多久抓拍识别一次（毫秒）"),
     "track.subtitle_hold_ms": N_("字幕换句时旧译文最多留多久（毫秒）"),
@@ -95,8 +98,15 @@ DOCS = {
     "guard.daily_tokens": N_("云端服务一天最多用多少 token（输入 + 输出），到了就停止翻译新文字；0 = 不限。本机服务不限"),
     "guard.show_meter": N_("魔镜标签上显示今天用掉的 token（↑ 输入 ↓ 输出）"),
     "update.auto_check": N_("启动后检查有没有新版本（一天最多一次，只访问 GitHub；有新版只提示）"),
+    "input.enabled": N_("输入框翻译：在别的软件的输入框里打完母语，连按三次空格（或按 hotkeys.input），整个框换成"
+                        "另一种语言，再按换回原文；要听键盘（只听空格），默认关"),
+    "input.target": N_("输入框翻译成什么语言；空着 = 母语是英文时译成简体中文，否则译成英文"),
+    "input.skip_apps": N_("输入框翻译不管的程序（exe 文件名，逗号分隔）；默认是浏览器（浏览器版自己会翻）、写代码的编辑器和命令行"),
     "update.skip_version": N_("自动检查时不再提示的版本号（检查更新窗口里点了“跳过这个版本”）"),
 }
+# 不在配置文件里的设置：开机自动启动存在 Windows 的启动项里（以它为准）
+VIRTUAL = {"autostart": N_("开机时自动启动桌面魔镜（启动后收成球待命，点开或拖出来才开始识别）；"
+                           "写在 Windows 的启动项里，不在配置文件里")}
 # service 命令的服务名 → 预设（显示名、接口、地址、默认模型）；OpenAI 兼容的从 config.OPENAI_PRESETS 取
 _PRESET_IDS = {"deepseek": "DeepSeek", "qwen": N_("通义千问（阿里云百炼）"), "siliconflow": N_("硅基流动"),
                "openai": "OpenAI", "ollama-openai": N_("Ollama（OpenAI 兼容）"), "lmstudio": N_("LM Studio（本地）")}
@@ -153,7 +163,17 @@ def _readonly(key: str) -> str:
 
 
 def settable_keys() -> list[str]:
-    return [k for k in all_keys() if not _readonly(k)]
+    return [k for k in all_keys() if not _readonly(k)] + list(VIRTUAL)
+
+
+def _value(cfg: AppConfig, key: str) -> object:
+    if key == "autostart":
+        return autostart.enabled()
+    return config.get_key(cfg, key)
+
+
+def _default(key: str) -> object:
+    return False if key in VIRTUAL else config.get_key(AppConfig(), key)
 
 
 def _check_key(key: str) -> None:
@@ -200,7 +220,7 @@ def _kind(default: object) -> str:
 
 
 def parse_value(key: str, raw: str) -> object:
-    default = config.get_key(AppConfig(), key)
+    default = _default(key)
     s = raw.strip()
     kind = _kind(default)
     if kind == "bool":
@@ -290,13 +310,16 @@ def _emit(as_json: bool, obj: dict, text: str) -> None:
 
 
 def _saved(cfg: AppConfig, changed: list[str], as_json: bool, text: str) -> int:
-    config.save(cfg)
+    if any(k not in VIRTUAL for k in changed):
+        config.save(cfg)
     running = _running()
     restart = sorted(k for k in changed if k in RESTART)
     notes = [tr("正在运行的魔镜一秒内会自动载入。") if running else tr("魔镜没在运行，下次启动时生效。")]
+    if all(k in VIRTUAL for k in changed):
+        notes = [tr("已写进 Windows 的启动项，下次开机生效。")]
     if restart and running:
         notes.append(tr("{keys} 要重启魔镜才生效。").format(keys=", ".join(restart)))
-    _emit(as_json, {"changed": {k: _shown(k, config.get_key(cfg, k)) for k in changed}, "running": running,
+    _emit(as_json, {"changed": {k: _shown(k, _value(cfg, k)) for k in changed}, "running": running,
                     "restart_needed": restart}, text + "\n" + "".join(notes))
     return 0
 
@@ -310,7 +333,7 @@ def cmd_config(cfg: AppConfig, args: list[str], as_json: bool) -> int:
         _emit(as_json, {"path": str(config.config_path())}, str(config.config_path()))
         return 0
     if sub == "list":
-        values = {k: _shown(k, config.get_key(cfg, k)) for k in settable_keys()}
+        values = {k: _shown(k, _value(cfg, k)) for k in settable_keys()}
         _emit(as_json, {"path": str(config.config_path()), "settings": values},
               "\n".join(f"{k} = {_text(v)}" for k, v in values.items()))
         return 0
@@ -319,16 +342,16 @@ def cmd_config(cfg: AppConfig, args: list[str], as_json: bool) -> int:
             raise CliError(tr("用法：config get 名字"), 2)
         key = rest[0]
         _check_key(key)
-        value = _shown(key, config.get_key(cfg, key))
+        value = _shown(key, _value(cfg, key))
         _emit(as_json, {"key": key, "value": value}, _text(value))
         return 0
     if sub in ("keys", "schema"):            # schema：同样的内容，总是输出 JSON
         as_json = as_json or sub == "schema"
-        defaults, out, lines = AppConfig(), [], []
+        out, lines = [], []
         for key in settable_keys():
-            default = config.get_key(defaults, key)
+            default = _default(key)
             item = {"key": key, "type": _kind(default), "default": _shown(key, default),
-                    "value": _shown(key, config.get_key(cfg, key)), "description": tr(DOCS.get(key, "")),
+                    "value": _shown(key, _value(cfg, key)), "description": tr(DOCS.get(key) or VIRTUAL.get(key, "")),
                     "restart": key in RESTART}
             if key in config.CHOICES:
                 item["choices"] = list(config.CHOICES[key])
@@ -365,19 +388,33 @@ def cmd_config(cfg: AppConfig, args: list[str], as_json: bool) -> int:
                 raw = os.environ[raw]
             elif raw == "-":
                 raw = _read_secret(key)
-            apply_value(cfg, key, parse_value(key, raw))
+            value = parse_value(key, raw)
+            if key == "autostart":
+                _set_autostart(bool(value))
+            else:
+                apply_value(cfg, key, value)
             changed.append(key)
         return _saved(cfg, changed, as_json, "\n".join(tr("已改：{key} = {value}").format(
-            key=k, value=_text(_shown(k, config.get_key(cfg, k)))) for k in changed))
+            key=k, value=_text(_shown(k, _value(cfg, k)))) for k in changed))
     if sub == "reset":
         if len(rest) != 1:
             raise CliError(tr("用法：config reset 名字"), 2)
         key = rest[0]
         _check_key(key)
-        config.set_key(cfg, key, copy.deepcopy(config.get_key(AppConfig(), key)))
+        if key == "autostart":
+            _set_autostart(False)
+        else:
+            config.set_key(cfg, key, copy.deepcopy(config.get_key(AppConfig(), key)))
         return _saved(cfg, [key], as_json, tr("已恢复默认：{key} = {value}").format(
-            key=key, value=_text(_shown(key, config.get_key(cfg, key)))))
+            key=key, value=_text(_shown(key, _value(cfg, key)))))
     raise CliError(tr("config 没有这个子命令：{sub}").format(sub=sub) + "\n\n" + usage(), 2)
+
+
+def _set_autostart(on: bool) -> None:
+    try:
+        autostart.set_enabled(on)
+    except OSError as e:
+        raise CliError(tr("开机启动没设上：{error}").format(error=e))
 
 
 def cmd_service(cfg: AppConfig, args: list[str], as_json: bool) -> int:
