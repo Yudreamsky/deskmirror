@@ -2,6 +2,7 @@
 
 玻璃的边缘像一圈弧形的厚玻璃：后面的画面在这一圈里被往外拉伸、沿着圆角弯过去（折射），越靠外沿取得越远；
 红绿蓝各偏一点（色散）；外沿一道高光、靠里一道淡淡的暗影，看得出弧度；略微提亮、提一点饱和度。
+边框玻璃的里沿不描线：位移、提亮、饱和度都往里渐渐减到零，平滑地融进镜内，只看得到外沿那一道弧形的边。
 边框就是镜框外面一圈 BAND 宽的玻璃（也是拖它调整大小的地方）。标签和球是整块玻璃：边上一圈折射，
 里面再磨砂一点（模糊）、蒙一层白；后面是深色画面时换成烟灰玻璃（看后面的亮度自动换，像苹果的玻璃那样随内容变）。
 
@@ -98,16 +99,17 @@ class Lens:
         if ring:
             cover *= np.clip(bezel - depth + 0.5, 0, 1)
         self.cover = cover
+        # 边框：提亮、饱和度从外沿往里渐渐减到零，里沿和镜内接得上，看不出一道线
+        self.fade = (t ** 1.5)[..., None].astype(np.float32) if ring else None
         # 色键窗口里整块不透明画出去的范围：玻璃再往外一圈（外沿的抗锯齿、描边都落在里面）
-        self.zone = (depth >= -1.5) & ((depth <= bezel + 1.0) if ring else True)
-        # 明暗：外沿一层亮（朝光的一边更亮），离外沿约四成处一道暗影，里沿一丝亮
+        self.zone = (depth >= -1.5) & ((depth <= bezel + 0.5) if ring else True)
+        # 明暗：外沿一层亮（朝光的一边更亮），离外沿约四成处一道淡淡的暗影
         facing = nx * LIGHT[0] + ny * LIGHT[1]
         lit = 0.45 + 0.55 * np.maximum(facing, 0) + 0.3 * np.maximum(-facing, 0)
         u = np.maximum(depth, 0)
         glow = 0.30 * np.exp(-u / 1.3) * lit
         dark = -0.13 * np.exp(-(((u - bezel * 0.42) / (bezel * 0.2)) ** 2))
-        inner = 0.07 * np.exp(-np.abs(bezel - u) / 1.0) if ring else 0.0
-        self.shade = ((glow + dark + inner) * shade * (u < bezel + 1)).astype(np.float32)
+        self.shade = ((glow + dark) * shade * (u < bezel + 1)).astype(np.float32)
 
     def patch_rect(self, ox: int, oy: int) -> Rect:
         """要取的背景范围（屏幕坐标）：玻璃左上角在屏幕 (ox, oy)。"""
@@ -139,15 +141,20 @@ class Lens:
             b, g, r, a = flat
             rgb = np.empty((h, w, 3), np.float32)
             rgb[:] = (b, g, r)
-            alpha = self.cover * (a / 255)
-            glass_ = rgb * mul * (a / 255) + add * (a / 255)       # 预乘透明度
+            k = (a / 255) * (self.fade if self.fade is not None else 1.0)
+            alpha = self.cover * (k[..., 0] if self.fade is not None else k)
+            glass_ = (rgb * mul + add) * k                       # 预乘透明度
         else:
             chans = cv2.split(patch)[:3]
             if blur > 0:
                 chans = [cv2.GaussianBlur(c, (0, 0), blur) for c in chans]
             out = cv2.merge([cv2.remap(c, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
                              for c, (mx, my) in zip(chans, self.maps)])
-            glass_ = cv2.transform(out, _color_matrix(sat, lift)) * mul
+            adj = cv2.transform(out, _color_matrix(sat, lift))
+            if self.fade is not None:                            # 边框：越往里越接近后面的原样
+                base = out.astype(np.float32)
+                adj = base + (adj - base) * self.fade
+            glass_ = adj * mul
             glass_ += add
             alpha = self.cover
         buf = np.zeros((h, w, 4), np.uint8)
@@ -200,9 +207,8 @@ class Rim:
     坐标都相对外框（镜框往外扩 BAND）的左上角。外沿的高光、主题色细圈按尺寸先画好，每条重画时叠上去：
     窗口重画时只是贴四张图（重画得勤，不能每次都描整圈圆角）。"""
 
-    def __init__(self, mw: int, mh: int, color: QColor | None = None, solid: bool = False) -> None:
+    def __init__(self, mw: int, mh: int, color: QColor | None = None) -> None:
         self.size = (mw, mh)
-        self.solid = solid                   # 色键窗口：只能画在整块不透明的范围里
         W, H = mw + 2 * BAND, mh + 2 * BAND
         self.outer = (W, H)
         c = RADIUS                           # 上下两条把圆角整个包进去
@@ -223,8 +229,7 @@ class Rim:
             img.fill(0)
             p = QPainter(img)
             W, H = self.outer
-            paint_edges(p, QRectF(-x0, -y0, W, H), RADIUS, self.color, inner=RADIUS - BAND, band=BAND,
-                        solid=self.solid)
+            paint_edges(p, QRectF(-x0, -y0, W, H), RADIUS, self.color)
             p.end()
             self._edges[name] = img
         return img
@@ -257,10 +262,8 @@ class Rim:
             p.drawImage(r.topLeft(), self.images[name])
 
 
-def paint_edges(p: QPainter, r: QRectF, radius: float, color: QColor | None, inner: float | None = None,
-                band: float = 0.0, dark: bool = False, solid: bool = False) -> None:
-    """玻璃的边：最外一圈淡淡的主题色（看得出魔镜在哪），里面一道高光——左上最亮、右下次之，像光从左上照来；
-    inner：边框玻璃的里沿描一道细光、一道细影，和镜内分开（色键窗口里那道细影伸出不透明的范围，不画）。"""
+def paint_edges(p: QPainter, r: QRectF, radius: float, color: QColor | None, dark: bool = False) -> None:
+    """玻璃的外沿：最外一圈淡淡的主题色（看得出魔镜在哪），里面一道高光——左上最亮、右下次之，像光从左上照来。"""
     p.save()
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     p.setBrush(Qt.BrushStyle.NoBrush)
@@ -278,13 +281,6 @@ def paint_edges(p: QPainter, r: QRectF, radius: float, color: QColor | None, inn
     p.setPen(QPen(g, 1.3))
     o = 1.85 if color is not None else 0.65
     p.drawRoundedRect(r.adjusted(o, o, -o, -o), radius - o, radius - o)
-    if inner is not None:
-        ir = r.adjusted(band, band, -band, -band)
-        p.setPen(QPen(QColor(255, 255, 255, 70), 1.0))
-        p.drawRoundedRect(ir.adjusted(-0.5, -0.5, 0.5, 0.5), inner + 0.5, inner + 0.5)
-        if not solid:
-            p.setPen(QPen(QColor(0, 0, 0, 30), 1.0))
-            p.drawRoundedRect(ir.adjusted(0.5, 0.5, -0.5, -0.5), max(0.0, inner - 0.5), max(0.0, inner - 0.5))
     p.restore()
 
 

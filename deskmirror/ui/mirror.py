@@ -517,7 +517,7 @@ class MirrorFrame(QWidget):
         m = self.mirror
         size = (m[2] - m[0], m[3] - m[1])
         if self._rim is None or self._rim.size != size:
-            self._rim = glass.Rim(*size, self.color, solid=self._chrome is not None)
+            self._rim = glass.Rim(*size, self.color)
         elif self._rim.color != self.color:
             self._rim.set_color(self.color)              # 边框颜色换了：下一轮重取一遍
             self._glass_force = True
