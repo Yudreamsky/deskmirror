@@ -48,9 +48,10 @@ class AutostartTest(_ScratchKeys):
             self.assertTrue(p.exists(), p)
 
     def test_command_of_packaged_exe(self) -> None:
-        with mock.patch.object(sys, "frozen", True, create=True), \
-                mock.patch.object(sys, "executable", r"D:\Apps\DeskMirror\DeskMirror.exe"):
-            self.assertEqual(autostart.command(), r'"D:\Apps\DeskMirror\DeskMirror.exe" --autostart')
+        for exe in ("DeskMirror.exe", "DeskMirrorCLI.exe"):          # 命令行改设置时也写界面程序
+            with mock.patch.object(sys, "frozen", True, create=True), \
+                    mock.patch.object(sys, "executable", r"D:\Apps\DeskMirror" + "\\" + exe):
+                self.assertEqual(autostart.command(), r'"D:\Apps\DeskMirror\DeskMirror.exe" --autostart', exe)
 
     def test_enable_disable(self) -> None:
         self.assertFalse(autostart.enabled())

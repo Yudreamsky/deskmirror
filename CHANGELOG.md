@@ -1,5 +1,46 @@
 # 更新记录 / Changelog
 
+## 未发布 / Unreleased
+
+魔镜拖到屏幕边缘就收成球、停止翻译，拖出来接着翻；可以开机自动启动，启动后收成球待命；在别的软件的输入框里连按三次空格，
+把你打的母语换成外语。都照浏览器版 0.6.0–0.7.1 的做法（PR #10）。
+
+- **拖到边缘收成球**：标签左头加了六个点的抓手（整个标签照样能拖）。拖着魔镜让鼠标到了屏幕边缘，魔镜平滑地缩成一个球
+  吸在边上，翻译停下（魔镜都收起来时不截屏、不识别、不花 token）；松手后球藏进边缘一半，鼠标移上去滑出来。按住球往外拖，
+  离开边缘后变成虚线框跟着鼠标走，同时开始翻译、框里已经能看到译文，松手就落在那里；点一下球回到原来的地方。
+  上下左右四条边都行，两块屏幕相接的边不收；顶边要把鼠标顶到最上沿才收。收没收起、球在哪会记住。（#8）
+- **开机自动启动**：设置 → 识别与显示 → 启动（默认关），命令行 `config set autostart true`。登录后魔镜收成球待命，
+  点开或拖出来才开始截屏、识别（文字识别那时才准备，开机不拖慢）。写在 Windows 的启动项里，程序挪了地方会自己改路径。（#9）
+- **输入框翻译**：在别的软件的输入框里用母语打完字，连按三次空格（或按 Ctrl+Alt+J），整个框换成外语（默认母语是英文时
+  译成简体中文，否则译成英文）；再按换回原文，再按又换成译文，来回换不再请求。写回去用粘贴，聊天软件里自己另存内容的
+  编辑器也会真的换掉；剪贴板用完放回原样，不进剪贴板历史。只听空格和修饰键，密码框不碰，原文和译文只放在内存里。
+  默认关（设置 → 输入框翻译），默认不管浏览器（浏览器版自己会翻）、写代码的编辑器和命令行。
+
+Drag the mirror to the edge of the screen and it tucks away as a ball and stops translating; drag it out and it
+carries on. DeskMirror can start with Windows, waiting as a ball. And in any program's text box, press Space three
+times to turn what you typed in your own language into another one. All three follow the browser version 0.6.0–0.7.1
+(PR #10).
+
+- **Tuck it away at the edge**: the tab has a six-dot grip at its left end (the whole tab still drags). Drag the mirror
+  until the mouse reaches the edge of the screen and it shrinks smoothly into a ball stuck to that edge, and translation
+  stops (when every mirror is tucked away nothing is captured or recognized and no tokens are spent). Let go and the
+  ball slides halfway into the edge; move the mouse onto it and it slides out. Drag the ball out and it opens into a
+  dashed frame that follows the mouse, translation starts and translations already show inside; let go and it lands
+  there. Click the ball to put the mirror back where it was. Any of the four edges works, except where two screens
+  meet; the top edge only counts when you push the mouse all the way up. Whether it's tucked away, and where, is
+  remembered. (#8)
+- **Start with Windows**: Settings → Recognition and display → Startup (off by default), or `config set autostart
+  true`. After you sign in the mirror waits as a ball and starts capturing and recognizing when you click it or drag it
+  out (text recognition only gets ready then, so startup isn't slowed down). It's stored in Windows' startup list and
+  follows the program if you move its folder. (#9)
+- **Text box translation**: after typing in your own language in another program's text box, press Space three times
+  (or Ctrl+Alt+J) to turn the whole box into another language (by default Simplified Chinese if your own language is
+  English, otherwise English); press again for the original, and again for the translation, without new requests. The
+  text goes back in by pasting, so editors in chat apps that keep their own copy really change too; the clipboard is
+  put back afterwards and the borrowed paste stays out of clipboard history. It only listens to Space and modifier
+  keys, never touches password boxes, and keeps the text in memory only. Off by default (Settings → Text boxes);
+  browsers (the browser version handles those), code editors and terminals are left alone by default.
+
 ## 1.2.0（2026-10-08）
 
 程序里就能检查并更新到新版本；所有设置都能用命令行改，AI 助手可以替你设置好；魔镜标签上显示 token 用量，还加了省钱保护；Windows 10 上不再把自己的译文当原文，还加了截图模式。

@@ -21,7 +21,8 @@ FLAG = "--autostart"
 def command() -> str:
     """现在这个程序的启动命令。"""
     if getattr(sys, "frozen", False):
-        return f'"{Path(sys.executable).resolve()}" {FLAG}'
+        # 打包版：界面程序 DeskMirror.exe（命令行 DeskMirrorCLI.exe 在同一个文件夹里，用它改设置时也写界面程序）
+        return f'"{Path(sys.executable).resolve().with_name("DeskMirror.exe")}" {FLAG}'
     root = Path(__file__).resolve().parent.parent
     py = root / ".venv" / "Scripts" / "pythonw.exe"
     if not py.exists():
