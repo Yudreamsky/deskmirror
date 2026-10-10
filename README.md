@@ -54,8 +54,14 @@ Screenshots of DeskMirror running on the project's test pages (translation servi
   vertically in place, and English is centered in the bubble.
 - **Image translation**: press Ctrl+Alt+V or click "Image" on the tab to send the frame to a vision model (gemma4:12b
   on Ollama by default). Good for stylized lettering, sound effects and text in pictures.
+- **Tuck it away**: drag the mirror to the edge of the screen and it shrinks into a ball that stops translating; drag
+  it out and it carries on wherever you drop it.
+- **Translate what you type**: in another program's text box, press Space three times (or Ctrl+Alt+J) to turn what you
+  typed in your own language into another one; press again to switch back. Off by default.
+- **Liquid glass skin** (optional): the border becomes a ring of curved glass that refracts what's behind it, and the
+  tab and the ball turn into glass too.
 - Also: a history panel, editing translations, several mirrors, mirrors that follow a window, pause, screenshots,
-  updating from inside the app.
+  starting with Windows, updating from inside the app.
 
 ## Installation
 
@@ -108,6 +114,9 @@ Common actions:
 | Move or resize the mirror | Drag the tab above the mirror; drag the blue border |
 | Peek at the original | Hold Ctrl+Alt+O |
 | Hide / show the mirror | Ctrl+Alt+H |
+| Tuck the mirror away as a ball | Drag the tab to the edge of the screen; click the ball to bring it back |
+| Turn what you type into another language | Press Space three times in a text box, or Ctrl+Alt+J (turn it on in Settings → Text boxes) |
+| Liquid glass look | Settings → Recognition and display → Skin |
 | Look back at recent subtitles and dialogue | Ctrl+Alt+Y opens the history panel |
 | Pause (the frame stays; no recognition, no translation) | Click "Pause" on the tab |
 | Choose languages (e.g. ZH→EN, ID→EN, JA→EN) | Click the language button on the tab |

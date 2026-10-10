@@ -59,8 +59,14 @@ Inggris; bila Anda memilih bahasa Indonesia sebagai bahasa ibu, terjemahannya ta
 - **Terjemahan gambar**: tekan Ctrl+Alt+V atau klik "Image" di tab untuk mengirim isi bingkai ke model yang bisa
   membaca gambar (secara bawaan gemma4:12b di Ollama). Cocok untuk huruf dekoratif, efek suara, dan teks di dalam
   gambar.
+- **Simpan sebagai bola**: seret cermin ke tepi layar dan cermin mengecil menjadi bola yang menempel di tepi dan berhenti
+  menerjemahkan; tarik keluar lagi dan terjemahan berlanjut di tempat Anda melepasnya.
+- **Terjemahkan yang Anda ketik**: di kotak teks program lain, tekan Spasi tiga kali (atau Ctrl+Alt+J) untuk mengganti
+  tulisan dalam bahasa ibu Anda ke bahasa lain; tekan lagi untuk kembali ke aslinya. Mati secara bawaan.
+- **Skin kaca cair** (opsional): bingkai menjadi cincin kaca melengkung yang membiaskan isi di belakangnya; tab dan bola
+  juga menjadi kaca.
 - Juga: panel riwayat, menyunting terjemahan, beberapa cermin sekaligus, cermin yang mengikuti jendela, jeda, tangkapan
-  layar, pembaruan dari dalam aplikasi.
+  layar, mulai bersama Windows, pembaruan dari dalam aplikasi.
 
 ## Pemasangan
 
@@ -114,6 +120,9 @@ lagi kapan saja dari menu baki sistem). Lihat [panduan singkat](docs/QUICKSTART.
 | Memindahkan atau mengubah ukuran cermin | Seret tab di atas cermin; seret bingkai biru |
 | Melihat teks asli sebentar | Tahan Ctrl+Alt+O |
 | Menyembunyikan / menampilkan cermin | Ctrl+Alt+H |
+| Menyimpan cermin sebagai bola | Seret tab ke tepi layar; klik bola untuk membukanya lagi |
+| Mengganti ketikan ke bahasa lain | Tekan Spasi tiga kali di kotak teks, atau Ctrl+Alt+J (aktifkan di Settings → Text boxes) |
+| Tampilan kaca cair | Settings → Recognition and display → Skin |
 | Melihat lagi subtitel dan dialog barusan | Ctrl+Alt+Y membuka panel riwayat |
 | Jeda (bingkai tetap ada; tidak mengenali, tidak menerjemahkan) | Klik "Pause" di tab |
 | Memilih bahasa (misalnya EN→ID, ZH→ID, JA→ID) | Klik tombol bahasa di tab |

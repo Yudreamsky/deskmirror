@@ -1,9 +1,10 @@
 # 更新记录 / Changelog
 
-## 未发布 / Unreleased
+## 1.3.0（2026-10-10）
 
 魔镜拖到屏幕边缘就收成球、停止翻译，拖出来接着翻；新的液态玻璃皮肤，边框一圈像弧形玻璃一样折射后面的画面；可以开机自动启动，
 启动后收成球待命；在别的软件的输入框里连按三次空格，把你打的母语换成外语。都照浏览器版 0.6.0–0.7.1 的做法（PR #10）。
+英文软件的界面（工具栏、菜单、参数面板）也翻得更像原样了。
 
 - **拖到边缘收成球**：标签左头加了六个点的抓手（整个标签照样能拖）。拖着魔镜让鼠标到了屏幕边缘，魔镜平滑地缩成一个球
   吸在边上，翻译停下（魔镜都收起来时不截屏、不识别、不花 token）；松手后球藏进边缘一半，鼠标移上去滑出来。按住球往外拖，
@@ -20,11 +21,15 @@
   译成简体中文，否则译成英文）；再按换回原文，再按又换成译文，来回换不再请求。写回去用粘贴，聊天软件里自己另存内容的
   编辑器也会真的换掉；剪贴板用完放回原样，不进剪贴板历史。只听空格和修饰键，密码框不碰，原文和译文只放在内存里。
   默认关（设置 → 输入框翻译），默认不管浏览器（浏览器版自己会翻）、写代码的编辑器和命令行。
+- **英文软件的界面**（拿英文版 Houdini 实测）：并排的按钮名不再框成一行一起翻，按字之间的大空隙拆开分别翻；图标下分两行写的
+  名字合成一块再翻；字号按原文笔画估，同一列、同一排统一；照原文对齐（参数名右对齐、菜单左对齐、工具栏和标签页居中）；
+  界面上的短标签不折行；底板取字周围最多的颜色，按钮和下拉框照着渐变画；菜单里的快捷键不翻。
 
 Drag the mirror to the edge of the screen and it tucks away as a ball and stops translating; drag it out and it
 carries on. A new liquid glass skin turns the border into a ring of curved glass that refracts what's behind it.
 DeskMirror can start with Windows, waiting as a ball. And in any program's text box, press Space three times to turn
 what you typed in your own language into another one. All of these follow the browser version 0.6.0–0.7.1 (PR #10).
+The interfaces of English software (toolbars, menus, parameter panels) are translated more faithfully too.
 
 - **Tuck it away at the edge**: the tab has a six-dot grip at its left end (the whole tab still drags). Drag the mirror
   until the mouse reaches the edge of the screen and it shrinks smoothly into a ball stuck to that edge, and translation
@@ -54,6 +59,12 @@ what you typed in your own language into another one. All of these follow the br
   put back afterwards and the borrowed paste stays out of clipboard history. It only listens to Space and modifier
   keys, never touches password boxes, and keeps the text in memory only. Off by default (Settings → Text boxes);
   browsers (the browser version handles those), code editors and terminals are left alone by default.
+- **English software interfaces** (tested on English Houdini): buttons sitting side by side are no longer boxed into
+  one line and translated together; they're split at the wide gaps and translated one by one. Names written on two
+  lines under an icon are joined first. The font size follows the original strokes and stays the same along a column
+  or row, and translations follow the original's alignment (parameter names right-aligned, menus left-aligned,
+  toolbars and tabs centred). Short interface labels don't wrap; the plate takes the most common colour around the
+  text, and buttons and drop-downs keep their gradient. Menu shortcuts aren't translated.
 
 ## 1.2.0（2026-10-08）
 
