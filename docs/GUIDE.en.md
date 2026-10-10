@@ -117,6 +117,36 @@ Recognition and translation order: first everything inside the mirror, then a ri
 after ring outwards until the whole screen is covered; content that hasn't changed isn't recognized or translated
 again.
 
+## Text box translation (turn what you type into another language)
+
+When chatting with colleagues abroad, answering an email or writing a comment: type in your own language in any
+program's text box, then **press Space three times** and the whole box turns into the other language (by default
+Simplified Chinese if your own language is English, otherwise English; choose in Settings → Text boxes). **Press Space
+three times again to switch back to the original**, and again for the translation; switching back and forth reuses
+the remembered text, so it doesn't ask for a new translation or spend tokens. Ctrl+Z undoes it too. It's off by
+default; turn it on in Settings → Text boxes (command line: `config set input.enabled true`).
+
+- At most half a second between presses; holding Space down, or Space with Ctrl / Alt / Shift / Win, doesn't count,
+  and neither does pressing Space at the start of a line (indenting). With a Chinese input method the first Space often
+  picks a candidate; just press once more (any three presses in a row count).
+- Or press the shortcut **Ctrl+Alt+J** (change it in Settings → Hotkeys): no Spaces needed; press it again for the
+  original.
+- If you keep typing or switch windows while it's translating, the box isn't replaced; a small note next to the box
+  says why.
+- The text goes back in by pasting (select all, then paste), so the editors in chat apps that keep their own copy of
+  the text really change too and what you send is the translation. Pasting borrows the clipboard and then puts your
+  previous clipboard back; the borrowed paste stays out of clipboard history (Win+V).
+- The text is read with Windows UI Automation (what screen readers use). Some programs draw their own interface and
+  their text boxes can't be read: there, pressing Space three times does nothing, and the shortcut copies the text out
+  with Ctrl+A and Ctrl+C to read it (that copy does go into clipboard history).
+- Privacy: it only listens to Space and Ctrl, Alt, Shift and Win; other keys are neither looked at nor recorded.
+  Password boxes are never touched. The text and its translation are kept in memory only (the last 20 pairs), never
+  written to disk. Usage counts towards today's tokens and the daily limit as usual; the usage log records counts only.
+- Left alone by default (change it in Settings): browsers (if the
+  [browser version](https://github.com/Yudreamsky/deskmirror-browser) is installed it also answers three Spaces in web
+  pages, and both would swap the text), code editors and terminals (where pressing Space several times is common).
+  Boxes with more than 4,000 characters aren't translated either.
+
 ## Translation scope and privacy
 
 Settings → "Scope and privacy" (the tray menu also has "Pre-translation scope" and "Don't translate the program

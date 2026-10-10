@@ -111,6 +111,7 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication, QLabel, QMenu, QMessageBox, QSystemTrayIcon
 
     from .engine import Engine
+    from .fieldtrans import FieldTranslator
     from .hotkeys import HoldShortcut, HotkeyManager, modifiers_down, parse_modifiers
     from .ui import layered
     from .ui.dock import Docker
@@ -204,6 +205,13 @@ def main() -> int:
             self.tip.setMaximumWidth(560)
             self.tip.winId()
             winapi.exclude_from_capture(int(self.tip.winId()))
+            # 输入框翻译的小提示：贴在别的软件的输入框光标下面（“翻译中…”“已翻译 · 再连按三次空格换回原文”）
+            self.field_tip = QLabel(None, Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint
+                                    | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.WindowTransparentForInput
+                                    | Qt.WindowType.WindowDoesNotAcceptFocus)
+            self.field_tip.winId()
+            winapi.exclude_from_capture(int(self.field_tip.winId()))
+            self._field_tip_timer = QTimer(self, singleShot=True, timeout=self.field_tip.hide)
             self._tip_bid = 0
             self._hover_since = 0.0
             self.tray = QSystemTrayIcon(make_icon())
@@ -220,6 +228,9 @@ def main() -> int:
             self._message_until = 0.0
             self.tray.messageClicked.connect(self._on_message_clicked)
             self.tray.show()
+            self.field = FieldTranslator(cfg)
+            self.field.tip.connect(self._show_field_tip)
+            self.field.used.connect(self._count_field_usage)
             self._register_keys()
             self._engine_on = False
             self._restore_docks()
@@ -626,7 +637,9 @@ def main() -> int:
         def _register_keys(self) -> None:
             hk = self.cfg.hotkeys
             errors = self.hotkeys.register({"peek": hk.peek, "refresh": hk.refresh, "toggle": hk.toggle_visible,
-                                            "history": hk.history, "vision": hk.vision})
+                                            "history": hk.history, "vision": hk.vision,
+                                            # 输入框翻译打开时才占用它的快捷键
+                                            "input": hk.input if self.cfg.input.enabled else ""})
             try:
                 self._drag_mods = parse_modifiers(hk.drag_modifiers)
             except ValueError as e:
@@ -855,6 +868,47 @@ def main() -> int:
             for f in self.frames:
                 f.set_meter(text, tip)
 
+        def _count_field_usage(self, u: dict) -> None:
+            """输入框翻译用掉的 token 也算进今天的用量（和每日上限）；用量日志照样只记数量。"""
+            from . import usagelog
+            self._count_engine_usage()                  # 先按日期换天
+            us = self.cfg.usage
+            us.requests += 1
+            us.chars += int(u["chars"])
+            us.tokens_in += int(u["tokens_in"])
+            us.tokens_out += int(u["tokens_out"])
+            us.tokens_cached += int(u["cached"])
+            if not u["exact"]:
+                us.estimated = True
+            self._count_engine_usage()                  # 托盘提示、标签上的用量、每日上限
+            usagelog.write(model=self.cfg.llm.model, host=usagelog.host_of(self.cfg.llm.base_url), app=u["app"],
+                           kind="input", segments=u["segments"], chars=u["chars"], tokens_in=u["tokens_in"],
+                           tokens_out=u["tokens_out"], cached=u["cached"], exact=u["exact"], secs=u["secs"])
+
+        def _show_field_tip(self, text: str, level: str, anchor, ms: int) -> None:
+            """输入框翻译的提示：贴在输入框光标下面（下面放不下就放上面），过一会儿自己消失。"""
+            color = {"busy": "#3d8bfd", "ok": "#3fb950", "err": "#e5534b"}.get(level, "#3d8bfd")
+            t = self.field_tip
+            t.setStyleSheet("QLabel{background:#202329;color:#f2f4f8;border:1px solid %s;border-radius:6px;"
+                            "padding:5px 9px;font:13px 'Microsoft YaHei UI';}" % color)
+            t.setText(text)
+            t.adjustSize()
+            x, y = int(anchor[0]), int(anchor[3]) + 6
+            for m in winapi.monitors():
+                if geom.contains_pt(m.rect, anchor[0], anchor[1]):
+                    l, top, r, b = m.work
+                    if y + t.height() > b:
+                        y = int(anchor[1]) - 6 - t.height()
+                    x = max(l, min(x, r - t.width()))
+                    y = max(top, y)
+                    break
+            t.move(x, y)
+            t.show()
+            if ms:
+                self._field_tip_timer.start(ms)
+            else:
+                self._field_tip_timer.stop()
+
         def _check_budget(self) -> None:
             """云端服务今天的 token 用到上限：停止发新的翻译请求（已有译文照常显示），换天或调高上限后自动恢复。"""
             u, limit = self.cfg.usage, self.cfg.guard.daily_tokens
@@ -864,6 +918,7 @@ def main() -> int:
                 return
             was, self._budget_hit = self._budget_hit, hit
             self.engine.set_budget_hit(hit)
+            self.field.budget_hit = hit
             if hit and was is False:          # 改了别的设置重新判断时不重复提示
                 log.warning("今天的 token 已用到上限 %d", limit)
                 self.tray.showMessage(tr("桌面魔镜"), tr(
@@ -983,6 +1038,8 @@ def main() -> int:
                 self.toggle_history()
             elif action == "vision":
                 self.look()
+            elif action == "input":
+                self.field.hotkey()
 
         def _on_peek(self, on: bool) -> None:
             self.state.peek = on
@@ -1246,6 +1303,7 @@ def main() -> int:
                     f.set_lang_label(self._lang_label())
             if ui_changed:
                 self.apply_ui_lang(self.cfg.ui_lang)
+            self.field.apply(self.cfg)
             self._register_keys()
             self._budget_hit = None             # 上限可能改了：重新判断，并且一定告诉引擎
             self._check_budget()
@@ -1738,6 +1796,23 @@ def main() -> int:
                 else:
                     f.dock.dock_now(req.get("spot"))
                 return {"ok": True, "docked": f.dock.docked}
+            if cmd == "field":
+                # 输入框翻译的状态（测试用）；set：改输入框翻译的设置；hotkey：像按了快捷键一样翻译前台的输入框
+                if req.get("set"):
+                    import copy
+                    new = copy.deepcopy(self.cfg)
+                    for k, v in req["set"].items():
+                        setattr(new.input, k, v)
+                    self.cfg.input = config.validate(new).input
+                    self.field.apply(self.cfg)
+                    self._register_keys()
+                if req.get("hotkey"):
+                    self.field.hotkey()
+                lst = self.field.listener
+                return {"enabled": self.cfg.input.enabled, "listening": bool(lst and lst.ok), "busy": self.field.busy,
+                        "memo": len(self.field.memo.pairs), "last": self.field.last, "runs": self.field.runs,
+                        "uia": getattr(self.field, "uia_ok", False),
+                        "tip": self.field_tip.text() if self.field_tip.isVisible() else ""}
             if cmd == "dock_trace":
                 # 吸边动画最近的帧（时间与 now 同一时间轴、形状），验收时量帧间隔、看形状怎么变
                 f = self.frames[int(req.get("index", 0))]
@@ -1803,6 +1878,8 @@ def main() -> int:
                 f.dock.close()
                 f.close()
             self.tip.close()
+            self.field.close()
+            self.field_tip.close()
             self.history.close()
             if self.guide is not None:
                 self.guide.blockSignals(True)      # 退出程序时关掉的不算看过，下次还会弹出

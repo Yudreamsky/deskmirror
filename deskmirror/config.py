@@ -92,6 +92,7 @@ class HotkeyConfig:
     toggle_visible: str = "Ctrl+Alt+H"  # 隐藏 / 显示魔镜
     history: str = "Ctrl+Alt+Y"       # 历史面板：最近的原文和译文
     vision: str = "Ctrl+Alt+V"        # 看图翻译：把镜框里的画面发给能看图的模型
+    input: str = "Ctrl+Alt+J"         # 输入框翻译：翻译正在打字的输入框，再按一次换回原文（打开输入框翻译时才注册）
 
 
 @dataclass
@@ -134,6 +135,13 @@ DEFAULT_EXCLUDE_TITLES = [
     "网上银行", "网银", "手机银行", "Online Banking", "支付宝", "Alipay", "PayPal", "微信支付",
     "WhatsApp", "LastPass", "Bitwarden", "1Password", "KeePass",
 ]
+# 输入框翻译默认不管的程序：浏览器（装了浏览器版的话它也会响应三次空格，两边会各换一次）、
+# 写代码的编辑器和命令行（连按空格很常见，全选会选中整个文件）
+INPUT_SKIP_APPS = [
+    "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "vivaldi.exe", "Arc.exe",
+    "Code.exe", "devenv.exe", "idea64.exe", "pycharm64.exe", "sublime_text.exe", "notepad++.exe",
+    "WindowsTerminal.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "conhost.exe",
+]
 SCOPE_MODES: dict[str, str] = {        # 显示时 tr
     "screen": N_("整块屏幕（拖到哪里译文都已备好）"),
     "window": N_("只翻魔镜所在的窗口"),
@@ -172,6 +180,14 @@ class GlossaryEntry:
 @dataclass
 class MemoryConfig:
     enabled: bool = False             # 记住译文（加密存在本机，下次相同的文字直接用）；用户主动打开才用
+
+
+@dataclass
+class InputConfig:
+    """输入框翻译：在别的软件的输入框里打完母语，连按三次空格（或按快捷键），整个框换成另一种语言；再按换回原文。"""
+    enabled: bool = False             # 默认关：要听键盘（只听空格），用户自己打开
+    target: str = ""                  # 译成的语言；空 = 母语是英文时译成简体中文，否则译成英文
+    skip_apps: list[str] = field(default_factory=lambda: list(INPUT_SKIP_APPS))
 
 
 @dataclass
@@ -225,6 +241,7 @@ class AppConfig:
     usage: UsageConfig = field(default_factory=UsageConfig)
     guard: GuardConfig = field(default_factory=GuardConfig)
     update: UpdateConfig = field(default_factory=UpdateConfig)
+    input: InputConfig = field(default_factory=InputConfig)
 
 
 def is_local_url(base_url: str) -> bool:
@@ -292,7 +309,7 @@ def _decrypt(value: str) -> str:
 CHOICES: dict[str, tuple[str, ...]] = {
     "source_lang": tuple(SOURCE_LANGS), "target_lang": tuple(LANGUAGES), "ui_lang": ("", "zh", "en"),
     "llm.protocol": ("ollama", "openai"), "vision.protocol": ("ollama", "openai"), "ocr.device": ("gpu", "cpu"),
-    "scope.mode": tuple(SCOPE_MODES),
+    "scope.mode": tuple(SCOPE_MODES), "input.target": ("",) + tuple(LANGUAGES),
 }
 # 改了要重启魔镜才生效的设置（启动时就定下来的：识别进程、截屏方式、处理哪些屏幕）
 RESTART_KEYS = ("ocr.device", "ocr.threads", "track.all_monitors", "track.wheel_predict", "track.prefer_dxgi")
@@ -334,14 +351,14 @@ def validate(cfg: AppConfig) -> AppConfig:
             terms.append({"src": str(g["src"]).strip(), "dst": str(g["dst"]).strip(),
                           "app": str(g.get("app", "")).strip()})
     cfg.glossary = terms[:500]
-    for name in ("exclude_apps", "exclude_titles"):
+    for obj, name in ((cfg.scope, "exclude_apps"), (cfg.scope, "exclude_titles"), (cfg.input, "skip_apps")):
         seen, out = set(), []
-        for v in getattr(cfg.scope, name):
+        for v in getattr(obj, name):
             v = v.strip() if isinstance(v, str) else ""
             if v and v.lower() not in seen:
                 seen.add(v.lower())
                 out.append(v)
-        setattr(cfg.scope, name, out)
+        setattr(obj, name, out)
     if not (isinstance(cfg.mirror_rect, list) and len(cfg.mirror_rect) == 4
             and all(isinstance(v, int) for v in cfg.mirror_rect)
             and cfg.mirror_rect[2] - cfg.mirror_rect[0] >= 80 and cfg.mirror_rect[3] - cfg.mirror_rect[1] >= 60):

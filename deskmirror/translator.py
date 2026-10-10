@@ -70,6 +70,25 @@ def system_prompt(target: str, source: str = "auto") -> str:
     )
 
 
+def compose_prompt(target: str, source: str) -> str:
+    """输入框翻译：用户自己用母语写的话（聊天、邮件、评论），译成要发出去的语言。原文语言是确定的（用户的母语）。"""
+    lang = _TARGET_DESC.get(target, LANGUAGES.get(target, target))
+    src = _SOURCE_DESC.get(source, "the user's own language")
+    return (
+        f"You translate what the user is typing in a text box (a chat message, an email, a comment, a search) "
+        f"from {src} into {lang}, so they can send it. Each input segment starts with a number like [1]; "
+        "the segments are consecutive lines of the same message.\n"
+        "Rules:\n"
+        f"- Output every segment in the same order, each starting with its own number, e.g. [1] <{lang} text>.\n"
+        "- Never merge, split, skip or reorder segments; one output segment per input segment.\n"
+        "- Write it the way a native speaker would type that kind of message: keep the meaning, the tone, the level "
+        "of politeness, emoji and punctuation style. Don't add greetings, notes or explanations.\n"
+        "- Keep names, @mentions, #tags, URLs, email addresses, code, numbers and units as they are.\n"
+        f"- If a segment is already {lang}, repeat it unchanged.\n"
+        "- Output only the numbered translations, nothing else."
+    )
+
+
 def build_user_message(texts: list[str], context: str = "", glossary: list[tuple[str, str]] | None = None,
                        refs: list[tuple[str, str]] | None = None, dialog: list[tuple[str, str]] | None = None) -> str:
     body = "\n".join(f"[{i + 1}] {t.replace(chr(10), ' ')}" for i, t in enumerate(texts))
@@ -201,12 +220,13 @@ def _clean(text: str) -> str:
 def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: Callable[[int, str], None],
                      client: httpx.Client, cancel: threading.Event, context: str = "",
                      glossary: list[tuple[str, str]] | None = None, refs: list[tuple[str, str]] | None = None,
-                     source: str = "auto", dialog: list[tuple[str, str]] | None = None) -> Usage:
+                     source: str = "auto", dialog: list[tuple[str, str]] | None = None, prompt: str = "") -> Usage:
     """发一批文字块，流式解析；全部完成后返回这次用掉的 token。失败抛 ServiceError。
 
     context 是这批文字所在窗口的标题，帮模型判断场景（比如 CSS 文档里的属性名不该翻译）。
+    prompt：换掉默认的系统说明（输入框翻译用 compose_prompt）。
     """
-    messages = [{"role": "system", "content": system_prompt(target, source)},
+    messages = [{"role": "system", "content": prompt or system_prompt(target, source)},
                 {"role": "user", "content": build_user_message(texts, context, glossary, refs, dialog)}]
     parser = SegmentParser(len(texts), on_segment)
     usage = Usage()

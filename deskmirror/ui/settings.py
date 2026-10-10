@@ -1,4 +1,4 @@
-"""设置窗口：翻译服务（地址、模型、密钥、连接测试）、翻译范围与隐私、识别与显示、快捷键。"""
+"""设置窗口：翻译服务（地址、模型、密钥、连接测试）、翻译范围与隐私、识别与显示、输入框翻译、快捷键。"""
 from __future__ import annotations
 
 import copy
@@ -67,6 +67,7 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(self._privacy_tab(), tr("范围与隐私"))
         self.tabs.addTab(self._glossary_tab(), tr("术语表"))
         self.tabs.addTab(self._general_tab(), tr("识别与显示"))
+        self.tabs.addTab(self._input_tab(), tr("输入框翻译"))
         self.tabs.addTab(self._keys_tab(), tr("快捷键"))
         self.tabs.addTab(self._about_tab(), tr("关于"))
 
@@ -338,6 +339,35 @@ class SettingsDialog(QDialog):
         lay.addStretch(1)
         return page
 
+    def _input_tab(self) -> QWidget:
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        self.input_on = QCheckBox(tr("打开输入框翻译"))
+        self.input_on.setChecked(self.cfg.input.enabled)
+        lay.addWidget(self.input_on)
+        lay.addWidget(_note(tr("在别的软件的输入框里用母语打完字，连按三次空格（或按快捷键 {key}），整个框换成下面选的语言；"
+                               "再连按三次换回原文，再按又换成译文。来回换用记着的字，不再请求翻译。Ctrl+Z 能撤回。")
+                            .format(key=self.cfg.hotkeys.input)))
+        f = QFormLayout()
+        self.input_target = QComboBox()
+        self.input_target.addItem(tr("自动：母语是英文时译成简体中文，否则译成英文"), "")
+        for code, name in LANGUAGES.items():
+            self.input_target.addItem(name, code)
+        self.input_target.setCurrentIndex(max(0, self.input_target.findData(self.cfg.input.target)))
+        f.addRow(tr("翻译成"), self.input_target)
+        self.input_skip = QPlainTextEdit("\n".join(self.cfg.input.skip_apps))
+        self.input_skip.setFixedHeight(110)
+        f.addRow(tr("不管的程序"), self.input_skip)
+        lay.addLayout(f)
+        lay.addWidget(_note(tr("默认不管浏览器（装了桌面魔镜浏览器版的话，它在网页里也会响应三次空格，两边会各换一次）、"
+                               "写代码的编辑器和命令行（连按空格很常见）。")))
+        lay.addWidget(_note(tr("只听空格和 Ctrl、Alt、Shift、Win 键，别的按键不看、不记。框里的字和译文只放在内存里（最近 20 对），"
+                               "不写硬盘。写回去时借用剪贴板粘贴，粘完放回你原来的内容，借用的那一下不进剪贴板历史。密码框一概不碰。"
+                               "读不到框里的字的软件，连按三次空格不起作用；按快捷键时会用 Ctrl+A、Ctrl+C 复制出来读"
+                               "（这时你的字会进剪贴板历史）。")))
+        lay.addStretch(1)
+        return page
+
     def _keys_tab(self) -> QWidget:
         page = QWidget()
         kf = QFormLayout(page)
@@ -353,6 +383,8 @@ class SettingsDialog(QDialog):
         kf.addRow(tr("历史面板"), self.k_history)
         self.k_vision = QLineEdit(self.cfg.hotkeys.vision)
         kf.addRow(tr("看图翻译"), self.k_vision)
+        self.k_input = QLineEdit(self.cfg.hotkeys.input)
+        kf.addRow(tr("翻译输入框（打开输入框翻译时）"), self.k_input)
         return page
 
     def _about_tab(self) -> QWidget:
@@ -421,6 +453,10 @@ class SettingsDialog(QDialog):
         c.hotkeys.toggle_visible = self.k_toggle.text().strip()
         c.hotkeys.history = self.k_history.text().strip()
         c.hotkeys.vision = self.k_vision.text().strip()
+        c.hotkeys.input = self.k_input.text().strip()
+        c.input.enabled = self.input_on.isChecked()
+        c.input.target = self.input_target.currentData()
+        c.input.skip_apps = _lines(self.input_skip)
         c.vision.protocol = self.v_protocol.currentData()
         c.vision.base_url = self.v_base.text().strip()
         c.vision.model = self.v_model.text().strip()

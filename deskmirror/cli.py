@@ -62,6 +62,7 @@ DOCS = {
     "hotkeys.toggle_visible": N_("隐藏 / 显示魔镜"),
     "hotkeys.history": N_("历史面板（回看刚才的字幕、对话）"),
     "hotkeys.vision": N_("看图翻译"),
+    "hotkeys.input": N_("翻译正在打字的输入框，再按一次换回原文（打开输入框翻译时才有）"),
     "style.font_family": N_("译文的字体"),
     "style.min_font_px": N_("放不下时字最小缩到多少像素"),
     "style.min_scale": N_("放不下时最多缩到原字号的多少"),
@@ -96,6 +97,10 @@ DOCS = {
     "guard.daily_tokens": N_("云端服务一天最多用多少 token（输入 + 输出），到了就停止翻译新文字；0 = 不限。本机服务不限"),
     "guard.show_meter": N_("魔镜标签上显示今天用掉的 token（↑ 输入 ↓ 输出）"),
     "update.auto_check": N_("启动后检查有没有新版本（一天最多一次，只访问 GitHub；有新版只提示）"),
+    "input.enabled": N_("输入框翻译：在别的软件的输入框里打完母语，连按三次空格（或按 hotkeys.input），整个框换成"
+                        "另一种语言，再按换回原文；要听键盘（只听空格），默认关"),
+    "input.target": N_("输入框翻译成什么语言；空着 = 母语是英文时译成简体中文，否则译成英文"),
+    "input.skip_apps": N_("输入框翻译不管的程序（exe 文件名，逗号分隔）；默认是浏览器（浏览器版自己会翻）、写代码的编辑器和命令行"),
     "update.skip_version": N_("自动检查时不再提示的版本号（检查更新窗口里点了“跳过这个版本”）"),
 }
 # 不在配置文件里的设置：开机自动启动存在 Windows 的启动项里（以它为准）
