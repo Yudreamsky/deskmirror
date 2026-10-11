@@ -1,4 +1,5 @@
-"""打包成 exe：python packaging\\build.py → dist\\DeskMirror\\DeskMirror.exe 和 dist\\DeskMirror-<版本>-win64.zip。
+"""打包成 exe：python packaging\\build.py → dist\\DeskMirror\\DeskMirror.exe 和 dist\\DeskMirror-<版本>-win64.zip；
+加 --installer 再编译安装程序 dist\\DeskMirror-<版本>-win64-setup.exe（要装 Inno Setup 6，见 installer.iss）。
 
 先装打包工具（只在打包时用）：.venv\\Scripts\\python -m pip install -r requirements-build.txt
 zip 里是一个 DeskMirror 文件夹：解压后双击 DeskMirror.exe；设置和日志存在这个文件夹里。
@@ -103,7 +104,10 @@ def copy_licenses(app: Path) -> list[str]:
         (out / "antlr4-python3-runtime" / "LICENSE.txt").parent.mkdir(parents=True, exist_ok=True)
         (out / "antlr4-python3-runtime" / "LICENSE.txt").write_text(ANTLR_BSD, encoding="utf-8")
     (out / "Python").mkdir(exist_ok=True)
-    shutil.copy2(Path(sys.base_prefix) / "LICENSE_PYTHON.txt", out / "Python" / "LICENSE.txt")
+    # Anaconda 里叫 LICENSE_PYTHON.txt，python.org 装的叫 LICENSE.txt
+    py_license = next(p for p in (Path(sys.base_prefix) / "LICENSE_PYTHON.txt", Path(sys.base_prefix) / "LICENSE.txt")
+                      if p.is_file())
+    shutil.copy2(py_license, out / "Python" / "LICENSE.txt")
     missing = [n for n in dists if not (out / n).exists()]
     if missing:
         raise SystemExit(f"这些组件找不到许可证文件，补上再打包：{missing}")
@@ -137,7 +141,36 @@ def main() -> None:
     (DIST / f"{NAME}.zip.sha256").write_text(f"{digest}  {zpath.name}\n", encoding="ascii")
     size = sum(f.stat().st_size for f in app.rglob("*") if f.is_file())
     print(f"{zpath}  {zpath.stat().st_size / 1e6:.1f} MB（解压后 {size / 1e6:.0f} MB）\nSHA256 {digest}")
+    if "--installer" in sys.argv:
+        build_installer()
+
+
+def find_iscc() -> Path:
+    """Inno Setup 6 的编译器（winget install JRSoftware.InnoSetup 装的在用户目录里）。"""
+    found = shutil.which("ISCC")
+    cands = [Path(found)] if found else []
+    for base in (os.environ.get("LOCALAPPDATA", ""), os.environ.get("ProgramFiles(x86)", ""),
+                 os.environ.get("ProgramFiles", "")):
+        if base:
+            cands += [Path(base) / "Programs" / "Inno Setup 6" / "ISCC.exe", Path(base) / "Inno Setup 6" / "ISCC.exe"]
+    for c in cands:
+        if c.is_file():
+            return c
+    raise SystemExit("没找到 Inno Setup 6 的 ISCC.exe：先 winget install JRSoftware.InnoSetup")
+
+
+def build_installer() -> None:
+    """安装程序 dist\\DeskMirror-<版本>-win64-setup.exe：把 dist\\DeskMirror 装到用户目录，带开始菜单、卸载（见 installer.iss）。"""
+    subprocess.run([str(find_iscc()), "/Qp", f"/DAppVersion={__version__}", str(ROOT / "packaging" / "installer.iss")],
+                   check=True)
+    setup = DIST / f"{NAME}-setup.exe"
+    digest = hashlib.sha256(setup.read_bytes()).hexdigest()
+    (DIST / f"{setup.name}.sha256").write_text(f"{digest}  {setup.name}\n", encoding="ascii")
+    print(f"{setup}  {setup.stat().st_size / 1e6:.1f} MB\nSHA256 {digest}")
 
 
 if __name__ == "__main__":
-    main()
+    if "--installer-only" in sys.argv:          # dist\DeskMirror 已经打好了：只编译安装程序
+        build_installer()
+    else:
+        main()

@@ -374,9 +374,29 @@ def apply_package(new_app: Path, target: Path, wait_pid: int, restart: bool, old
         raise UpdateError(tr("换新版本时出错，已经换回旧版本：{error}").format(error=e)) from None
     (stage(target) / "done.json").write_text(json.dumps({"from": old_version, "to": __version__}), encoding="utf-8")
     log.info("已从 %s 更新到 %s", old_version, __version__)
+    _fix_installed_version(target)
     if restart:
         subprocess.Popen([str(target / "DeskMirror.exe")], cwd=str(target))
     shutil.rmtree(old, ignore_errors=True)          # 删不干净的，新版本启动后再清
+
+
+# 安装程序（packaging\installer.iss）登记在“应用和功能”里的那一项
+INSTALLER_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\{5B7E0C1A-3D4F-4E8B-9A61-2C8F0D7E4B19}_is1"
+
+
+def _fix_installed_version(target: Path) -> None:
+    """用安装程序装的：程序里更新完，把“应用和功能”里显示的版本号也改成新的（卸载照常用安装时的卸载程序）。"""
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, INSTALLER_KEY, 0,
+                            winreg.KEY_QUERY_VALUE | winreg.KEY_SET_VALUE) as k:
+            where, _kind = winreg.QueryValueEx(k, "InstallLocation")
+            if Path(str(where)).resolve() != target.resolve():
+                return                                   # 登记的是别处的安装
+            winreg.SetValueEx(k, "DisplayVersion", 0, winreg.REG_SZ, __version__)
+            winreg.SetValueEx(k, "DisplayName", 0, winreg.REG_SZ, "DeskMirror")
+    except OSError:
+        pass                                             # 不是用安装程序装的
 
 
 def apply_source(root: Path, wait_pid: int, restart: bool, old_version: str) -> None:

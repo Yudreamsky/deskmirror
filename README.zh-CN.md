@@ -54,7 +54,15 @@ https://github.com/user-attachments/assets/3a04cbfd-9331-4180-9e04-9c29c09e237e
   - 本机：安装 [Ollama](https://ollama.com)，再运行 `ollama pull gemma4:12b`（模型约 7.6 GB，需要显存较大的独立显卡）
   - 云端：DeepSeek 等服务的 API Key（按用量收费）
 
-### 下载即用（推荐）
+### 安装程序（最省事）
+
+在 [Releases](https://github.com/Yudreamsky/deskmirror/releases/latest) 下载 `DeskMirror-版本号-win64-setup.exe`（约 106 MB），双击安装：
+
+- 装在当前用户的 `%LOCALAPPDATA%\Programs\DeskMirror`，不用管理员权限；开始菜单里有“桌面魔镜”，可选桌面快捷方式和开机自动启动。
+- 魔镜里的“检查更新”照样能直接换新版本；也可以下载新的安装程序装在原来的位置上，设置都保留（正在运行的魔镜会先自动退出）。
+- 卸载：Windows 设置 →“应用”里卸载“DeskMirror”，会问要不要一起删掉设置和日志；开机自启也一起去掉。
+
+### 下载即用（解压版）
 
 1. 在 [Releases](https://github.com/Yudreamsky/deskmirror/releases/latest) 下载 `DeskMirror-版本号-win64.zip`（约 140 MB）。
 2. 解压到任意文件夹（比如“文档”或 D 盘），双击里面的 `DeskMirror.exe`，按新手指南设好就能用。

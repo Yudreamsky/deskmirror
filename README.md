@@ -73,7 +73,19 @@ You need:
     card with plenty of video memory)
   - Cloud: an API key for DeepSeek or a similar service (pay per use)
 
-### Download (recommended)
+### Installer (easiest)
+
+Download `DeskMirror-<version>-win64-setup.exe` (about 106 MB) from
+[Releases](https://github.com/Yudreamsky/deskmirror/releases/latest) and run it:
+
+- It installs for the current user in `%LOCALAPPDATA%\Programs\DeskMirror`, without admin rights, adds DeskMirror to
+  the Start menu, and can add a desktop shortcut and start DeskMirror when you sign in.
+- "Check for updates" in DeskMirror still updates it in place; you can also run a newer installer over it. Your
+  settings are kept, and a running DeskMirror is closed first.
+- To uninstall, use Windows Settings → Apps → DeskMirror. It asks whether to delete your settings and logs too, and
+  removes the sign-in autostart.
+
+### Portable zip
 
 1. Download `DeskMirror-<version>-win64.zip` (about 140 MB) from
    [Releases](https://github.com/Yudreamsky/deskmirror/releases/latest).
