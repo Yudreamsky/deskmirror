@@ -116,6 +116,7 @@ def main() -> int:
     from .hotkeys import HoldShortcut, HotkeyManager, modifiers_down, parse_modifiers
     from .ui import glass, layered
     from .ui.dock import Docker
+    from .ui.glide import Glide
     from .ui.mirror import MirrorFrame
     from .ui.overlay import Overlay, UiState
     from .ui.render import Renderer
@@ -161,6 +162,7 @@ def main() -> int:
 
     class App(QObject):
         snapshot_ready = Signal(object)
+        motion_ready = Signal(object)         # 只有位移曲线（引擎量到新位移马上发，交给系统合成器的译文层）
         vision_piece = Signal(str)            # 看图翻译：后台线程拿到的一段译文
         vision_done = Signal(str, float)      # 看图翻译结束：(出错说明, 用时)
         update_found = Signal(object)         # 启动后自动检查查到了新版本（updater.Release）
@@ -174,6 +176,8 @@ def main() -> int:
             self.backdrop = glass.Backdrop(None)               # 液态玻璃取后面的画面（引擎建好后接上）
             mons = winapi.monitors()
             self.overlays = [Overlay(m, self.state) for m in mons]
+            self.glide = self._make_glide(mons)                # 镜内的译文交给系统合成器（建不起来就用原来的）
+            self._overlay_sig = None
             rect = tuple(cfg.mirror_rect) if cfg.mirror_rect else self._default_rect(mons)
             self.state.mirror = rect
             self.frames: list[MirrorFrame] = []
@@ -182,6 +186,10 @@ def main() -> int:
                 self._new_frame(tuple(r))
             self._last_shot = ""
             self.engine = Engine(cfg, self.snapshot_ready.emit)
+            self.engine.glide = self.glide is not None
+            if self.glide is not None:
+                self.engine.motion_cb = self.motion_ready.emit
+                self.motion_ready.connect(self._on_motion)
             self.backdrop.engine = self.engine
             self._sync_mirrors()
             self.snapshot_ready.connect(self._on_snapshot)
@@ -420,6 +428,7 @@ def main() -> int:
             self.state.mirrors = [f.mirror for f in active if f.dock.live is None]
             main = self.frame if self.frame in active else (active[0] if active else self.frame)
             self.engine.set_mirrors([main.mirror] + [f.mirror for f in active if f is not main])
+            self._glide_sync()
 
         def _start_engine(self) -> None:
             if not self._engine_on:
@@ -666,13 +675,70 @@ def main() -> int:
         # -------------------------------------------------------------- 事件
         def _on_snapshot(self, snap) -> None:
             self.state.snapshot = snap
-            if not self.state.hidden and not self.state.paused:
+            self._glide_sync()
+            if not self.state.hidden and not self.state.paused and self._overlay_changed(snap):
                 for o in self.overlays:
                     o.repaint_mirror()
             self._update_status(snap)
             self._count_engine_usage()
             if not self.state.paused:
                 self._feed_history(snap)
+
+        def _overlay_changed(self, snap) -> bool:
+            """原来的译文层要不要重画：译文交给合成器以后，镜内它只画等待提示和调试框（变形中的形状另外重画），
+            这些没变就不用每份快照都整块重画、交给系统（省下界面线程的时间）。"""
+            if self.glide is None:
+                return True
+            st = self.state
+            sig = (st.peek, snap.pending, snap.status.get("canvases") if st.debug else None,
+                   any(s.text for s in st.shapes.values()))
+            if sig == self._overlay_sig:
+                return False
+            self._overlay_sig = sig
+            return True
+
+        def _make_glide(self, mons):
+            """译文交给系统合成器，滚动时由系统每一帧移动（ui/glide.py）。Windows 10 的色键窗口不用它；
+            建不起来（显卡接口、不能对截屏隐身）就用原来的译文层。环境变量 DESKMIRROR_GLIDE=0 / 1 可以强制。"""
+            forced = os.environ.get("DESKMIRROR_GLIDE", "")
+            if forced == "0" or (forced != "1" and layered.colorkey()):
+                return None
+            try:
+                g = Glide(mons, self.state.renderer)
+            except Exception as e:  # noqa: BLE001 - 任何原因建不起来都退回原来的译文层
+                log.warning("译文层（系统合成器）不可用，用原来的译文层：%s", e)
+                return None
+            self.state.glide = True
+            log.info("译文层：系统合成器（滚动时由系统每一帧移动译文）")
+            return g
+
+        def _on_motion(self, curves: dict) -> None:
+            st = self.state
+            if self.glide is None or st.hidden or st.paused or st.peek:
+                return
+            try:
+                self.glide.move(curves)
+            except Exception:  # noqa: BLE001 - 和 _glide_sync 一样：出错就改用原来的译文层
+                log.exception("译文层（系统合成器）移动出错")
+                self._glide_sync()
+
+        def _glide_sync(self) -> None:
+            if getattr(self, "glide", None) is None:
+                return
+            st = self.state
+            try:
+                self.glide.sync(st.snapshot, st.mirrors, show=not (st.hidden or st.paused or st.peek))
+            except Exception:  # noqa: BLE001 - 显卡出问题（驱动重置等）：改用原来的译文层，不让译文消失
+                log.exception("译文层（系统合成器）出错，改用原来的译文层")
+                g, self.glide = self.glide, None
+                self.state.glide = False
+                self.engine.glide = False
+                try:
+                    g.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                for o in self.overlays:
+                    o.repaint_mirror()
 
         def _lang_label(self) -> str:
             return f"{tr(config.SOURCE_SHORT[self.cfg.source_lang])}→{tr(config.TARGET_SHORT[self.cfg.target_lang])}"
@@ -799,6 +865,7 @@ def main() -> int:
                 f.set_paused(paused)
                 f.set_status(*status)
             self.tip.hide()
+            self._glide_sync()
             for o in self.overlays:
                 o.repaint_mirror()
 
@@ -1053,6 +1120,7 @@ def main() -> int:
 
         def _on_peek(self, on: bool) -> None:
             self.state.peek = on
+            self._glide_sync()
             for o in self.overlays:
                 o.repaint_mirror()
 
@@ -1243,6 +1311,7 @@ def main() -> int:
                 f.dock.set_hidden(self.state.hidden)
                 f.setVisible(not self.state.hidden and not f.suspended and not f.dock.docked)
             self.act_toggle.setText(tr("显示魔镜") if self.state.hidden else tr("隐藏魔镜"))
+            self._glide_sync()
             for o in self.overlays:
                 o.update()
 
@@ -1344,6 +1413,8 @@ def main() -> int:
                     self.quit_app()
             if now - self._last_topmost > 2.0:
                 self._last_topmost = now
+                for hwnd in (self.glide.hwnds() if self.glide is not None else ()):
+                    winapi.keep_topmost(hwnd)            # 从下到上：译文（合成器）、原来的译文层、魔镜边框
                 for o in self.overlays:
                     winapi.keep_topmost(int(o.winId()))
                 if not self.state.hidden:
@@ -1522,6 +1593,11 @@ def main() -> int:
                         "stamp": snap.stamp if snap else 0, "peek": self.state.peek,
                         "hidden": self.state.hidden, "paused": self.state.paused, "grab": self.frame.grab_mode,
                         "shot_mode": self.state.shot_mode, "colorkey": layered.colorkey(),
+                        "glide": ({"syncs": self.glide.syncs, "commits": self.glide.commits,
+                                   "sync_ms": round(self.glide.sync_ms, 1),
+                                   "groups": sum(len(ly.groups) for ly in self.glide.layers),
+                                   "visuals": sum(len(g.items) for ly in self.glide.layers for g in ly.groups.values())}
+                                  if self.glide is not None else None),
                         "skin": "glass" if glass.active() else "classic",
                         "glass_ms": ({"n": len(gm), "avg": round(sum(gm) / len(gm), 2), "max": round(max(gm), 2),
                                       "p95": round(sorted(gm)[int(len(gm) * 0.95)], 2)}
@@ -1696,6 +1772,18 @@ def main() -> int:
                 self.cfg.llm = new.llm
                 self.engine.update_llm(self.cfg)
                 return {"ok": True, "llm": {k: getattr(self.cfg.llm, k) for k in ("protocol", "base_url", "model")}}
+            if cmd == "ui_trace":
+                # 覆盖层每次绘制：开始、画完、交给系统的时刻和画的快照（与指标日志同一时间轴）；
+                # 译文层交给合成器时：每次交过去的画布位移（不动的数 / 曲线），测滚动跟随用
+                base = self.engine.started
+                out = [[round(v - base, 5) if v else None for v in r] for r in (self.state.trace or [])]
+                gl = [[round(t - base, 5), cid, list(o), [[round(p[0] - base, 5), p[1], p[2]] for p in curve]]
+                      for t, cid, o, curve in ((self.glide.trace or []) if self.glide is not None else [])]
+                if "on" in req:
+                    self.state.trace = [] if req["on"] else None
+                    if self.glide is not None:
+                        self.glide.trace = [] if req["on"] else None
+                return {"trace": out, "glide": gl, "glide_on": self.glide is not None}
             if cmd == "metrics":
                 out = {k: v for k, v in self.engine.metrics.items()}
                 import numpy as np
@@ -1929,6 +2017,9 @@ def main() -> int:
                 self.engine.join(6.0)
             for o in self.overlays:
                 o.close()
+            if self.glide is not None:
+                self.glide.close()
+                self.glide = None
             for f in self.frames:
                 f.dock.close()
                 f.close()

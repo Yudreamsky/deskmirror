@@ -9,7 +9,7 @@ from __future__ import annotations
 import collections
 import time
 
-from PySide6.QtCore import QRect, Qt
+from PySide6.QtCore import QRect, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen, QRegion
 from PySide6.QtWidgets import QWidget
 
@@ -42,6 +42,10 @@ class UiState:
         self.paint_lat: collections.deque[float] = collections.deque(maxlen=2000)
         self.paint_ms: collections.deque[float] = collections.deque(maxlen=2000)
         self._painted_stamp = 0.0
+        # 调试：逐次记下覆盖层画的是哪一份快照、什么时候画完、什么时候交给系统（测滚动跟随用，平时是 None）
+        self.trace: list | None = None
+        self.glide = False          # 镜内的译文交给系统合成器（ui/glide.py）：这一层只画等待提示、调试框、变形中的形状
+        self.grab_items = False     # 截图、录制时临时为 True：这一层照样把译文画出来（合成器那层截不到）
 
 
 class Overlay(QWidget):
@@ -76,6 +80,14 @@ class Overlay(QWidget):
 
     def _mirrors(self) -> list[Rect]:
         return self.state.mirrors
+
+    def grab_full(self, rect: QRect):
+        """截图、录制用：截下这一层，连同镜内的译文（交给合成器时这一层平时不画它们）。"""
+        self.state.grab_items = True
+        try:
+            return self.grab(rect)
+        finally:
+            self.state.grab_items = False
 
     def repaint_rect(self, r: Rect) -> None:
         """重画屏幕上的一块（变形中的形状、滑动的球）。"""
@@ -114,6 +126,11 @@ class Overlay(QWidget):
             if st.snapshot is not None and st.snapshot.stamp > st._painted_stamp:
                 st._painted_stamp = st.snapshot.stamp
                 st.paint_lat.append((now - st.snapshot.stamp) * 1000)
+            if st.trace is not None and st.snapshot is not None:
+                rec = [t0, now, st.snapshot.stamp, 0.0]
+                st.trace.append(rec)
+                # 画完以后 Qt 才把这块交给系统（分层窗口更新）；回到事件循环的时刻≈交出去的时刻
+                QTimer.singleShot(0, lambda: rec.__setitem__(3, time.perf_counter()))
 
     def _paint(self, event) -> None:
         p = QPainter(self)
@@ -136,7 +153,7 @@ class Overlay(QWidget):
             openings = [(geom.inter(s.box(), self.mon.rect), opening_region(s, ml, mt)) for _k, s in shapes if s.text]
             if mirrors or openings:
                 if not st.peek:
-                    self._paint_items(p, snap, mirrors, openings, ml, mt)
+                    self._paint_items(p, snap, [] if st.glide and not st.grab_items else mirrors, openings, ml, mt)
                 for mirror in mirrors:
                     self._paint_mirror(p, snap, mirror)
         for key, s in shapes:

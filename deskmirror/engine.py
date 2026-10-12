@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import collections
+import math
 import zlib
 import json
 import logging
@@ -35,13 +36,48 @@ from .memory import Memory, TemplateCache, number_template
 from .ocr_worker import OcrBlockOut, OcrClient, OcrJob
 from .scene import Block, Canvas, DrawItem, Snapshot
 from .translator import Batch, TranslatorPool
-from .wheelmodel import EPISODE_GAP, CurveModel, Episode, learn, load_models, save_models
+from .wheelmodel import EPISODE_GAP, HORIZON_MS, CurveModel, Episode, learn, load_models, save_models
 
 log = logging.getLogger(__name__)
 TILE = pixels.TILE
 VOLATILE_S = 1.5   # 连续变化超过这么久才算动态背景（视频、游戏画面）；窗口改大小的重绘一般 1 秒内结束
 COUNTER_WAIT_S = 0.12   # 计数器的数字变了以后等多久再识别（数字有过渡动画时等它画完）
 SUBTITLE_WAIT_S = 0.15  # 字幕、游戏对话换句后等多久单独识别那一条（有的播放器字幕淡入）
+
+
+def _combine_curves(path: tuple, ox: int, oy: int) -> tuple:
+    """一个画布和它上面各层正在动的画布的位移曲线合起来（一般只有一条），加上画布此刻量到的屏幕位移，
+    得到 ((时刻, x, y), ...)，去掉几乎在一条直线上的点。"""
+    if len(path) == 1:
+        axis, pts = path[0]
+        raw = [(t, ox + e, oy) if axis == "h" else (t, ox, oy + e) for t, e in pts]
+    else:
+        ts = sorted({t for _a, pts in path for t, _e in pts})
+        xs = np.full(len(ts), float(ox))
+        ys = np.full(len(ts), float(oy))
+        for axis, pts in path:
+            v = np.interp(ts, [t for t, _e in pts], [e for _t, e in pts])
+            if axis == "h":
+                xs += v
+            else:
+                ys += v
+        raw = list(zip(ts, xs.tolist(), ys.tolist()))
+    return tuple(_simplify(raw))
+
+
+def _simplify(pts: list[tuple[float, float, float]], tol: float = 0.25) -> list[tuple[float, float, float]]:
+    """折线去掉中间那些“前后两点连线上就差不到 tol 像素”的点（曲线平的地方只留两头）。"""
+    if len(pts) <= 2:
+        return list(pts)
+    out = [pts[0]]
+    for i in range(1, len(pts) - 1):
+        a, b = out[-1], pts[i + 1]
+        t, x, y = pts[i]
+        k = (t - a[0]) / (b[0] - a[0]) if b[0] > a[0] else 0.0
+        if abs(a[1] + (b[1] - a[1]) * k - x) > tol or abs(a[2] + (b[2] - a[2]) * k - y) > tol:
+            out.append(pts[i])
+    out.append(pts[-1])
+    return out
 
 
 def _bbox(rects: list[Rect]) -> Rect:
@@ -209,8 +245,12 @@ class Engine(threading.Thread):
         self._metrics_fh = None
         self.started = time.perf_counter()
         self._cur_frame_t = 0.0
+        self._cur_present = 0.0
         self._prev_frame_t = 0.0
         self._vel_shown: set[int] = set()     # 正按速度外推显示的画布（停下后要撤回外推）
+        self.glide = False                    # 界面的译文层交给系统合成器（快照里要带位移曲线），由界面设置
+        self.motion_cb: Callable[[dict], None] | None = None   # 只发位移曲线（量到新位移马上发，见 _publish_motion）
+        self._motion_sent = False
         self.working = True                   # 用户点了“暂停”就是 False：不截屏、不识别、不翻译（魔镜框还在）
         # 每一帧屏幕上变了哪些地方（屏幕坐标）：液态玻璃皮肤据此判断边框、标签后面的画面要不要重新取样
         self.changes: collections.deque = collections.deque(maxlen=256)
@@ -354,7 +394,12 @@ class Engine(threading.Thread):
                 continue
             try:
                 tw = time.perf_counter()
-                fr = m.cap.grab(timeout_ms=5 if m is focus else 0)
+                if m is focus:
+                    fr = m.cap.grab(timeout_ms=5, roi=self._capture_roi(m))
+                    if fr is None and m.cap.stale():
+                        fr = m.cap.flush()          # 之前只看了关心范围的帧：其余部分补上
+                else:
+                    fr = m.cap.grab(timeout_ms=0)
                 wait += time.perf_counter() - tw
             except Exception as e:  # noqa: BLE001
                 log.warning("显示器 %s 采集出错：%s", m.idx, e)
@@ -378,8 +423,10 @@ class Engine(threading.Thread):
             self._dirty = True
             self._publish(force=True)   # 滚动停了：撤回按速度外推的那一段
         t6 = time.perf_counter()
-        # 预测进行中：即使没有新帧也按 120Hz 发布，让译文沿曲线连续移动
-        self._publish(force=bool(self.episodes or self._vel_shown) and t6 - self._last_publish >= 1 / 120)
+        # 预测进行中：即使没有新帧也按 120Hz 发布，让译文沿曲线连续移动（译文层交给系统合成器时，
+        # 曲线已经交过去了，由系统每一帧移动，不用这样）
+        self._publish(force=not self.glide and bool(self.episodes or self._vel_shown)
+                      and t6 - self._last_publish >= 1 / 120)
         t7 = time.perf_counter()
         # 各环节累计耗时（毫秒），用于找出拖慢跟随的部分
         prof["p_ticks"] += 1
@@ -393,6 +440,28 @@ class Engine(threading.Thread):
         prof["p_publish"] += (t7 - t6) * 1000
         prof["p_tick_max"] = max(prof["p_tick_max"], (t7 - t0 - wait) * 1000)
         return got
+
+    ROI_MARGIN = 80         # 魔镜四周多看这么宽：边框、标签、液态玻璃取样都在里面
+
+    def _capture_roi(self, m: Mon) -> list[Rect]:
+        """整屏都报“变了”的帧（见 capture.DuplicationCapture）先细看哪些地方：魔镜附近，
+        和最近在动、碰到魔镜的滚动区域。显示器内坐标。其余部分截屏那边最多隔 0.1 秒补一次。"""
+        w, h = m.size
+        near = [geom.expand(r, self.ROI_MARGIN) for r in self._mirrors]
+        out = list(near)
+        now = time.perf_counter()
+        for wc in self.win_canvas.values():
+            for c in wc.descendants():
+                if c.kind == "scroll" and c.alive and now - c.last_move < 1.0:
+                    clip = c.screen_clip()
+                    if any(geom.overlaps(clip, r) for r in near):
+                        out.append(clip)
+        res = []
+        for r in out:
+            l, t, rr, b = geom.inter(m.local(r), (0, 0, w, h))
+            if rr > l and b > t:
+                res.append((l, t, rr, b))
+        return res
 
     def _make_mon(self, i: int, info: winapi.Monitor) -> Mon:
         cap = open_capture(info.device, info.rect, self.cfg.track.prefer_dxgi)
@@ -865,11 +934,16 @@ class Engine(threading.Thread):
 
     def _on_frame(self, m: Mon, fr) -> None:
         t0 = time.perf_counter()
-        self._cur_frame_t = fr.time
-        self._prev_frame_t = m.last_ft or fr.time
+        self._motion_sent = False
+        # 帧的时刻：这一帧画面显示出来的那一刻（合成器节拍）；滚动速度、滚轮曲线、预测都按它算，
+        # 和译文层交给合成器的动画是同一条时间轴。GDI 截屏没有这个时刻，用截到的时刻。
+        ft = fr.tick or fr.time
+        self._cur_frame_t = ft
+        self._cur_present = fr.present
+        self._prev_frame_t = m.last_ft or ft
         m.bgra = fr.image
         self._note_change(m, fr)
-        m.last_ft = fr.time
+        m.last_ft = ft
         m.frames += 1
         w, h = m.size
         regions = []
@@ -910,14 +984,48 @@ class Engine(threading.Thread):
         for l, t, rr, b in regions:
             m.prev[t:b, l:rr] = m.cur[t:b, l:rr]
         m.seq += 1
+        self._check_stopped(m, regions)
         dt = time.perf_counter() - t0
         self.metrics["frames"] += 1
         self.metrics["frame_ms_sum"] += dt * 1000
         if comps:
             pf = {k: round(v * 1000, 2) for k, v in self._prof_frame.items()}
             self._metric("frame", mon=m.idx, comps=len(comps), scrolls=scrolls, ms=round(dt * 1000, 2),
-                         lag_ms=round((time.perf_counter() - fr.time) * 1000, 2),
+                         lag_ms=round((time.perf_counter() - fr.time) * 1000, 2), acc=fr.acc,
+                         pt=round(fr.present - self.started, 4) if fr.present else None,
                          diff_ms=round((t_diff - t0) * 1000, 2), cls_ms=round((t_cls - t_diff) * 1000, 2), **pf)
+
+    STOP_GAP = 0.010     # 秒：在动的画布这么久没动、这一帧又看过它那里，就当停了
+
+    def _check_stopped(self, m: Mon, regions: list[Rect]) -> None:
+        """这一帧看过的范围里，正在按曲线 / 速度往前推的画布没有动：内容已经停了（或者滚到了尽头）。
+        马上撤回往前推的那一段，不等推完再弹回来。只看这一帧真的看过的地方（脏矩形覆盖到它）。"""
+        ft = self._cur_frame_t
+        seen = [geom.shift(r, *m.origin) for r in regions]
+        stopped = False
+        for cid, ep in self.episodes.items():
+            c = getattr(ep, "canvas", None)
+            if not ep.predicting or c is None or not c.alive or cid in self._frame_moved or not ep.shifts:
+                continue
+            last = ep.shifts[-1][0]
+            model = self.wheel_models.get(ep.key)
+            if ft - last < self.STOP_GAP or model is None or not any(geom.overlaps(c.screen_clip(), r) for r in seen):
+                continue
+            if abs(model.displacement(ep.wheels, ft) - model.displacement(ep.wheels, last)) >= 2:
+                ep.predicting = False                 # 曲线说该动了，实际没动：这次滚动不再预测
+                stopped = True
+                self._metric("wheel_stop", cid=cid, ft=round(ft - self.started, 4))
+        for cid in list(self._vel_shown):
+            c = self._canvas_by_id(cid)
+            if c is None or cid in self._frame_moved or not c.motion or ft - c.motion[-1][0] < self.STOP_GAP:
+                continue
+            if any(geom.overlaps(c.screen_clip(), r) for r in seen):
+                c.motion.append((ft, 0, ft - c.motion[-1][0]))   # 速度归零：不再外推
+                del c.motion[:-6]
+                stopped = True
+        if stopped:
+            self._dirty = True
+            self._publish(force=True)
 
     def _classify_change(self, m: Mon, comp_local: Rect) -> int:
         """按窗口切开变化区域，逐块判断是局部滚动还是内容变化；返回识别出的滚动次数。"""
@@ -1014,14 +1122,16 @@ class Engine(threading.Thread):
             return 0
         local = m.local(part)
         t0 = time.perf_counter()
-        # 上一帧对同一区域算过的当前帧行哈希，就是这一帧的上一帧行哈希（处理完一帧后 prev 等于那一帧的 cur）
-        hk = (m.idx, wc.hwnd)
-        prevh = self._hashes.get(hk)
-        hashes = {"prev": prevh[1] if prevh is not None and prevh[0] == m.seq else None}
-        res = pixels.detect_shift(m.prev, m.cur, local, axis="v", hashes=hashes)
-        self.metrics["hash_reuse"] += hashes["prev"] is not None
-        if "cur" in hashes:
-            self._hashes[hk] = (m.seq + 1, hashes["cur"])
+        res = self._quick_scroll(m, wc, part)
+        if res is None:
+            # 上一帧对同一区域算过的当前帧行哈希，就是这一帧的上一帧行哈希（处理完一帧后 prev 等于那一帧的 cur）
+            hk = (m.idx, wc.hwnd)
+            prevh = self._hashes.get(hk)
+            hashes = {"prev": prevh[1] if prevh is not None and prevh[0] == m.seq else None}
+            res = pixels.detect_shift(m.prev, m.cur, local, axis="v", hashes=hashes)
+            self.metrics["hash_reuse"] += hashes["prev"] is not None
+            if "cur" in hashes:
+                self._hashes[hk] = (m.seq + 1, hashes["cur"])
         if res is None:
             res = pixels.detect_shift(m.prev, m.cur, local, axis="h")
         dt = time.perf_counter() - t0
@@ -1044,6 +1154,10 @@ class Engine(threading.Thread):
         t_apply = time.perf_counter()
         canvas = self._apply_scroll(m, wc, vp, res.axis, res.shift)
         self._prof("apply_ms", time.perf_counter() - t_apply)
+        if canvas is not None and self.glide and not self._motion_sent \
+                and any(geom.overlaps(canvas.screen_clip(), mr) for mr in self._mirrors):
+            self._motion_sent = True
+            self._publish_motion()
         if canvas is None:
             if abs(res.shift) <= 2:
                 self._small_motion(m, part, res, track_volatile)
@@ -1062,8 +1176,53 @@ class Engine(threading.Thread):
         self.metrics["scrolls"] += 1
         self._metric("scroll", axis=res.axis, shift=res.shift, vp=vp, votes=res.votes, changed=res.changed,
                      bands=res.bands, ms=round(dt * 1000, 2), cid=canvas.cid,
-                     ft=round(self._cur_frame_t - self.started, 4))
+                     ft=round(self._cur_frame_t - self.started, 4),
+                     pt=round(self._cur_present - self.started, 4) if self._cur_present else None,
+                     off=list(canvas.screen_offset()))
         return 1
+
+    def _quick_scroll(self, m: Mon, wc: Canvas, part: Rect) -> pixels.ShiftResult | None:
+        """这块变化落在一块正在竖直滚动的画布里（刚动过，或者滚轮刚响）：只用几条窄竖条、在预计的位移附近找
+        （pixels.quick_shift），找到了就按这块画布原来的范围当作这次平移。省掉整块逐行算哈希，每帧快几毫秒，
+        译文跟得更紧。证据不够就返回 None，照旧整块找。"""
+        now = time.perf_counter()
+        best, best_area = None, 0
+        for c in wc.descendants():
+            if c.kind != "scroll" or c.axis != "v" or not c.alive:
+                continue
+            ep = self.episodes.get(c.cid)
+            if now - c.last_move > 0.25 and (ep is None or not ep.wheels or now - ep.wheels[-1][0] > 0.3):
+                continue
+            a = geom.area(geom.inter(c.screen_clip(), part))
+            if a > best_area:
+                best, best_area = c, a
+        if best is None or best_area < 0.5 * geom.area(part):
+            return None
+        c = best
+        vp = geom.inter(c.screen_clip(), part)
+        f0, f1 = self._prev_frame_t, self._cur_frame_t
+        guess = 0.0
+        ep = self.episodes.get(c.cid)
+        model = self.wheel_models.get(ep.key) if ep is not None else None
+        if ep is not None and ep.predicting and ep.wheels and model is not None and model.ready(now):
+            guess = self._wheel_rem(ep, model, c, f0)(f1)
+        else:
+            fit = self._velocity_fit(c) if c.motion and f0 - c.motion[-1][0] < 0.05 else None
+            if fit is not None:
+                guess = self._velocity_disp(fit, f1 - f0)
+        g = int(round(guess))
+        local = m.local(vp)
+        q = pixels.quick_shift(m.prev, m.cur, local, g, max(24, int(abs(g) * 0.6) + 16))
+        self.metrics["quick_try"] += 1
+        if q is None:
+            return None
+        s, votes, changed = q
+        if s == 0:
+            return None             # 竖条里没动：交给整块判断（可能是别处在变）
+        self.metrics["quick_ok"] += 1
+        l, t, r, b = local
+        entering = (l, max(t, b + s), r, b) if s < 0 else (l, t, r, min(b, t + s))
+        return pixels.ShiftResult("v", s, local, votes, changed, entering, 3)
 
     def _prof(self, key: str, seconds: float) -> None:
         pf = getattr(self, "_prof_frame", None)
@@ -2894,6 +3053,7 @@ class Engine(threading.Thread):
             ep.canvas = target
         # 水平滚轮的正方向是向右，与竖直滚轮相反；统一成“内容移动方向”的符号
         ep.wheels.append((t, -notches if horiz else notches))
+        self._metric("wheel", cid=target.cid, wt=round(t - self.started, 4), n=-notches if horiz else notches)
         ep.last = max(ep.last, t)
         self._dirty = True
 
@@ -2902,6 +3062,7 @@ class Engine(threading.Thread):
             if now - ep.last <= EPISODE_GAP:
                 continue
             del self.episodes[cid]
+            self._dirty = True          # 不再按曲线预测：重新发布，译文落在量到的位置上（曲线的终点可能差一两个像素）
             model = self.wheel_models.get(ep.key)
             if model is None:
                 continue
@@ -2920,22 +3081,137 @@ class Engine(threading.Thread):
 
         只在最近两帧同方向都在动时外推（一次性的跳转不外推）；正在减速时最多推到预计停下的位置，
         避免平滑滚动收尾时译文冲过头。"""
-        mo = c.motion
-        if len(mo) < 2 or now - mo[-1][0] > self.VEL_STOP:
+        if not c.motion or now - c.motion[-1][0] > self.VEL_STOP:
             return 0.0
+        fit = self._velocity_fit(c)
+        return self._velocity_disp(fit, horizon) if fit is not None else 0.0
+
+    @staticmethod
+    def _velocity_fit(c: Canvas) -> tuple[float, float] | None:
+        """最近几帧的 (速度, 加速度)；不该外推时（一次性跳转、方向变了、隔太久、刚停下）返回 None。
+
+        两帧算速度受取帧时刻和整数位移的影响，忽快忽慢；这里用最近约 70 毫秒里各帧的位置（位移累加）
+        拟合：4 个点以上用二次曲线（速度、加速度），3 个点用直线（速度）+ 两段速度之差（加速度）。"""
+        mo = c.motion
+        if len(mo) < 2:
+            return None
         (t0, s0, d0), (t1, s1, d1) = mo[-2], mo[-1]
         if s0 == 0 or s1 == 0 or (s0 > 0) != (s1 > 0) or t1 - t0 > 0.06:
-            return 0.0
+            return None
+        recent = []
+        for t, s, d in reversed(mo):
+            if t1 - t > 0.07 or s == 0 or (s > 0) != (s1 > 0):
+                break
+            recent.append((t, s, d))
+        recent.reverse()
+        ts = [recent[0][0] - recent[0][2]] + [t for t, _s, _d in recent]
+        xs = np.concatenate([[0.0], np.cumsum([s for _t, s, _d in recent])])
+        tau = np.array(ts) - t1
         v0, v1 = s0 / d0, s1 / d1
-        a = (v1 - v0) / max(0.004, (d0 + d1) / 2)
+        try:
+            if len(ts) >= 4:
+                c2, c1, _c0 = np.polyfit(tau, xs, 2)
+                return float(c1), float(2 * c2)
+            if len(ts) == 3:
+                v1 = float(np.polyfit(tau, xs, 1)[0])
+        except (np.linalg.LinAlgError, ValueError):    # 两帧记成了同一时刻（补拷的帧）：退回两帧算
+            pass
+        return v1, (s1 / d1 - v0) / max(0.004, (d0 + d1) / 2)
+
+    def _velocity_disp(self, fit: tuple[float, float], h: float) -> float:
+        v1, a = fit
         if a * v1 < 0:                       # 减速：到停下为止
             t_stop = -v1 / a
-            h = min(horizon, t_stop)
-            x = v1 * h + 0.5 * a * h * h
+            hh = min(h, t_stop)
+            x = v1 * hh + 0.5 * a * hh * hh
         else:                                # 匀速或加速：加速部分打折，免得噪声放大
-            x = v1 * horizon + 0.25 * a * horizon * horizon
-            x = min(abs(x), 1.5 * abs(v1) * horizon) * (1 if v1 > 0 else -1)
+            x = v1 * h + 0.25 * a * h * h
+            x = min(abs(x), 1.5 * abs(v1) * h) * (1 if v1 > 0 else -1)
         return max(-self.VEL_MAX_PX, min(self.VEL_MAX_PX, x))
+
+    DENSE_GAP = 0.06        # 秒：最近三格滚轮的间隔都比这短 = 连着快速滚
+    SPRING_W = 18.0         # 连着快速滚时，从量到的位置、速度落到终点的快慢（临界阻尼，1/秒）
+
+    def _wheel_rem(self, ep: Episode, model: CurveModel, c: Canvas, f: float):
+        """滚轮预测：在时刻 f 量到的位置之后，内容每个时刻还会再走多少（函数）。
+
+        稀疏的几格按学到的曲线（一格一格叠加，拉伸到正好落在终点，见 CurveModel.remaining）。
+        连着快速滚（最近三格间隔都很短）时，软件每收到一格就重新瞄准、越滚越快，和一格一格叠加有出入：
+        另算一条“从量到的位置和速度（最近三帧拟合）出发，临界阻尼地落到终点（格数 × 每格像素）”，
+        两条各取一半。用实测录下的两轮快速连滚离线比较：错位比只用曲线小约两成，忽前忽后也比只用速度少。"""
+        actual = ep.actual_until(f)
+        ws = ep.wheels
+        rem = model.remaining(ws, f, actual)
+        if len(ws) >= 3 and float(np.median(np.diff([tw for tw, _n in ws[-3:]]))) < self.DENSE_GAP:
+            v0 = self._recent_velocity(c)
+            if v0 is not None:
+                target = model.px_per_notch * sum(n for _tw, n in ws)
+                x0 = actual - target
+                w = self.SPRING_W
+
+                def blend(t: float) -> float:
+                    tau = max(0.0, t - f)
+                    spring = target + (x0 + (v0 + w * x0) * tau) * math.exp(-w * tau) - actual
+                    return 0.5 * spring + 0.5 * rem(t)
+                return blend
+        return rem
+
+    @staticmethod
+    def _recent_velocity(c: Canvas) -> float | None:
+        """最近三帧位置的直线拟合速度（像素/秒）；不到两帧、隔太久（> 60 毫秒）返回 None。"""
+        mo = c.motion[-2:]
+        if len(mo) < 2 or mo[-1][0] - mo[-2][0] > 0.06:
+            return None
+        ts = [mo[0][0] - mo[0][2]] + [t for t, _s, _d in mo]
+        xs = np.concatenate([[0.0], np.cumsum([s for _t, s, _d in mo])])
+        if ts[-1] - ts[0] < 1e-4:
+            return None
+        try:
+            return float(np.polyfit(np.array(ts) - ts[-1], xs, 1)[0])
+        except (np.linalg.LinAlgError, ValueError):
+            return None
+
+    CURVE_STEP = 0.004      # 秒：交给合成器的位移曲线的取样间隔（之后去掉几乎在一条直线上的点）
+    CURVE_WHEEL_S = 0.45    # 滚轮预测的曲线最多画到依据的那一帧之后多久（再往后等新的一帧来续上）
+    CURVE_VEL_S = 0.04      # 按速度外推最多推多久：一般下一帧在这之前就到了；没到多半是停了，别冲过头
+    CURVE_MAX_PX = 800
+
+    def _motion_curves(self, now: float) -> dict[int, tuple[str, list[tuple[float, float]]]]:
+        """正在动的滚动画布：接下来内容还会移动多少（相对最近量到的那一帧），随时间的折线
+        [(时刻, 位移)]，时刻是合成器节拍的时间轴。滚轮有曲线就按曲线一直画到预计停下，否则按速度外推一小段。
+        交给系统合成器（译文层），由它在每一帧按当时的时刻取值、移动译文。"""
+        out: dict[int, tuple[str, list[tuple[float, float]]]] = {}
+        for cid, ep in self.episodes.items():
+            canvas = getattr(ep, "canvas", None)
+            model = self.wheel_models.get(ep.key)
+            if not ep.predicting or not ep.wheels or canvas is None or not canvas.alive or model is None \
+                    or not model.ready(now):
+                continue
+            m = self._monitor_for(canvas.screen_clip())
+            f = m.last_ft if m is not None and m.last_ft else self._cur_frame_t
+            rem = self._wheel_rem(ep, model, canvas, f)
+            end = min(max(tw for tw, _n in ep.wheels) + HORIZON_MS / 1000, f + self.CURVE_WHEEL_S)
+            ts = list(np.arange(f, end, self.CURVE_STEP)) + [end] if end > f else [f]
+            lim = self.CURVE_MAX_PX
+            out[cid] = (ep.axis, [(float(t), max(-lim, min(lim, rem(t)))) for t in ts])
+        for cid in self._vel_shown:
+            c = self._canvas_by_id(cid)
+            if cid in out or c is None or not c.motion:
+                continue
+            fit = self._velocity_fit(c)
+            if fit is None:
+                continue
+            t1 = c.motion[-1][0]
+            hs = list(np.arange(0.0, self.CURVE_VEL_S, self.CURVE_STEP)) + [self.CURVE_VEL_S]
+            out[cid] = (c.axis, [(t1 + float(h), self._velocity_disp(fit, float(h))) for h in hs])
+        return out
+
+    def _canvas_by_id(self, cid: int) -> Canvas | None:
+        for wc in self.win_canvas.values():
+            for c in wc.descendants():
+                if c.cid == cid:
+                    return c
+        return None
 
     def _velocity_extras(self, now: float) -> dict[int, tuple[int, int]]:
         """没有滚轮曲线可用时（键盘、拖滚动条、触控板、还没学到曲线的滚轮），按最近的滚动速度把译文
@@ -2981,13 +3257,39 @@ class Engine(threading.Thread):
             if f - ep.wheels[0][0] > 0.06 and abs(actual - p_f) > max(12.0, 0.5 * abs(p_f)):
                 ep.predicting = False
                 continue
-            extra = max(-250.0, min(250.0, model.displacement(ep.wheels, now + lead) - p_f))
+            extra = max(-250.0, min(250.0, self._wheel_rem(ep, model, canvas, f)(now + lead)))
             if abs(extra) >= 0.5:
                 e = int(round(extra))
                 extras[cid] = (0, e) if ep.axis == "v" else (e, 0)
         return extras
 
     # ------------------------------------------------------------------ 快照
+    def _publish_motion(self) -> None:
+        """魔镜里的画布这一帧量到了新位移：马上只把“各画布接下来怎么动”交给译文层（系统合成器），
+        不等这一帧其余部分（新露出的字、别处的变化）处理完、也不重建整份快照，译文少晚几毫秒。"""
+        if self.motion_cb is None:
+            return
+        t0 = time.perf_counter()
+        motion = self._motion_curves(t0)
+        if not motion:
+            return
+        out: dict[int, tuple] = {}
+        roots = [self.win_canvas[h] for h in self.z_order if h in self.win_canvas] + [self.desktop]
+        for root in roots:
+            stack = [(root, ())]
+            while stack:
+                c, path = stack.pop()
+                mc = motion.get(c.cid)
+                if mc is not None:
+                    path = path + (mc,)
+                stack.extend((ch, path) for ch in c.children if ch.alive and ch.kind != "window")
+                if c.blocks and path:
+                    ox, oy = c.screen_offset()
+                    out[c.cid] = _combine_curves(path, ox, oy)
+        if out:
+            self.motion_cb(out)
+            self._prof("motion_pub_ms", time.perf_counter() - t0)
+
     def _publish(self, force: bool = False) -> None:
         now = time.perf_counter()
         if not force and (not self._dirty or now - self._last_publish < 1 / 90):
@@ -3008,17 +3310,23 @@ class Engine(threading.Thread):
         extras = self._prediction_extras(now) if self.episodes else {}
         for cid, e in self._velocity_extras(now).items():
             extras.setdefault(cid, e)   # 有滚轮曲线预测的画布以滚轮为准
+        motion = self._motion_curves(now) if self.glide else {}
+        origins: dict[int, tuple[int, int]] = {}
+        curves: dict[int, tuple] = {}
         for root, vis in groups:
             if not vis:
                 continue
-            stack = [(root, 0, 0)]
+            stack = [(root, 0, 0, ())]
             while stack:
-                c, ex, ey = stack.pop()
+                c, ex, ey, path = stack.pop()
                 pe = extras.get(c.cid)
                 if pe is not None:
                     ex, ey = ex + pe[0], ey + pe[1]
+                mc = motion.get(c.cid)
+                if mc is not None:
+                    path = path + (mc,)
                 # 桌面画布的子节点是各个窗口，它们已经单独按 Z 序处理过
-                stack.extend((ch, ex, ey) for ch in c.children if ch.alive and ch.kind != "window")
+                stack.extend((ch, ex, ey, path) for ch in c.children if ch.alive and ch.kind != "window")
                 clip = c.screen_clip()
                 if c.kind == "scroll":
                     canvases.append((c.cid, clip, c.axis))
@@ -3028,6 +3336,9 @@ class Engine(threading.Thread):
                 if not clips:
                     continue
                 ox, oy = c.screen_offset()
+                origins[c.cid] = (ox + ex, oy + ey)
+                if path:
+                    curves[c.cid] = _combine_curves(path, ox, oy)
                 for b in c.blocks.values():
                     counts[b.state] += 1
                     r = b.rect
@@ -3047,7 +3358,7 @@ class Engine(threading.Thread):
                                               stretch=sr[2] + b.extra_max if b.extra_max else 0,
                                               soft=sr[3] + b.plain_below if b.plain_below >= 0 else None,
                                               vertical=b.vertical, cols=tuple(b.cols), align=b.align, ink=b.ink,
-                                              label=b.label, grad=None if b.dynamic else b.grad))
+                                              label=b.label, grad=None if b.dynamic else b.grad, cid=c.cid))
                     elif any(geom.overlaps(c, sr) for c in clips):
                         # 只报露出来的：被别的窗口整块挡住的不算“在翻译”（范围外的窗口永远不会翻译）
                         pending.append((sr, clips, b.state == "failed"))
@@ -3056,7 +3367,7 @@ class Engine(threading.Thread):
                             # 换句时旧译文还留着、新句子的译文还没好：新句子比旧底板宽的话两头会露出原文，
                             # 先垫一块和旧底板同色的空底板挡住（画在最底下，旧译文画在它上面）
                             covers.append(DrawItem(-b.bid, b.version, sr, sr, clips, "", held[0].bg, held[0].fg,
-                                                   b.line_h, len(b.lines), b.em))
+                                                   b.line_h, len(b.lines), b.em, cid=c.cid))
         svc = self.service
         status = {
             "ocr": self.ocr_state if self.ocr_busy is None else "busy",
@@ -3090,7 +3401,7 @@ class Engine(threading.Thread):
                 self.metrics["pub_lat_ms_sum"] += lat
                 self.metrics["pub_lat_ms_max"] = max(self.metrics["pub_lat_ms_max"], lat)
             self._metric("pub", lat_ms=round((t_pub - base) * 1000, 2), items=len(items),
-                         ft=round(base - self.started, 4),
+                         ft=round(base - self.started, 4), stamp=round(now - self.started, 4),
                          preds={str(k): (v[1] if v[0] == 0 else v[0]) for k, v in extras.items()})
             self._geo_frame_t = 0.0
-        self._publish_cb(Snapshot(tuple(covers + items), tuple(pending), status, now))
+        self._publish_cb(Snapshot(tuple(covers + items), tuple(pending), status, now, origins, curves))

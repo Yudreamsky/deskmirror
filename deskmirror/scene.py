@@ -164,6 +164,7 @@ class DrawItem:
     ink: Rect | None = None           # 原文墨迹的范围（相对原文块左上角）
     label: bool = False               # 界面上的短标签：译文不折行（放不下先缩小、压扁，再不行就截断）
     grad: tuple | None = None         # 底板上下渐变：(上沿颜色, 下沿颜色)，按原文块的上下边画
+    cid: int = 0                      # 原文块挂在哪个画布上（译文层按画布整体移动，见 Snapshot.origins）
 
 
 @dataclass(frozen=True)
@@ -172,3 +173,8 @@ class Snapshot:
     pending: tuple[tuple[Rect, tuple[Rect, ...]], ...]   # 已识别、译文还没好（或失败）的块：显示等待提示用
     status: dict
     stamp: float
+    # 画布 → 这份快照里它的屏幕位移（含预测，和 items 里的位置一致）：块在画布里的位置 = 块的位置 - 位移
+    origins: dict = field(default_factory=dict, compare=False)
+    # 正在动的画布 → 接下来它的屏幕位移随时间怎么变：((时刻, x, y), ...)，时刻是合成器节拍的时间轴
+    # （perf_counter 秒），最后一点之后不动。系统合成器按这条折线每一帧移动译文（见 ui/glide.py）
+    curves: dict = field(default_factory=dict, compare=False)

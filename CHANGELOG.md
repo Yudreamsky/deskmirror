@@ -2,12 +2,39 @@
 
 ## 未发布
 
+- **滚动时译文跟得更紧、更顺**：镜里的译文改交给 Windows 的系统合成器显示。同一块滚动区域里的译文挂在同一层上，
+  滚动时魔镜算出接下来内容会怎么动（学到的滚轮曲线，或者按实测速度），交给系统，系统每显示一帧就把这一层挪到那一刻的位置：
+  屏幕刷新多快，译文就跟多快，不再一格一格地跳。跟踪本身也更快、更准：每一帧按“这一帧显示出来的时刻”记时间（以前用截完屏的
+  时刻，晚 3–7 毫秒还忽早忽晚）；正在滚的区域只取三条窄竖条、在预计的位移附近找，每帧省约 3 毫秒；量到新位移马上交给系统，
+  不等这一帧其余部分处理完；滚轮每格多少像素取最近几次的中位数，一次算偏的不再把它带偏；连着快速滚时同时参考实测速度；
+  内容一停译文就停，不再冲过头再弹回来。实测（Chrome，真滚轮）：普通滚动时译文和原文错开的中位数从 4–6 像素降到约 1.5 像素，
+  九成时间在 6 像素以内（以前 13–20 像素）；快速连滚时最大的错开从约 90 像素降到约 45 像素。
+- 有时整块屏幕每一帧都被报成“变了”（比如系统合成器里有东西在动）：这种帧先只细看魔镜附近和正在滚动的区域，
+  其余部分最多隔 0.1 秒补看一次，跟踪不会被拖慢。
+- Windows 10 的色键窗口照旧用原来的译文层。环境变量 `DESKMIRROR_GLIDE=0` 可以换回原来的译文层（`=1` 强制用新的，排查用）。
 - **安装程序**：`DeskMirror-版本号-win64-setup.exe`，装在当前用户的 `%LOCALAPPDATA%\Programs\DeskMirror`（不用管理员权限，
   魔镜自己的“检查更新”照样能用），开始菜单、可选桌面快捷方式和开机自启；装新版本、卸载前先请正在运行的魔镜退出；
   卸载时问要不要删设置和日志，开机自启一起去掉。安装界面有简体、繁体中文、英文、日文、韩文。
   `python packaging\build.py --installer` 打出来（要 Inno Setup 6）。程序里更新完，“应用”里显示的版本号也跟着改。（#11）
 - 打包脚本在 python.org 装的 Python 上也能用（以前只认 Anaconda 的 Python 许可证文件名）。
 
+- **Translations follow scrolling more closely and smoothly**: inside the mirror, translations are now shown by the
+  Windows compositor. All translations of one scrolling area sit on one layer; while you scroll, DeskMirror works out
+  how the content will move next (the learned wheel curve, or the measured speed) and hands that to Windows, which
+  moves the layer for every frame it shows. Translations now keep pace with the screen's refresh rate instead of
+  jumping in steps. Tracking itself is faster and more precise: frames are timed by when they are actually shown
+  (instead of when the capture finished, which was 3–7 ms late and uneven); an area that is already scrolling is
+  matched on three narrow strips around the expected offset (about 3 ms less per frame); a new offset goes to Windows
+  right away; pixels per wheel notch is the median of recent scrolls, so one bad reading no longer skews it; fast
+  continuous wheel scrolling also takes the measured speed into account; and when the content stops, translations stop
+  too instead of overshooting and snapping back. Measured with a real mouse wheel in Chrome: during normal scrolling
+  the median offset between translation and original dropped from 4–6 px to about 1.5 px and stays within 6 px 90 % of
+  the time (was 13–20 px); during fast continuous scrolling the largest offset dropped from about 90 px to about 45 px.
+- When the whole screen is reported as changed on every frame (for example while something in the compositor is
+  moving), only the area around the mirror and the scrolling area are checked right away and the rest at most every
+  0.1 s, so tracking does not slow down.
+- Windows 10's colour-key windows keep the previous translation layer. Set the environment variable
+  `DESKMIRROR_GLIDE=0` to go back to it (`=1` forces the new one, for troubleshooting).
 - **Installer**: `DeskMirror-<version>-win64-setup.exe` installs for the current user in
   `%LOCALAPPDATA%\Programs\DeskMirror` (no admin rights; DeskMirror's own update check keeps working), with a Start
   menu entry, an optional desktop shortcut and optional autostart. Installing over it or uninstalling first asks a

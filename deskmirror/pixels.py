@@ -122,6 +122,39 @@ def _vote(hp: np.ndarray, ip: np.ndarray, hq: np.ndarray, changed: np.ndarray, r
     return np.bincount(flat, minlength=nb * span).reshape(nb, span)
 
 
+def quick_shift(prev: np.ndarray, cur: np.ndarray, region: Rect, guess: int, search: int,
+                bands: int = 3, band: int = 48) -> tuple[int, int, int] | None:
+    """已知正在竖直滚动的区域：只取几条窄竖条（区域宽度的 1/4、2/4、3/4 处），在预计的位移 guess 附近
+    ±search 里找。返回 (位移, 支持的行数, 变化的行数)；几条竖条里没有变化返回 (0, 0, 0)；
+    证据不够（支持的行太少、第二名太接近）返回 None，由调用方改用 detect_shift 整块找。
+    整块找要把区域里每一行都算哈希；这里只算三条，快十几倍。"""
+    l, t, r, b = region
+    w, rows = r - l, b - t
+    if w < 2 * band or rows < 48:
+        return None
+    xs = [l + int((i + 1) * w / (bands + 1)) - band // 2 for i in range(bands)]
+    P = np.concatenate([prev[t:b, x:x + band] for x in xs], axis=1)
+    Q = np.concatenate([cur[t:b, x:x + band] for x in xs], axis=1)
+    hp, ip = _row_hashes(P, bands, band)
+    hq, iq = _row_hashes(Q, bands, band)
+    changed = iq & (hq != hp)
+    n_changed = int(changed.sum())
+    if n_changed == 0:
+        return 0, 0, 0
+    votes = _vote(hp, ip, hq, changed, rows, bands).sum(axis=0)
+    lo, hi = max(-rows + 1, guess - search), min(rows - 1, guess + search)
+    win = votes[lo + rows:hi + rows + 1].copy()
+    if win.size == 0:
+        return None
+    k = int(win.argmax())
+    best = int(win[k])
+    win[max(0, k - 1):k + 2] = 0
+    second = int(win.max()) if win.size else 0
+    if best < max(6, n_changed // 2) or second * 5 > best * 2:
+        return None
+    return lo + k, best, n_changed
+
+
 DYN_RUN = 40   # 竖条里连续这么多行都变了、又对不上平移：当成一直在变的大块（视频、动画）
 
 

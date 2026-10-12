@@ -2,7 +2,8 @@
 
 每次滚轮之后，像素识别会逐帧量出这块画布实际移动了多少（带帧时间）。一次“滚动过程”
 （相邻滚轮间隔不超过 0.35 秒）结束时：
-- 总位移 / 总格数 → 这个软件“每格多少像素”（指数平均，按窗口类名分别学）；
+- 总位移 / 总格数 → 这个软件“每格多少像素”（最近几次的中位数，按窗口类名分别学；软件每格滚的距离是定数，
+  个别次数算偏了——比如滚动区域刚认出来、第一格没算进去——不会把它带偏）；
 - 只滚了一格的过程 → 归一化的累计位移随时间的曲线（反应延迟 + 平滑动画的形状）。
 
 预测：滚轮一来，按曲线算出“译文画到屏幕上那一刻”内容会在哪里，提前移动译文；
@@ -29,6 +30,7 @@ class CurveModel:
     n_curve: int = 0
     err: float = 0.0                    # 最近几次预测的相对误差（指数平均）
     paused_until: float = 0.0
+    ratios: list = field(default_factory=list)   # 最近几次滚动过程量到的“每格像素”（取中位数）
 
     def ready(self, now: float) -> bool:
         return self.n_scale >= 2 and self.n_curve >= 2 and now >= self.paused_until and abs(self.px_per_notch) >= 2
@@ -43,6 +45,19 @@ class CurveModel:
     def displacement(self, wheels: list[tuple[float, float]], t: float) -> float:
         """到时刻 t 为止，这些滚轮（时间, 格数）累计带来的内容位移（像素，带符号）。"""
         return sum(self.px_per_notch * n * self.frac((t - tw) * 1000) for tw, n in wheels)
+
+    def remaining(self, wheels: list[tuple[float, float]], f: float, actual: float):
+        """在时刻 f 量到这次滚动已经走了 actual 像素：之后每个时刻还会再走多少（函数）。
+
+        曲线是一格一格叠加的近似；软件连着收到几格时会重新瞄准终点，实际快慢和叠加的不一样。终点却是定的
+        （格数 × 每格像素）：剩下的路按曲线的形状走，但拉伸到正好落在终点上——量到的比曲线慢，后面就走快些。"""
+        p_f = self.displacement(wheels, f)
+        end = max(tw for tw, _n in wheels) + HORIZON_MS / 1000
+        rest = self.displacement(wheels, end) - p_f
+        k = 1.0
+        if abs(rest) >= 2:
+            k = max(0.5, min(2.0, (self.displacement(wheels, end) - actual) / rest))
+        return lambda t: (self.displacement(wheels, t) - p_f) * k
 
 
 @dataclass
@@ -78,7 +93,10 @@ def learn(model: CurveModel, ep: Episode) -> dict:
     if model.n_scale >= 2 and (np.sign(ratio) != np.sign(model.px_per_notch) or abs(ratio) < 0.6 * abs(model.px_per_notch)):
         info["skipped"] = "clamped_or_inconsistent"  # 多半滚到了尽头，不拿来更新每格像素
         return info
-    model.px_per_notch = ratio if model.n_scale == 0 else 0.7 * model.px_per_notch + 0.3 * ratio
+    if not model.ratios and model.n_scale:
+        model.ratios = [model.px_per_notch] * 3      # 以前存的只有平均值：当作三次（一次算偏的压不过它）
+    model.ratios = (model.ratios + [float(ratio)])[-7:]
+    model.px_per_notch = float(np.median(model.ratios))
     model.n_scale += 1
     if len(ep.wheels) == 1 and abs(d) >= 4 and len(ep.shifts) >= 2:
         tw = ep.wheels[0][0]
@@ -100,7 +118,8 @@ def save_models(path, models: dict[str, CurveModel]) -> None:
     """学到的每格像素和曲线存盘（按窗口类名，只有数字），下次启动直接可用。"""
     import json
     data = {k: {"px_per_notch": round(m.px_per_notch, 3), "n_scale": m.n_scale, "n_curve": m.n_curve,
-                "err": round(m.err, 4), "curve": [round(float(v), 4) for v in m.curve]}
+                "err": round(m.err, 4), "curve": [round(float(v), 4) for v in m.curve],
+                "ratios": [round(float(v), 3) for v in m.ratios]}
             for k, m in models.items() if m.n_scale or m.n_curve}
     if data:
         tmp = path.with_suffix(".tmp")
@@ -121,7 +140,7 @@ def load_models(path) -> dict[str, CurveModel]:
             if curve.size != GRID.size:
                 continue
             out[k] = CurveModel(float(d["px_per_notch"]), int(d["n_scale"]), curve, int(d["n_curve"]),
-                                float(d.get("err", 0.0)))
+                                float(d.get("err", 0.0)), ratios=[float(v) for v in d.get("ratios", [])][-7:])
         except (KeyError, TypeError, ValueError):
             continue
     return out

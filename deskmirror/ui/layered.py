@@ -87,7 +87,8 @@ def solid(c: QColor) -> QColor:
 
 def grab(w: QWidget, rect: QRect) -> QPixmap:
     """截下窗口的一块画面（截译图、录制时叠到屏幕画面上）；色键窗口里色键的地方当透明。"""
-    pm = w.grab(rect)
+    full = getattr(w, "grab_full", None)            # 译文层：连同交给合成器的译文一起
+    pm = full(rect) if full is not None else w.grab(rect)
     if _colorkey:
         pm.setMask(pm.createMaskFromColor(key_color(), Qt.MaskMode.MaskInColor))
     return pm

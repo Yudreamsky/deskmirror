@@ -159,6 +159,71 @@ _d3d11.D3D11CreateDevice.restype = HRESULT
 Rect = tuple[int, int, int, int]
 
 
+def _qpc_frequency() -> int:
+    f = ctypes.c_longlong()
+    ctypes.windll.kernel32.QueryPerformanceFrequency(ctypes.byref(f))
+    return f.value or 10_000_000
+
+
+_QPF = _qpc_frequency()      # 桌面复制给的时刻是 QueryPerformanceCounter 的计数；perf_counter 用的是同一个时钟
+
+
+class _RATIO(ctypes.Structure):
+    _fields_ = [("num", ctypes.c_uint32), ("den", ctypes.c_uint32)]
+
+
+class DWM_TIMING_INFO(ctypes.Structure):
+    _pack_ = 1
+    _fields_ = [("cbSize", ctypes.c_uint32), ("rateRefresh", _RATIO), ("qpcRefreshPeriod", ctypes.c_uint64),
+                ("rateCompose", _RATIO), ("qpcVBlank", ctypes.c_uint64), ("cRefresh", ctypes.c_uint64),
+                ("cDXRefresh", ctypes.c_uint32), ("qpcCompose", ctypes.c_uint64), ("cFrame", ctypes.c_uint64),
+                ("cDXPresent", ctypes.c_uint32), ("cRefreshFrame", ctypes.c_uint64), ("cFrameSubmitted", ctypes.c_uint64),
+                ("cDXPresentSubmitted", ctypes.c_uint32), ("cFrameConfirmed", ctypes.c_uint64),
+                ("cDXPresentConfirmed", ctypes.c_uint32), ("cRefreshConfirmed", ctypes.c_uint64),
+                ("cDXRefreshConfirmed", ctypes.c_uint32), ("cFramesLate", ctypes.c_uint64),
+                ("cFramesOutstanding", ctypes.c_uint32), ("cFrameDisplayed", ctypes.c_uint64),
+                ("qpcFrameDisplayed", ctypes.c_uint64), ("cRefreshFrameDisplayed", ctypes.c_uint64),
+                ("cFrameComplete", ctypes.c_uint64), ("qpcFrameComplete", ctypes.c_uint64),
+                ("cFramePending", ctypes.c_uint64), ("qpcFramePending", ctypes.c_uint64),
+                ("cFramesDisplayed", ctypes.c_uint64), ("cFramesComplete", ctypes.c_uint64),
+                ("cFramesPending", ctypes.c_uint64), ("cFramesAvailable", ctypes.c_uint64),
+                ("cFramesDropped", ctypes.c_uint64), ("cFramesMissed", ctypes.c_uint64),
+                ("cRefreshNextDisplayed", ctypes.c_uint64), ("cRefreshNextPresented", ctypes.c_uint64),
+                ("cRefreshesDisplayed", ctypes.c_uint64), ("cRefreshesPresented", ctypes.c_uint64),
+                ("cRefreshStarted", ctypes.c_uint64), ("cPixelsReceived", ctypes.c_uint64),
+                ("cPixelsDrawn", ctypes.c_uint64), ("cBuffersEmpty", ctypes.c_uint64)]
+
+
+_dwmapi = ctypes.WinDLL("dwmapi")
+_dwmapi.DwmGetCompositionTimingInfo.argtypes = [wt.HWND, ctypes.POINTER(DWM_TIMING_INFO)]
+_dwmapi.DwmGetCompositionTimingInfo.restype = HRESULT
+
+
+def compose_clock() -> tuple[float, float] | None:
+    """系统合成器的节拍：(这一次合成对应的垂直同步时刻, 刷新周期)，秒（perf_counter 的时间轴）；取不到返回 None。
+
+    实测（桌面复制 + 合成器动画）：取到新的一帧后马上问，这个时刻正是系统给这一帧里的动画取值的时刻，
+    也就是这一帧画面算作“显示出来”的时刻；桌面复制报的 LastPresentTime 比它早 1～2 个周期，还忽前忽后。"""
+    ti = DWM_TIMING_INFO()
+    ti.cbSize = ctypes.sizeof(DWM_TIMING_INFO)
+    if _dwmapi.DwmGetCompositionTimingInfo(None, ctypes.byref(ti)) != 0 or not ti.qpcRefreshPeriod:
+        return None
+    return ti.qpcVBlank / _QPF, ti.qpcRefreshPeriod / _QPF
+
+
+def frame_tick(present: float) -> float:
+    """刚取到的一帧算作哪一刻显示出来（合成器的节拍，见 compose_clock）；和 present 对不上时按 present 估。"""
+    clock = compose_clock()
+    if clock is None:
+        return present + 0.006 if present else 0.0
+    vb, period = clock
+    if not present:
+        return vb
+    if -0.5 * period <= vb - present <= 2.5 * period:
+        return vb
+    return present + 1.5 * period
+
+
 @dataclass
 class Frame:
     """一帧画面。image 是本显示器的 BGRA（物理像素），由采集器复用，处理时不要长期持有引用。"""
@@ -169,10 +234,22 @@ class Frame:
     moves: list[tuple[Rect, tuple[int, int]]] = field(default_factory=list)  # (目标矩形, 源左上角)
     full: bool = False                 # 整帧都要当作可能变化（首帧、丢失重建后）
     protected: bool = False            # 有受保护内容被系统遮黑
+    acc: int = 1                       # 上次取帧以来系统合成了几帧（>1 = 中间的帧没赶上，直接给最新的）
+    present: float = 0.0               # 桌面复制报的画面更新时刻（perf_counter 的时间轴；0 = 不知道）
+    tick: float = 0.0                  # 这一帧画面显示出来的时刻（合成器节拍，见 frame_tick；0 = 不知道）
+
+
+FULL_EVERY = 0.1        # 秒：整屏都报“变了”的帧里，关心范围以外的部分最多隔这么久看一次
+BIG_FRAC = 0.6          # 脏矩形加起来超过屏幕的这么多：当作“整屏都报变了”
 
 
 class DuplicationCapture:
-    """单个显示器的 Desktop Duplication。只能在创建它的线程里使用。"""
+    """单个显示器的 Desktop Duplication。只能在创建它的线程里使用。
+
+    有时桌面复制每一帧都把整块屏幕报成“变了”（实测见过：魔镜的译文层交给系统合成器后在滚动时，哪怕那个窗口
+    只有一小块、对截屏隐身；同样的测试换个时候又只报那一小块，可能和屏幕上别的程序有关）。这种帧只拷调用方
+    关心的范围（roi：魔镜附近、正在滚动的区域），整帧先留在显卡上；其余部分最多隔 FULL_EVERY 补一次
+    （之后的帧顺带补，或者没有新帧时 flush 补），不会漏掉真正的变化，只是晚一点。"""
 
     def __init__(self, device_name: str) -> None:
         self.device_name = device_name
@@ -185,6 +262,10 @@ class DuplicationCapture:
         self._need_full = True
         self._gdi = None
         self._meta = (ctypes.c_ubyte * 65536)()
+        self._latest = None                   # 显卡上留着的最新一帧（只拷了一部分的帧用，之后补拷其余部分）
+        self._latest_info = (0.0, 0.0, False)  # 它的 (present, tick, protected)
+        self._stale_since = 0.0               # 缓冲区里有部分还没跟上最新一帧（从什么时候起）
+        self._last_full = 0.0                 # 上次把报了变化的部分全拷过来的时刻
         self._open()
 
     # ------------------------------------------------------------------ setup
@@ -259,7 +340,20 @@ class DuplicationCapture:
                             ctypes.byref(tdesc), None, ctypes.byref(sptr))
             self._staging = Com(sptr)
             self._buffer = np.zeros((h, w, 4), np.uint8)
+            if self._latest is not None:
+                self._latest.release()
+                self._latest = None
+            ldesc = D3D11_TEXTURE2D_DESC(w, h, 1, 1, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC(1, 0), 0, 0, 0, 0)
+            lptr = ctypes.c_void_p()
+            try:
+                self._device.hr("CreateTexture2D", 5, (ctypes.POINTER(D3D11_TEXTURE2D_DESC), ctypes.c_void_p,
+                                                       ctypes.POINTER(ctypes.c_void_p)),
+                                ctypes.byref(ldesc), None, ctypes.byref(lptr))
+                self._latest = Com(lptr)
+            except ComError as e:
+                log.debug("显卡上留帧的纹理建不起来（%s）：整屏报变化时照样全拷", e)
         self._need_full = True
+        self._stale_since = 0.0
 
     def _reset(self) -> None:
         if self._dupl is not None:
@@ -302,10 +396,50 @@ class DuplicationCapture:
         with self.lock:
             self._buffer[:] = np.frombuffer(shot.bgra, np.uint8).reshape(h, w, 4)
         self._need_full = False
+        self._stale_since = 0.0
         return Frame(self._buffer, self.origin, time.perf_counter(), [], [], True, False)
 
-    def grab(self, timeout_ms: int = 50) -> Frame | None:
-        """等待下一帧；超时返回 None。返回的 image 是内部缓冲区。"""
+    def _copy_to_buffer(self, src_ptr, regions: list[Rect]) -> None:
+        """把 regions 从显卡上的 src 拷到内存缓冲区（经过可读纹理）。"""
+        w, h = self.size
+        copy = self._context.fn(46, None, ctypes.c_void_p, wt.UINT, wt.UINT, wt.UINT, wt.UINT, ctypes.c_void_p,
+                                wt.UINT, ctypes.POINTER(D3D11_BOX))
+        for l, t, r, b in regions:
+            box = D3D11_BOX(l, t, 0, r, b, 1)
+            copy(self._context.ptr, self._staging.ptr, 0, l, t, 0, src_ptr, 0, ctypes.byref(box))
+        mapped = D3D11_MAPPED_SUBRESOURCE()
+        self._context.hr("Map", 14, (ctypes.c_void_p, wt.UINT, ctypes.c_uint, wt.UINT,
+                                     ctypes.POINTER(D3D11_MAPPED_SUBRESOURCE)),
+                         self._staging.ptr, 0, D3D11_MAP_READ, 0, ctypes.byref(mapped))
+        try:
+            src = np.ctypeslib.as_array(ctypes.cast(mapped.pData, ctypes.POINTER(ctypes.c_ubyte)),
+                                        shape=(h, mapped.RowPitch))
+            buf = self._buffer
+            with self.lock:
+                for l, t, r, b in regions:
+                    buf[t:b, l:r] = src[t:b, l * 4:r * 4].reshape(b - t, r - l, 4)
+        finally:
+            self._context.fn(15, None, ctypes.c_void_p, wt.UINT)(self._context.ptr, self._staging.ptr, 0)
+
+    def stale(self) -> bool:
+        """缓冲区里有部分落后于最新一帧，而且该补了（没有新帧时由调用方调 flush）。"""
+        return bool(self._stale_since) and time.perf_counter() - self._last_full >= FULL_EVERY
+
+    def flush(self) -> Frame | None:
+        """之前只拷了一部分的帧，其余部分从显卡上留着的最新一帧补上（当作一帧交给调用方）。"""
+        if not self._stale_since or self._latest is None:
+            return None
+        w, h = self.size
+        self._copy_to_buffer(self._latest.ptr, [(0, 0, w, h)])
+        self._stale_since = 0.0
+        self._last_full = time.perf_counter()
+        present, tick, protected = self._latest_info
+        return Frame(self._buffer, self.origin, time.perf_counter(), [(0, 0, w, h)], [], False, protected, 1,
+                     present, tick)
+
+    def grab(self, timeout_ms: int = 50, roi: list[Rect] | None = None) -> Frame | None:
+        """等待下一帧；超时返回 None。返回的 image 是内部缓冲区。
+        roi：整屏都报“变了”时先只拷这些范围（显示器内坐标），见类的说明。"""
         if self._dupl is None:
             self._reset()
         if self._need_full:
@@ -323,6 +457,8 @@ class DuplicationCapture:
         try:
             if info.LastPresentTime == 0:
                 return None  # 只有鼠标动了
+            present = info.LastPresentTime / _QPF
+            tick = frame_tick(present)        # 拷贝之前马上问：拷完再问可能已经过了下一个节拍
             dirty: list[Rect] = []
             moves: list[tuple[Rect, tuple[int, int]]] = []
             if not info.TotalMetadataBufferSize or not self._read_metadata(info.TotalMetadataBufferSize, dirty, moves):
@@ -332,31 +468,34 @@ class DuplicationCapture:
             regions = _union_rows(dirty + [m[0] for m in moves], w, h)
             if not regions:
                 return None
+            protected = bool(info.ProtectedContentMaskedOut)
             tex = resource.query(IID_ID3D11Texture2D)
             try:
-                # 只把变化的区域从显存拷到可读纹理，减少总线传输。
-                copy = self._context.fn(46, None, ctypes.c_void_p, wt.UINT, wt.UINT, wt.UINT, wt.UINT, ctypes.c_void_p,
-                                        wt.UINT, ctypes.POINTER(D3D11_BOX))
-                for l, t, r, b in regions:
-                    box = D3D11_BOX(l, t, 0, r, b, 1)
-                    copy(self._context.ptr, self._staging.ptr, 0, l, t, 0, tex.ptr, 0, ctypes.byref(box))
+                now = time.perf_counter()
+                big = sum((r - l) * (b - t) for l, t, r, b in regions) >= BIG_FRAC * w * h
+                if big and roi is not None and self._latest is not None and now - self._last_full < FULL_EVERY:
+                    # 整屏都报“变了”：先只拷关心的范围，整帧留在显卡上，其余部分稍后补
+                    self._context.fn(47, None, ctypes.c_void_p, ctypes.c_void_p)(self._context.ptr,
+                                                                                 self._latest.ptr, tex.ptr)
+                    self._latest_info = (present, tick, protected)
+                    if not self._stale_since:
+                        self._stale_since = now
+                    regions = _union_rows([geom_inter(r, q) for r in regions for q in roi], w, h)
+                else:
+                    if self._stale_since:
+                        regions = [(0, 0, w, h)]          # 之前跳过的部分一起补上
+                        self._stale_since = 0.0
+                    if big or regions == [(0, 0, w, h)]:
+                        self._last_full = now
+                if regions:
+                    # 只把变化的区域从显存拷到可读纹理，减少总线传输。
+                    self._copy_to_buffer(tex.ptr, regions)
             finally:
                 tex.release()
-            mapped = D3D11_MAPPED_SUBRESOURCE()
-            self._context.hr("Map", 14, (ctypes.c_void_p, wt.UINT, ctypes.c_uint, wt.UINT,
-                                         ctypes.POINTER(D3D11_MAPPED_SUBRESOURCE)),
-                             self._staging.ptr, 0, D3D11_MAP_READ, 0, ctypes.byref(mapped))
-            try:
-                src = np.ctypeslib.as_array(ctypes.cast(mapped.pData, ctypes.POINTER(ctypes.c_ubyte)),
-                                            shape=(h, mapped.RowPitch))
-                buf = self._buffer
-                with self.lock:
-                    for l, t, r, b in regions:
-                        buf[t:b, l:r] = src[t:b, l * 4:r * 4].reshape(b - t, r - l, 4)
-            finally:
-                self._context.fn(15, None, ctypes.c_void_p, wt.UINT)(self._context.ptr, self._staging.ptr, 0)
+            if not regions:
+                return None
             return Frame(self._buffer, self.origin, time.perf_counter(), regions, moves, False,
-                         bool(info.ProtectedContentMaskedOut))
+                         protected, max(1, info.AccumulatedFrames), present, tick)
         finally:
             resource.release()
             self._dupl.fn(14, HRESULT)(self._dupl.ptr)
@@ -387,15 +526,20 @@ class DuplicationCapture:
         return True
 
     def close(self) -> None:
-        for com in (self._staging, self._dupl, self._output1, self._context, self._device, self._output, self._adapter,
-                    self._factory):
+        for com in (self._latest, self._staging, self._dupl, self._output1, self._context, self._device, self._output,
+                    self._adapter, self._factory):
             if com is not None:
                 com.release()
+        self._latest = None
         self._staging = self._dupl = self._output1 = self._context = self._device = None
         self._output = self._adapter = self._factory = None
         if self._gdi is not None:
             self._gdi.close()
             self._gdi = None
+
+
+def geom_inter(a: Rect, b: Rect) -> Rect:
+    return max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3])
 
 
 def _union_rows(rects: list[Rect], w: int, h: int) -> list[Rect]:
@@ -428,7 +572,13 @@ class GdiCapture:
         self._first = True
         self.lock = threading.Lock()          # 和 DuplicationCapture 一样的接口（这里每帧都是新数组，不会读到一半）
 
-    def grab(self, timeout_ms: int = 50) -> Frame | None:
+    def stale(self) -> bool:
+        return False
+
+    def flush(self) -> Frame | None:
+        return None
+
+    def grab(self, timeout_ms: int = 50, roi: list[Rect] | None = None) -> Frame | None:
         # GDI 没有“有新帧”通知，按最短间隔节流。
         wait = self._last + 0.033 - time.perf_counter()
         if wait > 0:
