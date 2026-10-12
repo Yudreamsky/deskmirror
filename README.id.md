@@ -36,7 +36,8 @@ Inggris; bila Anda memilih bahasa Indonesia sebagai bahasa ibu, terjemahannya ta
 - **Di tempat aslinya**: terjemahan muncul di posisi teks asli, dengan ukuran dan warna yang sedekat mungkin; tahan
   Ctrl+Alt+O untuk melihat teks aslinya.
 - **Mengikuti layar**: menggulir, memindahkan dan menumpuk jendela, subtitel video. DeskMirror memperhatikan apa yang
-  berubah di layar, jadi tidak bergantung pada program tertentu.
+  berubah di layar, jadi tidak bergantung pada program tertentu. Saat Anda menggulir, Windows sendiri yang menggeser
+  terjemahan bersama halaman, bingkai demi bingkai.
 - **Menerjemahkan lebih dulu di latar belakang**: teks di layar tempat cermin berada diterjemahkan lebih awal, jadi ke
   mana pun cermin diseret, terjemahannya sudah siap; tidak ada yang diterjemahkan dua kali.
 - **Pilih layanan terjemahan sendiri**: model [Ollama](https://ollama.com) lokal (gratis, teks tidak keluar dari PC
@@ -78,7 +79,19 @@ Yang Anda perlukan:
     grafis dengan memori video yang besar)
   - Cloud: kunci API untuk DeepSeek atau layanan serupa (bayar sesuai pemakaian)
 
-### Unduh dan langsung pakai (disarankan)
+### Penginstal (paling mudah)
+
+Unduh `DeskMirror-<versi>-win64-setup.exe` (sekitar 106 MB) dari
+[Releases](https://github.com/Yudreamsky/deskmirror/releases/latest) lalu jalankan:
+
+- DeskMirror dipasang untuk pengguna saat ini di `%LOCALAPPDATA%\Programs\DeskMirror` tanpa hak admin, muncul di
+  menu Start, dan bisa membuat pintasan di desktop serta berjalan otomatis saat Anda masuk ke Windows.
+- "Check for updates…" di menu baki DeskMirror tetap bisa memperbaruinya di tempat; Anda juga bisa menjalankan penginstal versi
+  baru di atasnya. Pengaturan tetap tersimpan, dan DeskMirror yang sedang berjalan ditutup lebih dulu.
+- Untuk mencopot, buka Pengaturan Windows → Aplikasi → DeskMirror. Anda akan ditanya apakah pengaturan dan log ikut
+  dihapus, dan jalan otomatis saat masuk ikut dihapus.
+
+### Unduh dan langsung pakai (zip portabel)
 
 1. Unduh `DeskMirror-<versi>-win64.zip` (sekitar 140 MB) dari
    [Releases](https://github.com/Yudreamsky/deskmirror/releases/latest).

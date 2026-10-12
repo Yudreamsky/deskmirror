@@ -1,6 +1,9 @@
 # 更新记录 / Changelog
 
-## 未发布
+## 1.4.0（2026-10-12）
+
+滚动时译文由 Windows 的系统合成器每一帧移动，和原文贴得住，不再一格一格地跳；跟踪本身也更快、更准。
+新增安装程序：装在当前用户目录，不用管理员权限，开始菜单、卸载都有。
 
 - **滚动时译文跟得更紧、更顺**：镜里的译文改交给 Windows 的系统合成器显示。同一块滚动区域里的译文挂在同一层上，
   滚动时魔镜算出接下来内容会怎么动（学到的滚轮曲线，或者按实测速度），交给系统，系统每显示一帧就把这一层挪到那一刻的位置：
@@ -17,6 +20,11 @@
   卸载时问要不要删设置和日志，开机自启一起去掉。安装界面有简体、繁体中文、英文、日文、韩文。
   `python packaging\build.py --installer` 打出来（要 Inno Setup 6）。程序里更新完，“应用”里显示的版本号也跟着改。（#11）
 - 打包脚本在 python.org 装的 Python 上也能用（以前只认 Anaconda 的 Python 许可证文件名）。
+
+While you scroll, translations are now moved by the Windows compositor frame by frame, so they stay with the
+original text instead of jumping in steps, and tracking itself is faster and more precise. There is also an
+installer that sets DeskMirror up for the current user, without admin rights, with a Start menu entry and an
+uninstaller.
 
 - **Translations follow scrolling more closely and smoothly**: inside the mirror, translations are now shown by the
   Windows compositor. All translations of one scrolling area sit on one layer; while you scroll, DeskMirror works out

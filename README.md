@@ -34,7 +34,8 @@ Screenshots of DeskMirror running on the project's test pages (translation servi
 - **In place**: the translation sits where the original was, matching its size and color as closely as possible;
   hold Ctrl+Alt+O to peek at the original.
 - **Keeps up with the screen**: scrolling, moving and overlapping windows, video subtitles. It watches what changes on
-  screen, so it doesn't depend on any particular program.
+  screen, so it doesn't depend on any particular program. While you scroll, Windows itself moves the translations
+  along with the page, frame by frame.
 - **Pre-translates in the background**: text on the mirror's screen is translated ahead of time, so wherever you drag
   the mirror the translation is already there; nothing is translated twice.
 - **Your choice of translation service**: a local [Ollama](https://ollama.com) model (free, text never leaves your

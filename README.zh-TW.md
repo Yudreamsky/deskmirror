@@ -30,7 +30,7 @@ https://github.com/user-attachments/assets/3a04cbfd-9331-4180-9e04-9c29c09e237e
 ## 特色
 
 - **原位顯示**：譯文貼在原文的位置，字級、顏色盡量和原文一致；按住 Ctrl+Alt+O 隨時看原文。
-- **跟得上畫面**：捲動、視窗移動、遮擋、影片裡的字幕都跟得上。依畫面變化判斷，不依賴特定軟體。
+- **跟得上畫面**：捲動、視窗移動、遮擋、影片裡的字幕都跟得上。依畫面變化判斷，不依賴特定軟體。捲動時由 Windows 自己每一幀移動譯文，和原文貼得住。
 - **背景預先翻譯**：魔鏡所在螢幕上的文字提前翻譯，拖到哪裡馬上顯示；看過的內容不會重複翻譯。
 - **翻譯服務任選**：本機 [Ollama](https://ollama.com)（免費，文字不離開本機），或 DeepSeek、通義千問、OpenAI 等 OpenAI 相容介面。
 - **隱私可控**：不翻譯名單（預設排除聊天軟體、密碼管理工具、網路銀行；和外國同事聊天時一鍵開啟「翻譯聊天軟體」）、三種預先翻譯範圍、當天用量統計；螢幕上的文字預設不存檔。
@@ -54,7 +54,15 @@ https://github.com/user-attachments/assets/3a04cbfd-9331-4180-9e04-9c29c09e237e
   - 本機：安裝 [Ollama](https://ollama.com)，再執行 `ollama pull gemma4:12b`（模型約 7.6 GB，需要顯示記憶體較大的獨立顯示卡）
   - 雲端：DeepSeek 等服務的 API Key（依用量計費）
 
-### 下載即用（推薦）
+### 安裝程式（最省事）
+
+在 [Releases](https://github.com/Yudreamsky/deskmirror/releases/latest) 下載 `DeskMirror-版本號-win64-setup.exe`（約 106 MB），按兩下安裝：
+
+- 裝在目前使用者的 `%LOCALAPPDATA%\Programs\DeskMirror`，不需要系統管理員權限；開始功能表裡有「桌面魔鏡」，可選擇建立桌面捷徑和開機自動啟動。
+- 魔鏡裡的「檢查更新」照樣能直接換新版本；也可以下載新的安裝程式裝在原來的位置上，設定都會保留（正在執行的魔鏡會先自動結束）。
+- 解除安裝：在 Windows 設定 →「應用程式」裡解除安裝「DeskMirror」，會詢問要不要一起刪除設定和記錄檔；開機自動啟動也會一併移除。
+
+### 下載即用（免安裝版）
 
 1. 在 [Releases](https://github.com/Yudreamsky/deskmirror/releases/latest) 下載 `DeskMirror-版本號-win64.zip`（約 140 MB）。
 2. 解壓縮到任意資料夾（例如「文件」或 D 槽），按兩下裡面的 `DeskMirror.exe`，照新手指南設定好就能用。

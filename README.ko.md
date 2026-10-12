@@ -33,7 +33,7 @@ https://github.com/user-attachments/assets/949fc01b-9277-44ab-8253-7a7a5162d22c
 ## 특징
 
 - **제자리 표시**: 번역문은 원문이 있던 자리에, 글자 크기와 색도 최대한 원문에 맞춰 표시됩니다. Ctrl+Alt+O를 누르고 있으면 원문이 보입니다.
-- **화면 변화를 따라감**: 스크롤, 창 이동과 겹침, 동영상 자막까지 따라갑니다. 화면이 어떻게 바뀌는지를 보고 판단하므로 특정 프로그램에 의존하지 않습니다.
+- **화면 변화를 따라감**: 스크롤, 창 이동과 겹침, 동영상 자막까지 따라갑니다. 화면이 어떻게 바뀌는지를 보고 판단하므로 특정 프로그램에 의존하지 않습니다. 스크롤하는 동안에는 Windows가 직접 번역문을 프레임마다 옮겨서 원문에 딱 붙어 따라갑니다.
 - **백그라운드에서 미리 번역**: 미러가 있는 화면의 글자를 미리 번역해 두므로, 어디로 끌어도 번역문이 바로 나옵니다. 한 번 번역한 내용은 다시 번역하지 않습니다.
 - **번역 서비스 선택**: 로컬 [Ollama](https://ollama.com)(무료, 글자가 PC 밖으로 나가지 않음) 또는 DeepSeek, Qwen, OpenAI 같은 OpenAI 호환 API.
 - **개인정보는 직접 관리**: 번역 제외 목록(채팅 앱, 비밀번호 관리자, 인터넷 뱅킹은 기본으로 제외. 외국 동료나 친구와 채팅할 때는 'Translate chat apps'를 클릭 한 번으로 켬), 세 가지 미리 번역 범위, 오늘 사용량 표시. 화면의 글자는 기본적으로 디스크에 저장하지 않습니다.
@@ -57,7 +57,15 @@ https://github.com/user-attachments/assets/949fc01b-9277-44ab-8253-7a7a5162d22c
   - 로컬: [Ollama](https://ollama.com)를 설치하고 `ollama pull gemma4:12b` 실행(모델 약 7.6 GB, 비디오 메모리가 넉넉한 외장 그래픽 카드 필요)
   - 클라우드: DeepSeek 같은 서비스의 API 키(사용량에 따라 과금)
 
-### 내려받아 바로 쓰기(권장)
+### 설치 프로그램(가장 간편)
+
+[Releases](https://github.com/Yudreamsky/deskmirror/releases/latest)에서 `DeskMirror-<버전>-win64-setup.exe`(약 106 MB)를 내려받아 실행합니다.
+
+- 현재 사용자의 `%LOCALAPPDATA%\Programs\DeskMirror`에 설치되며 관리자 권한이 필요 없습니다. 시작 메뉴에 'DeskMirror'가 추가되고, 바탕 화면 바로 가기와 로그인할 때 자동 실행도 고를 수 있습니다.
+- 트레이 메뉴의 'Check for updates…'로 그대로 새 버전으로 바꿀 수 있고, 새 설치 프로그램을 같은 위치에 덮어 설치해도 됩니다. 설정은 그대로 남고, 실행 중인 DeskMirror는 먼저 자동으로 종료됩니다.
+- 제거: Windows 설정 → '앱'에서 'DeskMirror'를 제거합니다. 설정과 로그도 함께 지울지 묻고, 자동 실행도 함께 없앱니다.
+
+### 내려받아 바로 쓰기(압축 파일)
 
 1. [Releases](https://github.com/Yudreamsky/deskmirror/releases/latest)에서 `DeskMirror-<버전>-win64.zip`(약 140 MB)을 내려받습니다.
 2. 쓰기 권한이 있는 아무 폴더(예: '문서'나 D 드라이브)에 압축을 풀고 `DeskMirror.exe`를 더블 클릭합니다. 나머지는 안내에 따라 설정하면 됩니다.
