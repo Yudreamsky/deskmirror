@@ -3,7 +3,8 @@
 - 鼠标停在哪就框住那个窗口、按钮、段落（snap.py），滚轮换大一层、小一层；按住拖动就自己画框。
 - 框好以后：拖里面移动、拖边角改大小、方向键微调（Shift 一次 10 像素，按住 Ctrl 改大小）。
 - 工具栏：矩形、椭圆、箭头、画笔、荧光笔、文字、序号、马赛克，撤销、重做；识别文字、原位翻译；
-  变成魔镜（M，Shift+M 另开一个）、贴到屏幕（Ctrl+T）、保存（Ctrl+S）、复制（Enter、Ctrl+C、双击）、关闭（Esc）。
+  变成魔镜（M，Shift+M 另开一个）、贴到屏幕（Ctrl+T）、保存（Ctrl+S）、复制并关掉（Enter、Ctrl+C、双击）、关闭（Esc）。
+- 框好就放进剪贴板（挪框、画标注、换译文后跟着更新），不点复制、按 Esc 关掉也能直接去粘贴。
 - 放大镜：光标附近放大，下面是坐标和颜色，按 C 复制颜色。右键：有选区就重选，没有就退出。
 
 一个选区只在一块屏幕里。标注记在整块屏幕的图上（选区挪了，标注留在原地）。截下的图只在点“保存”时写硬盘
@@ -35,6 +36,8 @@ DIM = QColor(0, 0, 0, 105)
 INK = "#202124"
 TWO_POINT = ("rect", "ellipse", "arrow", "mosaic")
 HANDLES = ("nw", "n", "ne", "e", "se", "s", "sw", "w")
+CLIP_DELAY_MS = 250  # 选区、标注变了多久以后放进剪贴板（拖动、打字时一直往后推）
+COPIED_HINT = N_("已复制到剪贴板 · Esc 关掉")
 UIA_WARM_S = 0.4      # 一个窗口头一回答上来之后这么久里同一个点也再问：Chrome 这类程序被问了才开始建网页的无障碍树
 _CURSORS = {"nw": Qt.CursorShape.SizeFDiagCursor, "se": Qt.CursorShape.SizeFDiagCursor,
             "ne": Qt.CursorShape.SizeBDiagCursor, "sw": Qt.CursorShape.SizeBDiagCursor,
@@ -373,7 +376,7 @@ class Toolbar(QFrame):
         add("mirror", drawn("mirror", INK), tr("变成魔镜（M）：魔镜挪到这里；按住 Shift 点就另开一个"), session.to_mirror)
         add("pin", glyph(0xE718, INK), tr("贴到屏幕（Ctrl+T）"), session.pin)
         add("save", glyph(0xE74E, INK), tr("保存（Ctrl+S）"), session.save)
-        add("copy", glyph(0xE8C8, INK), tr("复制（Enter、Ctrl+C、双击选区）"), session.copy)
+        add("copy", glyph(0xE8C8, INK), tr("复制并关掉（Enter、Ctrl+C、双击选区）"), session.copy)
         add("close", glyph(0xE711, INK), tr("关闭（Esc）"), session.cancel)
         self.status = QLabel("", self)
         self.status.hide()
@@ -475,6 +478,7 @@ class SnipSession(QObject):
     """一次截图：从按下快捷键到复制、保存、贴图、变成魔镜或关掉。界面线程里用。"""
     finished = Signal()
     copy_requested = Signal(QImage)
+    clip_requested = Signal(QImage)              # 框好就放进剪贴板（挪框、画标注、换译文后跟着更新）
     save_requested = Signal(QImage)
     pin_requested = Signal(object)               # PinData：图、原来在屏幕上的位置、另一种样子（原文 / 译文）
     mirror_requested = Signal(object, bool)      # 选区（物理像素），另开一个
@@ -524,6 +528,10 @@ class SnipSession(QObject):
         self._uia_timer.setInterval(70)
         self._uia_timer.timeout.connect(self._ask_uia)
         self._uia_done.connect(self._on_uia)
+        self._clip_timer = QTimer(self)
+        self._clip_timer.setSingleShot(True)
+        self._clip_timer.setInterval(CLIP_DELAY_MS)
+        self._clip_timer.timeout.connect(self._auto_copy)
         self.probe = snap.UiaProbe(lambda tok, rects: self._uia_done.emit(tok, rects)) if cfg.capture.snap else None
         self.views = [SnipView(self, s) for s in shots]
         self.toolbar: Toolbar | None = None
@@ -546,6 +554,9 @@ class SnipSession(QObject):
     def _finish(self) -> None:
         if self.closed:
             return
+        if self._clip_timer.isActive():          # 刚画完的标注还没放进剪贴板：关掉前放进去
+            self._clip_timer.stop()
+            self._auto_copy()
         self.closed = True
         self._gen += 1
         if self.probe is not None:
@@ -816,6 +827,28 @@ class SnipSession(QObject):
         self._gen += 1
         if self.toolbar is not None:
             self.toolbar.sync()
+        self._output_changed()
+
+    def _output_changed(self) -> None:
+        """选区、标注或译文变了：过一会儿把现在的样子放进剪贴板（拖动、打字时一直往后推，弄完再放）。"""
+        if self.closed or self.sel is None or self.state != "selected":
+            self._clip_timer.stop()
+            return
+        self._clip_timer.start()
+
+    def _auto_copy(self) -> None:
+        if self.closed or self.sel is None or self.state != "selected":
+            return
+        if self.drag is not None or self.editor is not None:
+            self._clip_timer.start()
+            return
+        img = self.final_image()
+        if img is None:
+            return
+        self.clip_requested.emit(img)
+        cur = self.toolbar.status.text() if self.toolbar is not None else ""
+        if not cur or cur == tr(COPIED_HINT):    # 正在识别、翻译时那边的进度先显示着
+            self._status(tr(COPIED_HINT))
 
     # ------------------------------------------------------------------ 键盘
     def key(self, e) -> bool:
@@ -918,6 +951,7 @@ class SnipSession(QObject):
         if self.tool == "number":
             self.marks.add(mk.Mark("number", QColor(self.color), self.width, [pt], number=self.marks.next_number()))
             self.sel_view.update()
+            self._output_changed()
             return
         self.cur_mark = mk.Mark(self.tool, QColor(self.color), self.width, [pt, QPointF(pt)] if self.tool in TWO_POINT
                                 else [pt])
@@ -953,6 +987,7 @@ class SnipSession(QObject):
         self.marks.add(m)
         self._composite = None
         self.sel_view.update()
+        self._output_changed()
 
     def _open_editor(self, pt: QPointF) -> None:
         v = self.sel_view
@@ -983,6 +1018,7 @@ class SnipSession(QObject):
         if commit and text:
             self.marks.add(mk.Mark("text", color, width, [pt], text=text))
             self._composite = None
+            self._output_changed()
         if self.sel_view is not None:
             self.sel_view.setFocus()
             self.sel_view.update()
@@ -991,11 +1027,13 @@ class SnipSession(QObject):
         if self.editor is None and self.marks.undo():
             self._composite = None
             self.sel_view.update()
+            self._output_changed()
 
     def redo(self) -> None:
         if self.editor is None and self.marks.redo():
             self._composite = None
             self.sel_view.update()
+            self._output_changed()
 
     def composite(self, v: SnipView) -> QImage:
         """马赛克要从“现在看到的样子”取像素：整块屏幕的图，原位翻译开着时叠上译文。"""
@@ -1043,6 +1081,7 @@ class SnipSession(QObject):
         return out.convertToFormat(QImage.Format.Format_RGB32)
 
     def copy(self) -> None:
+        self._clip_timer.stop()
         img = self.final_image()
         if img is not None:
             self.copy_requested.emit(img)
@@ -1113,6 +1152,7 @@ class SnipSession(QObject):
                 self.show_tr = not self.show_tr      # 译好了：原文、译文来回换
                 self._composite = None
                 self.sel_view.update()
+                self._output_changed()
             if self.toolbar is not None:
                 self.toolbar.sync()
             return
@@ -1128,6 +1168,7 @@ class SnipSession(QObject):
 
     def _on_inplace(self) -> None:
         self._composite = None
+        self._output_changed()
         if self.toolbar is not None:
             self.toolbar.sync()
         if self.sel_view is not None:

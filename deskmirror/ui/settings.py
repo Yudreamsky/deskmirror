@@ -382,8 +382,8 @@ class SettingsDialog(QDialog):
         w, lay = _column()
         box, f = _card(tr("快捷键"))
         self._key_rows(f, ["capture", "pin"])
-        f.addRow(_note(tr("截图：框选屏幕上的一块，可以标注、复制、保存、贴到屏幕、原位翻译，或者直接变成魔镜。"
-                          "贴图：把剪贴板里的图或文字贴在屏幕最上层，剪贴板里没有就贴最近一次截图。")))
+        f.addRow(_note(tr("截图：框选屏幕上的一块，框好就放进剪贴板（可以直接去粘贴）；还可以标注、保存、贴到屏幕、原位翻译，"
+                          "或者直接变成魔镜。贴图：把剪贴板里的图或文字贴在屏幕最上层，剪贴板里没有就贴最近一次截图。")))
         lay.addWidget(box)
         cap = self.cfg.capture
         box, f = _card(tr("框选"))

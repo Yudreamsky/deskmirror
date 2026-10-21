@@ -1207,6 +1207,7 @@ def main() -> int:
             masks = snap.excluded_rects(wins, self.cfg)
             s = SnipSession(shots, [(w.hwnd, w.rect) for w in wins], self.cfg, self.snip_services, masks)
             s.copy_requested.connect(lambda img, s=s: self._snip_copied(img, s.sel))
+            s.clip_requested.connect(qapp.clipboard().setImage)     # 框好就放进剪贴板（不进贴图的历史）
             s.save_requested.connect(self._save_snip)
             s.pin_requested.connect(self._snip_pinned)
             s.mirror_requested.connect(self.mirror_to)

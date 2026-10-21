@@ -197,7 +197,7 @@ class InputConfig:
 @dataclass
 class CaptureConfig:
     """截图（hotkeys.capture）。截下的图只在点“保存”时写到硬盘；贴图、截图历史只放在内存里。"""
-    after: str = "toolbar"            # 框选完：toolbar 弹出工具栏；copy 直接复制；pin 直接贴到屏幕
+    after: str = "toolbar"            # 框选完（框好就已经放进剪贴板）：toolbar 弹出工具栏；copy 直接关掉；pin 贴到屏幕
     snap: bool = True                 # 鼠标停在哪就自动框住那个窗口、按钮、段落（滚轮换大一层、小一层）
     magnifier: bool = True            # 光标旁边显示放大镜、坐标和颜色（按 C 复制颜色）
     save_dir: str = ""                # 保存到哪个文件夹；空 = “图片”里的“桌面魔镜”（魔镜标签上的截图按钮也存这里）

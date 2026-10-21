@@ -84,7 +84,10 @@ mirror hides meanwhile.
   color.
 - **Marking up**: rectangle, ellipse, arrow, pen, highlighter, text, numbered marker and mosaic on the toolbar;
   picking a tool shows a row of colors and widths. Ctrl+Z undoes, Ctrl+Y redoes; hold Shift for a square or a circle.
-- **Using it**: **Enter** (or Ctrl+C, or double-click the box) copies it to the clipboard, **Ctrl+S** saves it,
+- **The box is on the clipboard right away**: it's updated as you move it, mark it up or switch to the
+  translation, and the toolbar says "Copied to the clipboard", so you can go and paste. Esc just closes the
+  screenshot layer; the clipboard keeps the box.
+- **Using it**: **Enter** (or Ctrl+C, or double-click the box) copies it and closes, **Ctrl+S** saves it,
   **Ctrl+T** pins it on the screen. The toolbar also has:
   - **Recognize text**: reads the text in the box and opens a small window where you can edit and copy it.
   - **Translate in place**: replaces the text in the box with translations right where it is (the same plates and
@@ -106,7 +109,8 @@ away), switches for snapping and the magnifier, the folder to save to (by defaul
 format (PNG / JPG).
 
 - A screenshot is written to disk only when you save it (Ctrl+S); pins and the last 20 screenshots are kept in
-  memory only and are gone when you quit.
+  memory only and are gone when you quit. The box you select is put on the clipboard (and into Windows'
+  clipboard history, if that's turned on).
 - Only **Translate in place** sends anything out: the text recognized in the box goes to the translation service
   (excluded windows are blanked first, just as for the mirror); the picture itself is never sent. Finding paragraphs
   for snapping runs on this PC and doesn't read the text.

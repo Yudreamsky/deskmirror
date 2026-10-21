@@ -302,6 +302,49 @@ class SessionTest(unittest.TestCase):
         self.assertTrue(s.closed)
         self.assertEqual(Qt.KeyboardModifier.NoModifier, Qt.KeyboardModifier.NoModifier)
 
+    def test_box_goes_to_clipboard_right_away(self) -> None:
+        # 用户：框好没点复制就去粘贴，粘出来的是上一张——框好就放进剪贴板；挪框、画标注后跟着更新，Esc 关掉前补上
+        from PySide6.QtCore import QPointF, Qt
+        from deskmirror.i18n import tr
+        from deskmirror.ui.snip import COPIED_HINT
+        s = make_session()
+        s.start()
+        got, copied = [], []
+        s.clip_requested.connect(got.append)
+        s.copy_requested.connect(copied.append)
+        self.drag(s, (20, 30), (220, 150))
+        self.assertTrue(s._clip_timer.isActive(), "框好：过一会儿放进剪贴板")
+        s._clip_timer.stop()
+        s._auto_copy()
+        self.assertEqual([(i.width(), i.height()) for i in got], [(200, 120)])
+        self.assertEqual(s.toolbar.status.text(), tr(COPIED_HINT), "工具栏上说已经复制了")
+        v = s.views[0]
+        s.press(v, QPointF(100, 90), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)   # 拖着框挪
+        s._auto_copy()
+        self.assertEqual(len(got), 1, "还在拖：先不放")
+        self.assertTrue(s._clip_timer.isActive())
+        s.release(v, QPointF(100, 90), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+        s._clip_timer.stop()
+        s.set_tool("rect")
+        self.drag(s, (40, 50), (120, 100))
+        self.assertTrue(s._clip_timer.isActive(), "画了标注：跟着更新")
+        s.cancel()                                     # Esc：关掉前把刚画的放进去
+        self.assertEqual(len(got), 2)
+        self.assertEqual(got[1].pixelColor(40 - 20, 75 - 30).red(), 0xE5, "剪贴板里的图带着刚画的框")
+        self.assertEqual(copied, [], "Esc 不算点复制")
+        self.assertTrue(s.closed)
+
+    def test_copy_does_not_put_it_twice(self) -> None:
+        s = make_session()
+        s.start()
+        got, copied = [], []
+        s.clip_requested.connect(got.append)
+        s.copy_requested.connect(copied.append)
+        self.drag(s, (20, 30), (220, 150))
+        s.copy()                                       # 计时器还没到就点了复制：只放一次
+        self.assertEqual((len(got), len(copied)), (0, 1))
+        self.assertFalse(s._clip_timer.isActive())
+
     def test_resize_handles_and_keys(self) -> None:
         from PySide6.QtCore import QEvent, Qt
         from PySide6.QtGui import QKeyEvent

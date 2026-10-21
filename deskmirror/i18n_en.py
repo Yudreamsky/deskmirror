@@ -1086,9 +1086,6 @@ EN: dict[str, str] = {
     '贴图：把剪贴板里的图或文字贴在屏幕最上层；剪贴板里没有就贴最近一次截图':
         'Pin: put the image or text on the clipboard on top of the screen; with nothing on the clipboard, pin '
         'the latest screenshot',
-    '框选完做什么：toolbar = 弹出工具栏；copy = 直接复制；pin = 直接贴到屏幕':
-        'What happens after you select: toolbar = show the toolbar; copy = copy right away; pin = pin it on '
-        'screen right away',
     '截图时鼠标停在哪，就自动框住那个窗口、按钮或段落（滚轮换大一层、小一层）':
         'While taking a screenshot, outline the window, button or paragraph under the mouse (the wheel picks '
         'a larger or smaller one)',
@@ -1187,10 +1184,6 @@ EN: dict[str, str] = {
     '用云端服务时，识别出的文字和所在窗口的标题会发给这个服务；哪些内容会翻译，见“翻译范围”。':
         'With a cloud service, the recognized text and the window title are sent to it. What gets translated '
         'is set under “What to translate”.',
-    '截图：框选屏幕上的一块，可以标注、复制、保存、贴到屏幕、原位翻译，或者直接变成魔镜。贴图：把剪贴板里的图或文字贴在屏幕最上层，剪贴板里没有就贴最近一次截图。':
-        'Screenshot: select part of the screen, then annotate, copy, save, pin it on screen, translate it in '
-        'place, or turn it straight into a mirror. Pin to screen: put the image or text on the clipboard on '
-        'top of everything; with nothing on the clipboard, it pins the latest screenshot.',
     '弹出工具栏':
         'Show the toolbar',
     '直接复制':
@@ -1289,8 +1282,6 @@ EN: dict[str, str] = {
         'Pin to screen (Ctrl+T)',
     '保存（Ctrl+S）':
         'Save (Ctrl+S)',
-    '复制（Enter、Ctrl+C、双击选区）':
-        'Copy (Enter, Ctrl+C or double-click the selection)',
     '关闭（Esc）':
         'Close (Esc)',
     '识别出的文字':
@@ -1343,4 +1334,17 @@ EN: dict[str, str] = {
         'translate the program under the mirror”. Chat apps on the list are translated only while “Translate '
         'chat apps too” is on (you can also switch it from the tray menu or by right-clicking the mirror '
         'tab); password managers and banking and payment pages are never translated.',
+    # 截图：框好就放进剪贴板
+    '已复制到剪贴板 · Esc 关掉':
+        'Copied to the clipboard · Esc to close',
+    '复制并关掉（Enter、Ctrl+C、双击选区）':
+        'Copy and close (Enter, Ctrl+C or double-click the selection)',
+    '截图：框选屏幕上的一块，框好就放进剪贴板（可以直接去粘贴）；还可以标注、保存、贴到屏幕、原位翻译，或者直接变成魔镜。贴图：把剪贴板里的图或文字贴在屏幕最上层，剪贴板里没有就贴最近一次截图。':
+        'Screenshot: select part of the screen; the selection goes to the clipboard right away, so you can '
+        'paste it straight away. You can also annotate it, save it, pin it on screen, translate it in place, '
+        'or turn it straight into a mirror. Pin to screen: put the image or text on the clipboard on top of '
+        'everything; with nothing on the clipboard, it pins the latest screenshot.',
+    '框选完做什么（框好就已经放进剪贴板）：toolbar = 弹出工具栏；copy = 直接关掉；pin = 直接贴到屏幕':
+        'What happens after you select (the selection is already on the clipboard): toolbar = show the '
+        'toolbar; copy = close right away; pin = pin it on screen right away',
 }
