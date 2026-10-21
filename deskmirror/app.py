@@ -255,6 +255,7 @@ def main() -> int:
             self._field_tip_timer = QTimer(self, singleShot=True, timeout=self.field_tip.hide)
             self._tip_bid = 0
             self._hover_since = 0.0
+            self._meter_open: MirrorFrame | None = None     # 哪个魔镜标签上的用量明细弹着
             self.tray = QSystemTrayIcon(make_icon())
             self.tray.setToolTip(tr("桌面魔镜"))
             self._usage_seen = (0, 0, 0, 0, 0)   # 引擎累计的请求数、字数、输入 / 输出 / 命中缓存的 token（本次运行）
@@ -467,6 +468,7 @@ def main() -> int:
             f.set_paused(self.state.paused)
             f.lang_clicked.connect(self._lang_menu)
             f.look_clicked.connect(lambda f=f: self.look(f))
+            f.meter_clicked.connect(lambda f=f: self._toggle_meter(f))
             f.set_lang_label(self._lang_label())
             f.shown_rect = rect                                  # 上次画过译文的范围（移动后要擦掉）
             self.frames.append(f)
@@ -986,7 +988,7 @@ def main() -> int:
             self._update_meter()
 
         def _update_meter(self) -> None:
-            """魔镜标签上的 token 用量（像网速监控：↑ 输入 ↓ 输出），鼠标停在上面看明细。"""
+            """魔镜标签上的 token 用量（像网速监控：↑ 输入 ↓ 输出），点一下看明细。"""
             u, g = self.cfg.usage, self.cfg.guard
             approx = "≈" if u.estimated else ""
             text = f"{approx}↑{_short_num(u.tokens_in)} ↓{_short_num(u.tokens_out)}" if g.show_meter else ""
@@ -1656,7 +1658,11 @@ def main() -> int:
             """鼠标停在被截断的译文上时，显示全文；停在标签上的 token 用量上时，显示明细。"""
             snap = self.state.snapshot
             x, y = winapi.cursor_pos()
-            meter = next((f for f in self._active_frames() if f.meter_hovered and f.isVisible()), None)
+            meter = self._meter_open
+            if meter is not None and not (meter in self.frames and meter.meter_hovered and meter.isVisible()):
+                if meter in self.frames:
+                    meter.set_meter_open(False)      # 鼠标移开了（或者魔镜收起来了）：明细收起
+                self._meter_open = meter = None
             if meter is not None:
                 if self._tip_bid != -1:
                     self._tip_bid = -1
@@ -1707,6 +1713,13 @@ def main() -> int:
                 self.tip.adjustSize()
                 self._place_tip(x, y)
                 self.tip.show()
+
+        def _toggle_meter(self, f: MirrorFrame) -> None:
+            """点标签上的 token 用量：弹出今天的用量明细；再点一下（或者鼠标移开）收起。鼠标划过去不弹，免得误触。"""
+            self._meter_open = None if self._meter_open is f else f
+            for fr in self.frames:
+                fr.set_meter_open(fr is self._meter_open)
+            self._hover_tip(time.perf_counter())
 
         def _place_tip(self, x: int, y: int) -> None:
             """提示放在鼠标右下方；贴着屏幕右边、下边时放到另一侧，别伸出屏幕。"""
@@ -2205,6 +2218,10 @@ def main() -> int:
                 g = f._grip_rect()
                 out["grip"] = [g.left() + ox, g.top() + oy, g.right() + 1 + ox, g.bottom() + 1 + oy]
                 out["tab"] = list(f._tab)
+                m = f._meter_hit()
+                out["meter"] = [m.left() + ox, m.top() + oy, m.right() + 1 + ox, m.bottom() + 1 + oy] if f.meter else None
+                out["meter_open"] = f.meter_open
+                out["tip"] = self.tip.isVisible()
                 return out
             if cmd == "dock":
                 # 不要动画直接收成球（spot：{"edge", "x", "y"}，不给就吸到近的一边）；unfold：点开

@@ -218,7 +218,8 @@ program under the mirror" and "Translate chat apps"):
     Settings → What to translate.
   - When such a window is inside the mirror, the tab says so.
 - **Usage**: `↑12.3k ↓4.1k` on the mirror's tab is today's tokens sent to the translation service (↑ input, ↓ output);
-  hover over it for details (service, model, requests, input that hit the provider's cache). The tray icon's tooltip
+  click it for details (service, model, requests, input that hit the provider's cache); click again or move
+  away to close them. The tray icon's tooltip
   and the settings page show it too. Where the service doesn't report usage, tokens are estimated from the text
   length and marked "≈". Each request is also logged as one line in `logs/usage-YYYY-MM.jsonl` (counts and program
   names only, no screen text); `usage --log` on the command line sums it up by program, batch size and hour.

@@ -1,5 +1,14 @@
 # 更新记录 / Changelog
 
+## 未发布
+
+- 魔镜标签上的 token 用量（↑ ↓）挪到标签最右头，鼠标停上去不再弹明细（去点按钮时一划过就弹，容易误触）：
+  点一下才弹，再点一下或者鼠标移开就收起；像按钮一样，鼠标移上去有底色。
+
+- The token usage on the mirror's tab (↑ ↓) moved to the right end of the tab, and hovering over it no longer pops
+  up the details (it used to pop up whenever the pointer passed over it on the way to a button): click it to show
+  them, click again or move away to close them. Like the buttons, it lights up under the pointer.
+
 ## 1.5.0（2026-10-21）
 
 新增截图（Ctrl+1）和贴图（Ctrl+2）：鼠标停在哪就框住那里的窗口、按钮、段落，能标注、复制、保存、贴到屏幕、原位翻译，

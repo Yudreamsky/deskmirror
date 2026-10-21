@@ -127,6 +127,40 @@ class EngineLangTest(unittest.TestCase):
 
 
 class LangButtonTest(unittest.TestCase):
+    def test_meter_click(self) -> None:
+        # 标签上的 token 用量：在最右头（去点按钮时不经过它）；鼠标停上去不弹，点一下才弹明细
+        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QApplication
+
+        from deskmirror.ui.mirror import MirrorFrame
+        app = QApplication.instance() or QApplication([])
+        f = MirrorFrame((300, 300, 1100, 800), "#3d8bfd")
+        self.addCleanup(f.close)
+        f.show()
+        f.set_meter("↑12.3k ↓4.1k", "明细")
+        app.processEvents()
+        m = f._meter_hit()
+        self.assertFalse(m.isEmpty())
+        self.assertTrue(all(r.right() < m.left() for r in f._buttons.values()), "用量在所有按钮右边")
+        self.assertEqual(f._zone(m.center()), "btn:meter")
+        self.assertLess(m.width(), f._meter_rect.width(), "能点的地方只包住实际的字（留位按最长的样子）")
+        self.assertEqual(m.right(), f._meter_rect.right())
+        self.assertEqual(f._zone(f._meter_rect.topLeft() + QPoint(2, 5)), "tab", "左边留空的那段还是标签")
+        got = []
+        f.meter_clicked.connect(lambda: got.append(1))
+        QTest.mouseMove(f, m.center())
+        app.processEvents()
+        self.assertEqual(got, [], "停上去不弹")
+        QTest.mouseClick(f, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, m.center())
+        app.processEvents()
+        self.assertEqual(got, [1], "点一下才弹")
+        f.set_meter_open(True)
+        self.assertTrue(f.meter_open)
+        f.set_meter("", "")
+        app.processEvents()
+        self.assertTrue(f._meter_rect.isEmpty() and f._zone(m.center()) != "btn:meter", "不显示用量时那里不接点击")
+
     def test_button(self) -> None:
         from PySide6.QtCore import Qt
         from PySide6.QtTest import QTest

@@ -152,7 +152,7 @@ lagi kapan saja dari menu baki sistem). Lihat [panduan singkat](docs/QUICKSTART.
 ### Pemakaian dan biaya
 
 - `↑12.3k ↓4.1k` di tab cermin adalah token yang dikirim ke layanan terjemahan hari ini (↑ masukan, ↓ keluaran);
-  arahkan kursor ke sana untuk rinciannya, termasuk bagian yang kena cache penyedia.
+  klik untuk melihat rinciannya, termasuk bagian yang kena cache penyedia.
 - Setiap permintaan membawa sekitar 430 token instruksi tetap, jadi cara paling hemat adalah mengurangi permintaan
   kecil: selama ada permintaan yang sedang berjalan, baris-baris baru yang muncul menunggu sebentar lalu dikirim
   bersama. Cakupan terjemahan awal "Only the window under the mirror" dan "Only near the frame" jauh lebih murah

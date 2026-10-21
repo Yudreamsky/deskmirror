@@ -145,8 +145,8 @@ Common actions:
 
 ### Usage and cost
 
-- `↑12.3k ↓4.1k` on the mirror tab is today's tokens sent to the translation service (↑ input, ↓ output); hover
-  over it for details, including how much hit the provider's cache.
+- `↑12.3k ↓4.1k` on the mirror tab is today's tokens sent to the translation service (↑ input, ↓ output); click
+  it for details, including how much hit the provider's cache.
 - Every request carries about 430 tokens of fixed instructions, so the cheapest thing is fewer tiny requests: while a
   request is in flight, stray new lines wait a moment and go out together. The "Only the window under the mirror" and
   "Only near the frame" pre-translation scopes cost much less than "Whole screen".

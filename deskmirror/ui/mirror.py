@@ -122,6 +122,7 @@ class MirrorFrame(QWidget):
     pause_clicked = Signal()             # 暂停 / 继续
     lang_clicked = Signal(QPoint)        # 语言按钮：弹出原文 / 译成的语言菜单（屏幕坐标）
     menu_requested = Signal(QPoint)      # 右键标签：跟随窗口、新建 / 关闭魔镜
+    meter_clicked = Signal()             # 点了 token 用量：弹出 / 收起明细
 
     def __init__(self, rect: Rect, color: str) -> None:
         flags = (Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool
@@ -150,8 +151,9 @@ class MirrorFrame(QWidget):
         self.paused = False                  # 用户点了“暂停”：按钮显示“继续”
         self.lang_label = ""                 # 语言按钮上的字，如“自动→中”（由程序按设置更新）
         self.meter = ""                      # 今天用掉的 token，如“↑12.3k ↓4.1k”（空 = 不显示）
-        self.meter_tip = ""                  # 鼠标停在上面时显示的明细（由程序显示，见 app._hover_tip）
+        self.meter_tip = ""                  # 点一下用量时弹出的明细（由程序显示，见 app._hover_tip）
         self.meter_hovered = False
+        self.meter_open = False              # 明细弹着：再点一下或者鼠标移开就收起
         self._meter_rect = QRect()
         self.backdrop: glass.Backdrop | None = None   # 液态玻璃取后面的画面（由程序接上）
         self._rim: glass.Rim | None = None
@@ -229,15 +231,31 @@ class MirrorFrame(QWidget):
     def _meter_width(self) -> int:
         return QFontMetrics(_meter_font()).horizontalAdvance(_METER_SAMPLE) + 10 if self.meter else 0
 
+    def _meter_hit(self) -> QRect:
+        """用量实际占的地方（字 + 两边各 5 像素，靠右）：点这里弹明细，悬停、弹着时这里有底色。
+        留的位置（_meter_rect）按最长的样子算，数字变长变短时按钮不跳。"""
+        if not self.meter:
+            return QRect()
+        r = self._meter_rect
+        w = min(r.width(), QFontMetrics(_meter_font()).horizontalAdvance(self.meter) + 10)
+        return QRect(r.right() + 1 - w, r.top(), w, r.height())
+
     def _buttons_width(self) -> int:
         fm = QFontMetrics(_btn_font())
         return sum(self._button_w(n, fm) + (2 if n in _ICONS else 4) for n in _ORDER) + 2
 
     def _place_buttons(self) -> None:
+        """按钮从标签右头往左排；token 用量在最右头（去点按钮时鼠标不经过它）。"""
         tab = self._local(self._tab)
         size = TAB_H - 4
         fm = QFontMetrics(_btn_font())
         x = tab.right() - 2 - (_GLASS_IN if glass.active() else 0)
+        self._meter_rect = QRect()
+        if self.meter:
+            mw = self._meter_width()
+            x -= mw
+            self._meter_rect = QRect(x, tab.top() + 2, mw, size)
+            x -= 4
         self._buttons = {}
         for name in _ORDER:
             w = self._button_w(name, fm)
@@ -288,6 +306,11 @@ class MirrorFrame(QWidget):
                 self._layout()
             else:
                 self.update(self._local(self._tab))
+
+    def set_meter_open(self, on: bool) -> None:
+        if on != self.meter_open:
+            self.meter_open = on
+            self.update(self._local(self._tab))
 
     def set_ghost(self, on: bool) -> None:
         """变形期间（形状画在覆盖层上）：边线、标签都不画，窗口留着接住正在拖的鼠标。"""
@@ -406,16 +429,17 @@ class MirrorFrame(QWidget):
         left_btn = min((r.left() for r in self._buttons.values()), default=tab.right())
         fm = QFontMetrics(font)
         sx = tab.left() + title_x + 12 + fm.horizontalAdvance(title)      # 状态文字紧跟在标题后面
-        self._meter_rect = QRect()
         if self.meter:
-            # token 用量：贴在按钮左边，像网速监控那样 ↑ 输入 ↓ 输出（宽度在 _layout 里留好了）
-            mw = self._meter_width()
-            self._meter_rect = QRect(left_btn - 4 - mw, tab.top(), mw, tab.height())
-            left_btn = self._meter_rect.left()
+            # token 用量：标签最右头，像网速监控那样 ↑ 输入 ↓ 输出；点一下弹出明细，所以像按钮一样悬停、弹着时有底色
+            r = self._meter_rect
             pen = p.pen()
+            if self._hover_button == "meter" or self.meter_open:
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(pal["icon_hover"])
+                p.drawRoundedRect(self._meter_hit(), pal["radius"], pal["radius"])
             p.setFont(_meter_font())
             p.setPen(pal["meter"])
-            p.drawText(self._meter_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, self.meter)
+            p.drawText(r.adjusted(5, 0, -5, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, self.meter)
             p.setFont(font)
             p.setPen(pen)
         status_rect = QRect(sx, tab.top(), max(0, left_btn - 6 - sx), tab.height())
@@ -569,6 +593,8 @@ class MirrorFrame(QWidget):
 
     # ------------------------------------------------------------------ 鼠标
     def _zone(self, pos: QPoint) -> str:
+        if self.meter and self._meter_hit().contains(pos):
+            return "btn:meter"
         for name, r in self._buttons.items():
             if r.contains(pos):
                 return "btn:" + name
@@ -624,7 +650,7 @@ class MirrorFrame(QWidget):
             self.dock.move(e.globalPosition().toPoint())
             return
         if self._drag is None:
-            self.meter_hovered = self._meter_rect.contains(pos)
+            self.meter_hovered = self._meter_hit().contains(pos)
             zone = self._zone(pos)
             hb = zone[4:] if zone.startswith("btn:") else ""
             if hb != self._hover_button or (zone == "grip") != self._hover_grip:
@@ -685,6 +711,8 @@ class MirrorFrame(QWidget):
                 self.pause_clicked.emit()
             elif zone == "btn:look":
                 self.look_clicked.emit()
+            elif zone == "btn:meter":
+                self.meter_clicked.emit()
             elif zone == "btn:lang":
                 r = self._buttons["lang"]
                 self.lang_clicked.emit(self.mapToGlobal(QPoint(r.left(), r.bottom() + 2)))
