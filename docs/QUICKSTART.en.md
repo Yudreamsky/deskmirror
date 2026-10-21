@@ -4,7 +4,7 @@
 
 Using DeskMirror for the first time? Just follow these 6 steps. The same guide opens the first time the program
 starts; to see it again later, right-click the tray icon (the blue 镜 icon at the bottom right of the taskbar) →
-**Getting started…**.
+Help → **Getting started…**.
 
 ## 1. Choose your native language
 
@@ -72,13 +72,13 @@ Right-click the mirror's tab to open another mirror, or to make the mirror follo
 - With a cloud service, the recognized text is sent to it (billed by the amount of text); with Ollama on this PC,
   nothing leaves your computer.
 - Chat apps, password managers and online banking windows are not recognized or translated by default; you can change
-  the list in Settings. When chatting with colleagues or friends abroad, right-click the mirror's tab (or the tray
-  icon) and check "Translate chat apps"; turn it off again when you're done.
+  the list in Settings. When chatting with colleagues or friends abroad, right-click the mirror's tab (or open "What to
+  translate" in the tray menu) and check "Translate chat apps"; turn it off again when you're done.
 - Logs don't record screen text, and "Remember translations" is off by default. Hover over the tray icon to see how
   much text was sent today.
 - **How much to translate ahead**: "Whole screen" has translations ready wherever you drag, but text in other windows
   is sent too. If you use a cloud service and care about privacy or cost, choose "Only the window under the mirror"
-  (tray menu → Pre-translation scope).
+  (tray menu → What to translate).
 
 ## 6. Start
 

@@ -36,7 +36,7 @@ browser or extension.
 | Move the mirror | Drag the dark tab above the mirror, or **hold Ctrl+Alt** and drag anywhere inside the frame |
 | Resize it | Drag the blue border or one of the four corners |
 | Tuck it away as a ball | Drag the tab (or the six-dot grip at its left end) towards the edge of the screen. When the mouse reaches the edge, the mirror shrinks into a ball stuck to that edge and **translation stops** (when every mirror is tucked away, nothing is captured or recognized and no tokens are spent). Let go and the ball slides halfway into the edge; move the mouse onto it and it slides out. Any of the four edges works, except edges where two screens meet; the top edge only counts when you push the mouse all the way up, so dragging the mirror onto a menu bar doesn't tuck it away. Dragging inside the frame with Ctrl+Alt held never tucks it away, so you can still put the mirror right against the edge |
-| Bring it back | **Click the ball**: the mirror goes back to where it was and carries on translating. Or **drag the ball out**: once it leaves the edge it opens into a dashed frame that follows the mouse, translation starts and translations already appear inside; let go and the mirror lands there. Drag it back to the edge and it becomes a ball again. Whether it's tucked away, and where, is remembered for the next start |
+| Bring it back | **Click the ball**: the mirror goes back to where it was and carries on translating. Or **drag the ball out**: once it leaves the edge it opens into a dashed frame that follows the mouse, translation starts and translations already appear inside; let go and the mirror lands there. Drag it back to the edge and it becomes a ball again. Whether it's tucked away, and where, is remembered for the next start. **Right-click the ball** for the same menu as the tray icon's (settings, screenshots and Quit are all there) |
 | Use the program underneath | Just click, select text and scroll inside the frame; it all goes to the program underneath |
 | Peek at the original | **Hold Ctrl+Alt+O**; release it to get the translation back |
 | Refresh inside the frame | **Ctrl+Alt+T**, or click ⟳ on the tab (checks again, recognizes again and retries failed translations; the cache elsewhere is not affected) |
@@ -44,8 +44,8 @@ browser or extension.
 | Choose languages | Click the language button on the tab (it shows the current languages, e.g. "Auto→EN" or "ZH→EN") and pick the source and target languages; the change takes effect at once. When you change the target language, all existing translations are translated again; when you choose Korean as the source, the Korean recognition model is used (about 14 MB, downloaded the first time) and the text on screen is recognized again. You can also change this in Settings → General |
 | Image translation | **Ctrl+Alt+V**, or click **Image** on the tab (also in the tray menu): sends what is inside the frame (as is, without translations) to a model that can read images. The result appears paragraph by paragraph in a pop-up window, where you can copy it or look at it again. Good for stylized lettering, sound effects, text in pictures and game fonts that normal recognition can't read (vertical text in comic speech bubbles is read by normal recognition too, and Chinese and Japanese translations are set vertically). Slower than live translation (usually a few seconds with a local model). The model is set in Settings → Translation service → Image translation; the default is gemma4:12b on Ollama. With a cloud service you are asked each time before a picture is sent |
 | Pause / resume | Click **Pause** on the tab (also in the tray menu): the frame stays, but nothing is captured, recognized or translated (no translation cost), and the mirror shows no translations. The button turns into a yellow **Resume**; click it to continue: the screen is checked again first, and anything already seen comes from the cache without new requests |
-| Settings | ⚙ on the tab, or right-click the tray icon → Settings… |
-| Getting started, About | Right-click the tray icon → Getting started… / About… (version, author's email, project page); the getting-started guide opens automatically on first launch |
+| Settings | ⚙ on the tab, or right-click the tray icon (or the tucked-away ball) → Settings… |
+| Getting started, About | Right-click the tray icon → Help → Getting started… / About… (version, author's email, project page); the getting-started guide opens automatically on first launch |
 | Change the look (liquid glass) | Settings → General → Appearance → **Skin** → "Liquid glass" (command line: `config set style.skin glass`), effective at once. The border becomes a ring of curved glass around the frame with rounded corners: what's behind it is stretched across the ring and bent around the corners, with a faint rainbow fringe at the edge. The tab becomes a strip of glass floating above the border, and the ball becomes a glass ball. The glass follows what's behind it: white glass over light pages, smoky glass over dark games and programs. The glass ring is also where you drag to resize. Choose "Classic" to get exactly the old look back |
 | Interface language | In step 1 of the getting-started guide you pick your native language: translations come out in it, and the interface is in Chinese (if you chose Simplified or Traditional Chinese) or in English (for any other language). Change it later in Settings → General → Languages → Interface language; it takes effect at once |
 | Open another mirror | Right-click the tray icon → New mirror, or right-click the mirror's tab → New mirror (up to 4); right-click an extra mirror's tab to close it |
@@ -54,9 +54,9 @@ browser or extension.
 | Edit a translation | Double-click the entry in the history panel, edit it and save: this text now uses your translation, now and later (after a restart too if translation memory is on; otherwise until you quit) |
 | Fix how names and terms are translated | Settings → Glossary: enter a term as it appears in the original and its translation; translations must use it. English and similar languages match whole words (art doesn't match start). "Only for program" takes a program name, with or without .exe. After you change the glossary, existing translations containing those terms are translated again |
 | Keep terms consistent | On by default (can be turned off in Settings → Glossary): existing translations in the same window that contain the same words are sent along as reference, so terms that aren't in the glossary keep their earlier translation too (if Employer was translated one way earlier, it won't change later). The first time a term appears there is no reference yet; put terms you want fixed into the glossary |
-| Screenshots of the frame | Click **Orig. shot** (the frame as is) or **Shot** (the frame with translations, exactly as you see it) on the tab, or use the tray menu. The picture is copied to the clipboard and saved to the folder chosen in Settings → Screenshot (by default "Pictures\DeskMirror", or "图片\桌面魔镜" with the Chinese interface); click the notification to open the folder |
+| Screenshots of the frame | Click **Orig. shot** (the frame as is) or **Shot** (the frame with translations, exactly as you see it) on the tab, or use "Screenshot of the frame" in the tray menu. The picture is copied to the clipboard and saved to the folder chosen in Settings → Screenshot (by default "Pictures\DeskMirror", or "图片\桌面魔镜" with the Chinese interface); click the notification to open the folder |
 | Screenshot of any part of the screen, pins | **Ctrl+1** takes a screenshot, **Ctrl+2** pins the clipboard's picture on the screen; see [Screenshots and pins](#screenshots-and-pins) below |
-| Other screenshot or recording tools | The mirror is hidden from screen capture (it reads the screen through screen capture itself), so other tools don't see it or its translations. To use them, turn on **Let screenshot tools capture the mirror** in the tray menu or the tab's right-click menu: translations stay frozen meanwhile; turn it off when you're done and the mirror carries on |
+| Other screenshot or recording tools | The mirror is hidden from screen capture (it reads the screen through screen capture itself), so other tools don't see it or its translations. To use them, turn on **Let screenshot tools capture the mirror** under "Screenshot of the frame" in the tray menu, or in the tab's right-click menu: translations stay frozen meanwhile; turn it off when you're done and the mirror carries on |
 | Read a cut-off translation in full | A block with a small triangle at its bottom right didn't fit; hover over it to see the full text |
 
 The default hotkeys may conflict with other programs on your PC: if registering one fails, the tray tells you, and
@@ -195,8 +195,8 @@ default; turn it on in Settings → Text boxes (command line: `config set input.
 
 ## Translation scope and privacy
 
-Settings → "What to translate", "Usage and cost" and "Privacy and memory" (the tray menu also has "Pre-translation scope" and "Don't translate the program
-under the mirror"):
+Settings → "What to translate", "Usage and cost" and "Privacy and memory" (the tray menu's "What to translate" also has the pre-translation scope, "Don't translate the
+program under the mirror" and "Translate chat apps"):
 
 - **Pre-translation scope**:
   - **Whole screen** (default): all visible text on the mirror's screen is translated ahead of time in the
@@ -212,7 +212,7 @@ under the mirror"):
   - Windows on the list are blanked out before recognition: they are neither recognized nor translated, and nothing
     from them is sent to any translation service.
   - **Translate chat apps** (off by default): when chatting with colleagues or friends abroad, check it by
-    right-clicking the mirror's tab or the tray icon, and the chat apps on the list are translated as usual (chat text
+    right-clicking the mirror's tab (or under "What to translate" in the tray menu), and the chat apps on the list are translated as usual (chat text
     is sent to the translation service; with Ollama on this PC it stays local); turn it off again when you're done.
     Password managers and banking or payment pages are never translated. The same switch ("Translate chat apps too") is in
     Settings → What to translate.
@@ -312,7 +312,7 @@ restart, and the command tells you so.
 
 ## Updating to a new version
 
-- Tray menu → "Check for updates…", or Settings → About → "Check for updates": if there's a new version you see its
+- Tray menu → Help → "Check for updates…", or Settings → About → "Check for updates": if there's a new version you see its
   release notes. Click "Download and update" to download and verify it (SHA256); DeskMirror then quits, switches to
   the new version and reopens. Settings, logs, the learned wheel curve and remembered translations stay. If anything
   goes wrong, the previous version is put back.

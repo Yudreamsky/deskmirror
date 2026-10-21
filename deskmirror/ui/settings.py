@@ -372,7 +372,7 @@ class SettingsDialog(QDialog):
         reset.clicked.connect(self._reset_lists)
         f.addRow("", reset)
         f.addRow(_note(tr("名单里的窗口在送去识别之前就被遮掉：不识别、不翻译，不会发给任何翻译服务。"
-                          "也可以右键托盘图标 →“不翻译魔镜下的这个程序”。"
+                          "也可以右键托盘图标 → 翻译范围 →“不翻译魔镜下的这个程序”。"
                           "名单里的聊天软件只在打开“聊天软件也翻译”时照常翻（托盘菜单、右键魔镜标签也能随时开关），"
                           "密码管理器和网银、支付页面始终不翻。")))
         lay.addWidget(box)

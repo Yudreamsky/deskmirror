@@ -163,6 +163,10 @@ def main() -> int:
         p.end()
         return QIcon(pm)
 
+    def _keyed(text: str, key: str) -> str:
+        """菜单项的字；有快捷键时写在右边（Qt 菜单里 Tab 后面的字靠右排）。"""
+        return f"{text}\t{key}" if key else text
+
     class SnipServices:
         """截图、贴图要用的识别和翻译：交给引擎，回调转回界面线程。"""
 
@@ -332,27 +336,35 @@ def main() -> int:
 
         # -------------------------------------------------------------- 托盘菜单、界面语言
         def _build_menu(self) -> None:
-            """托盘菜单（换界面语言时整个重建）。"""
+            """托盘菜单（换界面语言、改快捷键时整个重建）；右键收起来的球弹的也是它。天天用的在上面，
+            少用的收进子菜单，快捷键写在右边。"""
             menu = QMenu()
-            self.act_toggle = QAction(tr("显示魔镜") if self.state.hidden else tr("隐藏魔镜"), menu)
-            self.act_toggle.triggered.connect(self.toggle_visible)
-            menu.addAction(self.act_toggle)
-            self.act_pause = QAction(tr("继续翻译") if self.state.paused else tr("暂停（框留着，不识别、不翻译）"), menu)
-            self.act_pause.triggered.connect(self.toggle_pause)
-            menu.addAction(self.act_pause)
-            menu.addAction(tr("刷新镜框内区域"), self.refresh)
-            menu.addAction(tr("新建一个魔镜"), self.add_mirror)
+            menu.setToolTipsVisible(True)
             hk = self.cfg.hotkeys
-            menu.addAction(tr("截图（{key}）").format(key=hk.capture) if hk.capture else tr("截图"), self.start_capture)
-            menu.addAction(tr("贴图（{key}）").format(key=hk.pin) if hk.pin else tr("贴图"), self.pin_clipboard)
-            menu.addAction(tr("关闭所有贴图"), self.pins.close_all)
-            menu.addAction(tr("截原图（镜框内原样）"), lambda: self.take_shot("orig"))
-            menu.addAction(tr("截译图（镜框内带译文）"), lambda: self.take_shot("trans"))
-            self.act_shotmode = self._shotmode_action(menu)
-            menu.addAction(self.act_shotmode)
-            menu.addAction(tr("看图翻译（把镜框里的画面交给能看图的模型）"), self.look)
+
+            def item(parent: QMenu, text: str, slot, key: str = "", tip: str = "") -> QAction:
+                act = QAction(_keyed(text, key), parent)
+                act.triggered.connect(lambda *_a, s=slot: s())        # 不把 checked 传给 slot
+                if tip:
+                    act.setToolTip(tip)
+                parent.addAction(act)
+                return act
+
+            self.act_toggle = item(menu, tr("显示魔镜") if self.state.hidden else tr("隐藏魔镜"), self.toggle_visible,
+                                   hk.toggle_visible)
+            self.act_pause = item(menu, tr("继续翻译") if self.state.paused else tr("暂停翻译"), self.toggle_pause,
+                                  tip=tr("框留着，不识别、不翻译，也不花翻译费用"))
+            item(menu, tr("刷新镜框内区域"), self.refresh, hk.refresh)
+            item(menu, tr("新建一个魔镜"), self.add_mirror)
             menu.addSeparator()
-            scope_menu = menu.addMenu(tr("预译范围"))
+            item(menu, tr("截图"), self.start_capture, hk.capture)
+            item(menu, tr("贴图"), self.pin_clipboard, hk.pin)
+            self.act_close_pins = item(menu, tr("关闭所有贴图"), self.pins.close_all)
+            item(menu, tr("看图翻译"), self.look, hk.vision, tr("把镜框里的画面交给能看图的模型来读、来翻"))
+            item(menu, tr("历史记录…"), self.toggle_history, hk.history, tr("最近在魔镜里出现过的原文和译文"))
+            menu.addSeparator()
+            scope_menu = menu.addMenu(tr("翻译范围"))
+            scope_menu.addSection(tr("预译范围"))
             self.scope_actions = {}
             for code, name in config.SCOPE_MODES.items():
                 act = QAction(tr(name), scope_menu)
@@ -361,25 +373,41 @@ def main() -> int:
                 act.triggered.connect(lambda _=False, c=code: self.set_scope(c))
                 scope_menu.addAction(act)
                 self.scope_actions[code] = act
-            menu.addAction(tr("不翻译魔镜下的这个程序"), self.exclude_app_under_mirror)
-            self.act_chat = self._chat_action(menu)
-            menu.addAction(self.act_chat)
-            menu.addAction(tr("历史记录…（最近的原文和译文）"), self.toggle_history)
-            menu.addAction(tr("新手指南…"), self.open_guide)
-            menu.addAction(tr("设置…"), self.open_settings)
-            self.act_debug = QAction(tr("显示识别到的滚动区域（调试）"), menu)
+            scope_menu.addSeparator()
+            item(scope_menu, tr("不翻译魔镜下的这个程序"), self.exclude_app_under_mirror)
+            self.act_chat = self._chat_action(scope_menu)
+            scope_menu.addAction(self.act_chat)
+            shot_menu = menu.addMenu(tr("截镜框里的画面"))
+            item(shot_menu, tr("截原图（镜框内原样）"), lambda: self.take_shot("orig"))
+            item(shot_menu, tr("截译图（镜框内带译文）"), lambda: self.take_shot("trans"))
+            shot_menu.addSeparator()
+            self.act_shotmode = self._shotmode_action(shot_menu)
+            shot_menu.addAction(self.act_shotmode)
+            menu.addSeparator()
+            item(menu, tr("设置…"), self.open_settings)
+            help_menu = menu.addMenu(tr("帮助"))
+            item(help_menu, tr("新手指南…"), self.open_guide)
+            item(help_menu, tr("检查更新…"), self.open_update)
+            item(help_menu, tr("关于…"), self.open_about)
+            help_menu.addSeparator()
+            self.act_debug = QAction(tr("显示识别到的滚动区域（调试）"), help_menu)
             self.act_debug.setCheckable(True)
             self.act_debug.setChecked(self.state.debug)
             self.act_debug.toggled.connect(self._on_debug)
-            menu.addAction(self.act_debug)
-            menu.addSeparator()
-            menu.addAction(tr("检查更新…"), lambda: self.open_update())
-            menu.addAction(tr("关于…"), self.open_about)
-            menu.addAction(tr("退出"), self.quit_app)
+            help_menu.addAction(self.act_debug)
+            item(menu, tr("退出"), self.quit_app)
+            # 屏幕上有贴图时才出现“关闭所有贴图”
+            self.act_close_pins.setVisible(bool(self.pins.items))
+            menu.aboutToShow.connect(lambda: self.act_close_pins.setVisible(bool(self.pins.items)))
             old, self._menu = self._menu, menu
             self.tray.setContextMenu(menu)
             if old is not None:
                 old.deleteLater()
+
+        def _popup_menu(self, pos) -> None:
+            """右键收起来的球：弹出托盘的菜单（设置、截图、退出都在里面），和右键托盘图标一样。"""
+            if self._menu is not None:
+                self._menu.exec(pos)
 
         def quit_app(self) -> None:
             """退出程序。Qt 6 退出时会先关掉所有窗口：新手指南这时被关掉不算看过，下次启动还会弹出。"""
@@ -428,6 +456,7 @@ def main() -> int:
             f.dock.docked_changed.connect(lambda on, f=f: self._on_docked(f, on))
             f.dock.repaint.connect(self._repaint_screen)
             f.dock.committed.connect(self._save_mirrors)
+            f.dock.menu_requested.connect(self._popup_menu)
             f.rect_changed.connect(lambda r, final, f=f: self._on_frame_rect(f, r, final))
             f.refresh_clicked.connect(lambda f=f: self.refresh(f))
             f.settings_clicked.connect(self.open_settings)
@@ -582,7 +611,7 @@ def main() -> int:
                 self.engine.set_working(False)
                 QTimer.singleShot(250, lambda: self.state.shot_mode and winapi.set_capture_visible(True))
                 msg = tr("截图模式：现在截图、录屏软件能截到魔镜和译文了。这期间译文不会更新，"
-                         "截完在托盘菜单或右键魔镜标签里关掉。")
+                         "截完在托盘菜单的“截镜框里的画面”里，或右键魔镜标签关掉。")
             else:
                 winapi.set_capture_visible(False)
                 QTimer.singleShot(300, lambda: self.state.shot_mode or self._apply_working())
@@ -606,7 +635,7 @@ def main() -> int:
                 local = self.cfg.llm.protocol == "ollama" and any(
                     h in self.cfg.llm.base_url for h in ("127.0.0.1", "localhost", "[::1]"))
                 where = tr("用的是本机 Ollama，聊天内容不出本机。") if local else                     tr("聊天内容会发给翻译服务（{host}）。").format(host=_host_of(self.cfg.llm.base_url))
-                msg = tr("已打开：微信、QQ、钉钉、飞书、Telegram、WhatsApp 等聊天窗口也会翻译。{where}聊完可以在托盘菜单或右键魔镜标签里关掉。"
+                msg = tr("已打开：微信、QQ、钉钉、飞书、Telegram、WhatsApp 等聊天窗口也会翻译。{where}聊完可以在托盘菜单的“翻译范围”里，或右键魔镜标签关掉。"
                          ).format(where=where)
             else:
                 msg = tr("已关闭：聊天软件的窗口不再识别、不再翻译。")
@@ -895,7 +924,7 @@ def main() -> int:
             """暂停：魔镜框还在，不截屏、不识别、不翻译（不花翻译费用），也不画译文；继续时重新核对画面。"""
             paused = self.state.paused = not self.state.paused
             self._apply_working()
-            self.act_pause.setText(tr("继续翻译") if paused else tr("暂停（框留着，不识别、不翻译）"))
+            self.act_pause.setText(tr("继续翻译") if paused else tr("暂停翻译"))
             status = (tr(PAUSED_TEXT), "paused") if paused else (tr("继续工作，正在核对画面…"), "busy")
             for f in self.frames:
                 f.set_paused(paused)
@@ -1469,7 +1498,8 @@ def main() -> int:
             for f in self.frames:
                 f.dock.set_hidden(self.state.hidden)
                 f.setVisible(not self.state.hidden and not f.suspended and not f.dock.docked)
-            self.act_toggle.setText(tr("显示魔镜") if self.state.hidden else tr("隐藏魔镜"))
+            self.act_toggle.setText(_keyed(tr("显示魔镜") if self.state.hidden else tr("隐藏魔镜"),
+                                           self.cfg.hotkeys.toggle_visible))
             self._glide_sync()
             for o in self.overlays:
                 o.update()
@@ -1827,6 +1857,12 @@ def main() -> int:
             if cmd == "pins":
                 if req.get("close"):
                     self.pins.close_all()
+                if req.get("add"):                  # 测试用：一张纯色的贴图贴在 add（物理像素）
+                    from PySide6.QtGui import QColor, QImage
+                    x0, y0, x1, y1 = (int(v) for v in req["add"])
+                    img = QImage(x1 - x0, y1 - y0, QImage.Format.Format_RGB32)
+                    img.fill(QColor("#9AA4B1"))
+                    self.pins.pin(PinData(img, (x0, y0, x1, y1)))
                 out = []
                 for w in self.pins.items:
                     sg, d = w.screen().geometry(), w.devicePixelRatioF()     # Qt 6：屏幕左上角是原始坐标
@@ -1836,6 +1872,38 @@ def main() -> int:
                                 {"active": w.isActiveWindow(), "on_top": top == int(w.winId()),
                                  "top_class": winapi.window_class(top) if top else ""}])
                 return {"pins": out}
+            if cmd == "popup":
+                # 现在弹着的菜单（测试用）：每项的字、看不看得见、在屏幕上的位置（物理像素）、子菜单；
+                # grab 把菜单画成图存到 path，close 关掉
+                m = qapp.activePopupWidget()
+                if not isinstance(m, QMenu):
+                    return {"open": False}
+                sg, d = m.screen().geometry(), m.devicePixelRatioF()
+
+                def phys(r) -> list[int]:
+                    g = m.mapToGlobal(r.topLeft())
+                    x, y = sg.x() + (g.x() - sg.x()) * d, sg.y() + (g.y() - sg.y()) * d
+                    return [int(x), int(y), int(x + r.width() * d), int(y + r.height() * d)]
+
+                def items(menu: QMenu) -> list[dict]:
+                    return [{"text": a.text(), "visible": a.isVisible(), "sep": a.isSeparator(),
+                             "checked": a.isChecked(), "sub": items(a.menu()) if a.menu() is not None else None}
+                            for a in menu.actions()]
+                out = {"open": True, "tray": m is self._menu, "items": items(m),
+                       "rects": [[a.text(), phys(m.actionGeometry(a))] for a in m.actions()
+                                 if a.isVisible() and not a.isSeparator()]}
+                if req.get("grab"):
+                    m.grab().save(str(req["grab"]))
+                if req.get("close"):
+                    m.close()
+                return out
+            if cmd == "settings":
+                # 设置窗口开没开（测试用）；close 不保存关掉
+                d = self._settings
+                is_open = d is not None and d.isVisible()
+                if req.get("close") and is_open:
+                    d.reject()
+                return {"open": is_open}
             if cmd == "mirror":
                 rect = tuple(int(v) for v in req["rect"])
                 self.frame.set_mirror(rect)

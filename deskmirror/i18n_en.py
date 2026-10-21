@@ -23,14 +23,10 @@ EN: dict[str, str] = {
         'Screenshot: original (the frame as is)',
     '截译图（镜框内带译文）':
         'Screenshot: translated (the frame with translations)',
-    '看图翻译（把镜框里的画面交给能看图的模型）':
-        'Image translation (send the frame to a vision model)',
     '预译范围':
         'Pre-translation scope',
     '不翻译魔镜下的这个程序':
         "Don't translate the program under the mirror",
-    '历史记录…（最近的原文和译文）':
-        'History… (recent originals and translations)',
     '新手指南…':
         'Getting started…',
     '设置…':
@@ -63,8 +59,6 @@ EN: dict[str, str] = {
         'You are using local Ollama, so chats stay on this PC. ',
     '聊天内容会发给翻译服务（{host}）。':
         'Chat text will be sent to the translation service ({host}). ',
-    '已打开：微信、QQ、钉钉、飞书、Telegram、WhatsApp 等聊天窗口也会翻译。{where}聊完可以在托盘菜单或右键魔镜标签里关掉。':
-        'On: chat windows (WeChat, QQ, DingTalk, Feishu, Telegram, WhatsApp and more) are translated too. {where}Turn it off from the tray menu or by right-clicking the mirror tab when you are done.',
     '已关闭：聊天软件的窗口不再识别、不再翻译。':
         'Off: chat app windows are no longer recognized or translated.',
     '已截译图':
@@ -77,8 +71,6 @@ EN: dict[str, str] = {
         'Hide mirror',
     '继续翻译':
         'Resume translating',
-    '暂停（框留着，不识别、不翻译）':
-        'Pause (keep the frame, stop recognizing and translating)',
     '最多同时开 4 个魔镜。':
         'You can have at most 4 mirrors open.',
     '跟随下面的窗口（窗口移动、缩放时魔镜跟着走）':
@@ -347,10 +339,6 @@ EN: dict[str, str] = {
         'DeskMirror sends the text on your screen to a translation service. Choose one:',
     '<ul><li>用云端服务时，识别出的文字会发给它（按字数收费）。本机 Ollama 则完全不出本机。</li><li>聊天软件、密码管理器、网银窗口默认不识别、不翻译，可在设置里增减。和外国同事、朋友聊天时，右键魔镜的标签勾选“翻译聊天软件”，聊完再关掉。</li><li>日志不记屏幕上的文字；“记住译文”默认关闭。今天发了多少字，托盘图标的提示里能看到。</li></ul><p><b>预先翻译多大范围：</b></p>':
         "<ul><li>With a cloud service, the recognized text is sent to it (billed by volume). With Ollama on this PC, nothing leaves your PC.</li><li>Chat apps, password managers and online banking windows aren't recognized or translated by default; you can edit the list in Settings. When chatting with colleagues or friends abroad, right-click the mirror's tab and check “Translate chat apps”; turn it off when you're done.</li><li>The log never records text from your screen, and “Remember translations” is off by default. The tray icon's tooltip shows how much text was sent today.</li></ul><p><b>How much to translate ahead of time:</b></p>",
-    "<p style='color:#888'>“整块屏幕”拖到哪里都马上有译文，但别的窗口里的文字也会发出去；用云端服务又在意隐私或花费时，建议选“只翻魔镜所在的窗口”。以后可在托盘菜单里随时改。</p>":
-        "<p style='color:#888'>“Whole screen” has translations ready wherever you drag, but text in other windows is sent too. If you use a cloud service and care about privacy or cost, choose “Only the window under the mirror”. You can change this anytime from the tray menu.</p>",
-    '<p>把魔镜拖到想翻译的地方，等一两秒，译文就会出现在原文的位置。</p><p>以后想再看这份指南：右键托盘图标（右下角蓝色“镜”字）→ <b>新手指南</b>，或者 设置 → 关于。退出魔镜也在托盘菜单里。</p>':
-        '<p>Drag the mirror over what you want to translate. After a second or two, the translation appears right where the original text is.</p><p>To see this guide again: right-click the tray icon (the blue “镜” icon at the bottom right) → <b>Getting started</b>, or go to Settings → About. Quit is in the tray menu too.</p>',
     '开始使用':
         'Start',
     '下一步':
@@ -601,8 +589,6 @@ EN: dict[str, str] = {
         'Timeout',
     '“整块屏幕”：魔镜所在屏幕上看得见的文字都在后台预先翻译，拖到哪里都能立刻看到译文，但别的窗口里的文字也会发给翻译服务。另外两种只翻魔镜所在的窗口或镜框附近，其余等魔镜移过去再翻，更省、也更不容易把无关内容发出去。':
         "“Whole screen”: all visible text on the mirror's screen is translated ahead of time in the background, so translations appear instantly wherever you drag, but text in other windows is also sent to the translation service. The other two options only translate the window under the mirror or the area near the frame, and the rest once the mirror moves there: cheaper, and less likely to send unrelated content.",
-    '名单里的窗口在送去识别之前就被遮掉：不识别、不翻译，不会发给任何翻译服务。也可以右键托盘图标 →“不翻译魔镜下的这个程序”。名单里的聊天软件只在打开“聊天软件也翻译”时照常翻（托盘菜单、右键魔镜标签也能随时开关），密码管理器和网银、支付页面始终不翻。':
-        "Windows on these lists are masked before recognition: they're never recognized, translated or sent to any translation service. You can also right-click the tray icon → “Don't translate the program under the mirror”. Chat apps on the list are translated only while “Translate chat apps too” is on (you can also switch it from the tray menu or by right-clicking the mirror tab); password managers and banking and payment pages are never translated.",
     '会把屏幕上识别出的原文和译文存进本机文件（只有当前 Windows 账户能解开）。只有数字不同的文字（计时器、进度、血量）不管开不开，都会套用已有译文、不再请求翻译。':
         'Saves recognized originals and translations to a file on this PC (only your current Windows account can decrypt it). Text that differs only in numbers (timers, progress, HP) always reuses existing translations without new requests, whether or not this is on.',
     '原文里的词':
@@ -658,10 +644,6 @@ EN: dict[str, str] = {
         'Let screenshot tools capture the mirror (translations pause meanwhile)',
     '截图模式：译文暂停更新':
         'Screenshot mode: translations paused',
-    '截图模式：现在截图、录屏软件能截到魔镜和译文了。这期间译文不会更新，截完在托盘菜单或右键魔镜标签里关掉。':
-        'Screenshot mode: screenshot and screen recording tools can now capture the mirror and its translations. '
-        "Translations don't update meanwhile; when you're done, turn it off in the tray menu or by right-clicking "
-        "the mirror's tab.",
     '已关闭截图模式：魔镜重新对截屏隐身，接着识别、翻译。':
         'Screenshot mode is off: the mirror is hidden from screen capture again and carries on translating.',
     '这台电脑上魔镜没能对截屏隐身，可能会把自己画的译文又当成原文识别。麻烦把程序文件夹里 logs 下的日志发给作者。':
@@ -1247,10 +1229,6 @@ EN: dict[str, str] = {
         'Screenshot saved',
     '剪贴板里没有图片或文字，也还没截过图。':
         "There's no image or text on the clipboard, and no screenshot yet.",
-    '截图（{key}）':
-        'Screenshot ({key})',
-    '贴图（{key}）':
-        'Pin to screen ({key})',
     '文字识别没有启动':
         "Text recognition hasn't started",
     '今天的 token 用到上限了（设置 → 用量与省钱）':
@@ -1325,4 +1303,44 @@ EN: dict[str, str] = {
         'Copied {color}',
     '选区里没认出字':
         'No text found in the selection',
+    # 托盘菜单（重新排过）
+    '暂停翻译':
+        'Pause translating',
+    '框留着，不识别、不翻译，也不花翻译费用':
+        'The frame stays; nothing is recognized or translated, and nothing is spent on translation',
+    '把镜框里的画面交给能看图的模型来读、来翻':
+        'Sends what is inside the frame to a vision model to read and translate',
+    '历史记录…':
+        'History…',
+    '最近在魔镜里出现过的原文和译文':
+        'Originals and translations that recently appeared in the mirror',
+    '截镜框里的画面':
+        'Screenshot of the frame',
+    '帮助':
+        'Help',
+    # 托盘菜单的路径（重新排过以后）
+    '截图模式：现在截图、录屏软件能截到魔镜和译文了。这期间译文不会更新，截完在托盘菜单的“截镜框里的画面”里，或右键魔镜标签关掉。':
+        'Screenshot mode: screenshot and screen recording tools can now capture the mirror and its '
+        "translations. Translations don't update meanwhile; when you're done, turn it off under “Screenshot "
+        "of the frame” in the tray menu, or by right-clicking the mirror's tab.",
+    '已打开：微信、QQ、钉钉、飞书、Telegram、WhatsApp 等聊天窗口也会翻译。{where}聊完可以在托盘菜单的“翻译范围”里，或右键魔镜标签关掉。':
+        'On: chat windows (WeChat, QQ, DingTalk, Feishu, Telegram, WhatsApp and more) are translated too. '
+        '{where}Turn it off under “What to translate” in the tray menu, or by right-clicking the mirror tab, '
+        'when you are done.',
+    "<p style='color:#888'>“整块屏幕”拖到哪里都马上有译文，但别的窗口里的文字也会发出去；用云端服务又在意隐私或花费时，建议选“只翻魔镜所在的窗口”。以后可在托盘菜单的“翻译范围”里随时改。</p>":
+        "<p style='color:#888'>“Whole screen” has translations ready wherever you drag, but text in other "
+        'windows is sent too. If you use a cloud service and care about privacy or cost, choose “Only the '
+        'window under the mirror”. You can change this anytime under “What to translate” in the tray '
+        'menu.</p>',
+    '<p>把魔镜拖到想翻译的地方，等一两秒，译文就会出现在原文的位置。</p><p>以后想再看这份指南：右键托盘图标（右下角蓝色“镜”字）→ 帮助 → <b>新手指南</b>，或者 设置 → 关于。退出魔镜也在托盘菜单里。</p>':
+        '<p>Drag the mirror over what you want to translate. After a second or two, the translation appears '
+        'right where the original text is.</p><p>To see this guide again: right-click the tray icon (the blue '
+        '“镜” icon at the bottom right) → Help → <b>Getting started</b>, or go to Settings → About. Quit is in '
+        'the tray menu too.</p>',
+    '名单里的窗口在送去识别之前就被遮掉：不识别、不翻译，不会发给任何翻译服务。也可以右键托盘图标 → 翻译范围 →“不翻译魔镜下的这个程序”。名单里的聊天软件只在打开“聊天软件也翻译”时照常翻（托盘菜单、右键魔镜标签也能随时开关），密码管理器和网银、支付页面始终不翻。':
+        "Windows on these lists are masked before recognition: they're never recognized, translated or sent "
+        "to any translation service. You can also right-click the tray icon → What to translate → “Don't "
+        'translate the program under the mirror”. Chat apps on the list are translated only while “Translate '
+        'chat apps too” is on (you can also switch it from the tray menu or by right-clicking the mirror '
+        'tab); password managers and banking and payment pages are never translated.',
 }

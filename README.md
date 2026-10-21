@@ -130,18 +130,18 @@ Common actions:
 | Move or resize the mirror | Drag the tab above the mirror; drag the blue border |
 | Peek at the original | Hold Ctrl+Alt+O |
 | Hide / show the mirror | Ctrl+Alt+H |
-| Tuck the mirror away as a ball | Drag the tab to the edge of the screen; click the ball to bring it back |
+| Tuck the mirror away as a ball | Drag the tab to the edge of the screen; click the ball to bring it back, right-click it for the menu |
 | Turn what you type into another language | Press Space three times in a text box, or Ctrl+Alt+J (turn it on in Settings → Text boxes) |
 | Liquid glass look | Settings → General → Skin |
 | Look back at recent subtitles and dialogue | Ctrl+Alt+Y opens the history panel |
 | Pause (the frame stays; no recognition, no translation) | Click "Pause" on the tab |
 | Choose languages (e.g. ZH→EN, ID→EN, JA→EN) | Click the language button on the tab |
-| Translate chat apps (when chatting with friends abroad) | Right-click the tab or the tray icon → "Translate chat apps" |
+| Translate chat apps (when chatting with friends abroad) | Right-click the tab, or tray menu → What to translate → "Translate chat apps" |
 | Image translation (comics, stylized text, text in pictures) | Ctrl+Alt+V, or click "Image" on the tab |
 | Take a screenshot (snap, mark up, translate in place, turn into a mirror) | Ctrl+1 |
 | Pin the clipboard's picture on the screen | Ctrl+2 |
-| Settings | Click ⚙ on the tab, or right-click the tray icon |
-| Update to a new version | Right-click the tray icon → "Check for updates…" |
+| Settings | Click ⚙ on the tab, or right-click the tray icon or the tucked-away ball |
+| Update to a new version | Right-click the tray icon → Help → "Check for updates…" |
 
 ### Usage and cost
 

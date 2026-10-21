@@ -325,7 +325,7 @@ class GuideDialog(QDialog):
         v.addWidget(self.scope)
         v.addWidget(self._text(tr(
             "<p style='color:#888'>“整块屏幕”拖到哪里都马上有译文，但别的窗口里的文字也会发出去；"
-            "用云端服务又在意隐私或花费时，建议选“只翻魔镜所在的窗口”。以后可在托盘菜单里随时改。</p>")))
+            "用云端服务又在意隐私或花费时，建议选“只翻魔镜所在的窗口”。以后可在托盘菜单的“翻译范围”里随时改。</p>")))
         v.addStretch(1)
         return w
 
@@ -335,7 +335,7 @@ class GuideDialog(QDialog):
         v.addWidget(self.summary)
         v.addWidget(self._text(tr(
             "<p>把魔镜拖到想翻译的地方，等一两秒，译文就会出现在原文的位置。</p>"
-            "<p>以后想再看这份指南：右键托盘图标（右下角蓝色“镜”字）→ <b>新手指南</b>，"
+            "<p>以后想再看这份指南：右键托盘图标（右下角蓝色“镜”字）→ 帮助 → <b>新手指南</b>，"
             "或者 设置 → 关于。退出魔镜也在托盘菜单里。</p>")))
         v.addStretch(1)
         return w

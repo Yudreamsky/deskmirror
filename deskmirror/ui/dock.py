@@ -415,6 +415,9 @@ class Ball(QWidget):
         if e.button() == Qt.MouseButton.LeftButton:
             self.dock.release(e.globalPosition().toPoint())
 
+    def contextMenuEvent(self, e) -> None:  # noqa: N802
+        self.dock.menu_requested.emit(e.globalPos())
+
 
 # ---------------------------------------------------------------------------------------------------- 手势和动画
 class _Gesture:
@@ -446,6 +449,7 @@ class Docker(QObject):
     docked_changed = Signal(bool)     # True：收成球（这个魔镜停止翻译）；False：展开（开始翻译）
     repaint = Signal(tuple)           # 覆盖层要重画的屏幕范围
     committed = Signal()              # 一次拖动、点开结束了：位置和吸附状态该存了
+    menu_requested = Signal(object)   # 球上点了右键：在这里（屏幕坐标）弹出托盘的菜单
 
     def __init__(self, frame, shapes: dict, balls: dict | None = None) -> None:
         super().__init__()

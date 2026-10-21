@@ -136,18 +136,18 @@ lagi kapan saja dari menu baki sistem). Lihat [panduan singkat](docs/QUICKSTART.
 | Memindahkan atau mengubah ukuran cermin | Seret tab di atas cermin; seret bingkai biru |
 | Melihat teks asli sebentar | Tahan Ctrl+Alt+O |
 | Menyembunyikan / menampilkan cermin | Ctrl+Alt+H |
-| Menyimpan cermin sebagai bola | Seret tab ke tepi layar; klik bola untuk membukanya lagi |
+| Menyimpan cermin sebagai bola | Seret tab ke tepi layar; klik bola untuk membukanya lagi, klik kanan untuk menu |
 | Mengganti ketikan ke bahasa lain | Tekan Spasi tiga kali di kotak teks, atau Ctrl+Alt+J (aktifkan di Settings → Text boxes) |
 | Tampilan kaca cair | Settings → General → Skin |
 | Melihat lagi subtitel dan dialog barusan | Ctrl+Alt+Y membuka panel riwayat |
 | Jeda (bingkai tetap ada; tidak mengenali, tidak menerjemahkan) | Klik "Pause" di tab |
 | Memilih bahasa (misalnya EN→ID, ZH→ID, JA→ID) | Klik tombol bahasa di tab |
-| Menerjemahkan aplikasi obrolan (saat mengobrol dengan teman dari luar negeri) | Klik kanan tab atau ikon baki → "Translate chat apps" |
+| Menerjemahkan aplikasi obrolan (saat mengobrol dengan teman dari luar negeri) | Klik kanan tab, atau menu baki → "What to translate" → "Translate chat apps" |
 | Terjemahan gambar (komik, huruf dekoratif, teks di dalam gambar) | Ctrl+Alt+V, atau klik "Image" di tab |
 | Tangkapan layar (bingkai otomatis, anotasi, terjemahan di tempat, jadikan cermin) | Ctrl+1 |
 | Menyematkan gambar dari clipboard di layar | Ctrl+2 |
-| Pengaturan | Klik ⚙ di tab, atau klik kanan ikon baki |
-| Memperbarui ke versi baru | Klik kanan ikon baki → "Check for updates…" |
+| Pengaturan | Klik ⚙ di tab, atau klik kanan ikon baki atau bola yang disimpan |
+| Memperbarui ke versi baru | Klik kanan ikon baki → "Help" → "Check for updates…" |
 
 ### Pemakaian dan biaya
 
