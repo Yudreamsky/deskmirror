@@ -1240,4 +1240,89 @@ EN: dict[str, str] = {
         'Saved to {path} (click this message to open the folder)',
     '保存到 {folder} 失败。':
         "Couldn't save to {folder}.",
+    # 截图、贴图（ui/snip.py、ui/pin.py、ui/intrans.py）
+    '关闭所有贴图':
+        'Close all pins',
+    '已保存截图':
+        'Screenshot saved',
+    '剪贴板里没有图片或文字，也还没截过图。':
+        "There's no image or text on the clipboard, and no screenshot yet.",
+    '截图（{key}）':
+        'Screenshot ({key})',
+    '贴图（{key}）':
+        'Pin to screen ({key})',
+    '文字识别没有启动':
+        "Text recognition hasn't started",
+    '今天的 token 用到上限了（设置 → 用量与省钱）':
+        "Today's token limit is used up (Settings → Usage and cost)",
+    '翻译服务还没准备好':
+        "The translation service isn't ready yet",
+    '识别出错':
+        'Recognition failed',
+    '正在识别…':
+        'Recognizing…',
+    '正在翻译…':
+        'Translating…',
+    '没认出字':
+        'No text found',
+    '贴图：拖动挪位置，滚轮缩放，Ctrl+滚轮调透明度，双击关掉，右键更多':
+        'Pin: drag to move, scroll to zoom, Ctrl+scroll for opacity, double-click to close, right-click for '
+        'more',
+    '复制':
+        'Copy',
+    '识别文字':
+        'Recognize text',
+    '原始大小':
+        'Actual size',
+    '显示原文':
+        'Show original',
+    '显示译文':
+        'Show translation',
+    '原位翻译':
+        'Translate in place',
+    '矩形':
+        'Rectangle',
+    '椭圆':
+        'Ellipse',
+    '箭头':
+        'Arrow',
+    '画笔':
+        'Pen',
+    '荧光笔':
+        'Highlighter',
+    '文字':
+        'Text',
+    '序号':
+        'Numbered marker',
+    '马赛克':
+        'Mosaic',
+    '撤销（Ctrl+Z）':
+        'Undo (Ctrl+Z)',
+    '重做（Ctrl+Y）':
+        'Redo (Ctrl+Y)',
+    '识别文字：认出选区里的字，可以复制':
+        'Recognize text: read the text in the selection so you can copy it',
+    '原位翻译：选区里的字换成译文，再点换回原文':
+        'Translate in place: replace the text in the selection with its translation; click again for the '
+        'original',
+    '变成魔镜（M）：魔镜挪到这里；按住 Shift 点就另开一个':
+        'Make it a mirror (M): move the mirror here; hold Shift to open a new one',
+    '贴到屏幕（Ctrl+T）':
+        'Pin to screen (Ctrl+T)',
+    '保存（Ctrl+S）':
+        'Save (Ctrl+S)',
+    '复制（Enter、Ctrl+C、双击选区）':
+        'Copy (Enter, Ctrl+C or double-click the selection)',
+    '关闭（Esc）':
+        'Close (Esc)',
+    '识别出的文字':
+        'Recognized text',
+    '按 C 复制颜色':
+        'Press C to copy',
+    '粗细':
+        'Thickness',
+    '已复制 {color}':
+        'Copied {color}',
+    '选区里没认出字':
+        'No text found in the selection',
 }

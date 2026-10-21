@@ -77,6 +77,7 @@ user32.GetAncestor.argtypes = [wt.HWND, wt.UINT]
 user32.GetAncestor.restype = wt.HWND
 user32.WindowFromPoint.argtypes = [wt.POINT]
 user32.WindowFromPoint.restype = wt.HWND
+user32.SetForegroundWindow.argtypes = [wt.HWND]
 dwmapi.DwmGetWindowAttribute.argtypes = [wt.HWND, wt.DWORD, ctypes.c_void_p, wt.DWORD]
 dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
 
@@ -217,6 +218,23 @@ def cursor_pos() -> tuple[int, int]:
     pt = wt.POINT()
     user32.GetCursorPos(ctypes.byref(pt))
     return pt.x, pt.y
+
+
+def foreground_window() -> int:
+    return int(user32.GetForegroundWindow() or 0)
+
+
+def give_focus(hwnd: int) -> bool:
+    """把焦点交给 hwnd（窗口还在、看得见、没最小化时）。"""
+    if not hwnd or not user32.IsWindow(hwnd) or not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
+        return False
+    return bool(user32.SetForegroundWindow(hwnd))
+
+
+def root_window_at(x: int, y: int) -> int:
+    """(x, y) 上收得到鼠标的那个顶层窗口（点得透的不算）。"""
+    h = user32.WindowFromPoint(wt.POINT(x, y))
+    return int(user32.GetAncestor(h, 2) or 0) if h else 0          # GA_ROOT
 
 
 @dataclass

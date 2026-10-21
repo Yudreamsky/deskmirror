@@ -5,8 +5,8 @@ from __future__ import annotations
 import copy
 import threading
 
-from PySide6.QtCore import QObject, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication, QIcon, QPainter, QPalette, QPixmap
+from PySide6.QtCore import QObject, QSize, Qt, Signal
+from PySide6.QtGui import QGuiApplication, QPalette
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout,
                                QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QStackedWidget, QTableWidget,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
 from .. import autostart, winapi
 from . import layered
 from .about import AboutPage
+from .icons import glyph
 from .keyedit import HotkeyEdit, probe
 from ..config import (DEFAULT_EXCLUDE_APPS, DEFAULT_EXCLUDE_TITLES, LANGUAGES, OPENAI_PRESETS, SCOPE_MODES,
                       SOURCE_LANGS, AppConfig, HotkeyConfig)
@@ -76,28 +77,6 @@ def show_models(combo: QComboBox, res) -> str:
         msg += tr("；当前填的“{model}”不在列表里，可能填错了").format(model=cur)
     combo.showPopup()       # 直接展开，免得看起来像没反应
     return msg
-
-
-def _icon_family() -> str:
-    families = set(QFontDatabase.families())
-    return next((f for f in ("Segoe Fluent Icons", "Segoe MDL2 Assets") if f in families), "")
-
-
-def _glyph(code: int, color, px: int = 18) -> QIcon:
-    family = _icon_family()
-    if not family:
-        return QIcon()
-    pm = QPixmap(px * 2, px * 2)
-    pm.setDevicePixelRatio(2.0)
-    pm.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pm)
-    f = QFont(family)
-    f.setPixelSize(px - 3)
-    p.setFont(f)
-    p.setPen(color)
-    p.drawText(QRect(0, 0, px, px), Qt.AlignmentFlag.AlignCenter, chr(code))
-    p.end()
-    return QIcon(pm)
 
 
 def _column() -> tuple[QWidget, QVBoxLayout]:
@@ -188,8 +167,8 @@ class SettingsDialog(QDialog):
                     "recog": self._recog_page, "about": self._about_page}
         ink = self.palette().color(QPalette.ColorRole.Text)
         self._page_keys = []
-        for key, title, glyph in PAGES:
-            it = QListWidgetItem(_glyph(glyph, ink), tr(title))
+        for key, title, code in PAGES:
+            it = QListWidgetItem(glyph(code, ink), tr(title))
             self.nav.addItem(it)
             self.pages.addWidget(self._scroll(tr(title), builders[key]()))
             self._page_keys.append(key)

@@ -66,8 +66,11 @@ Inggris; bila Anda memilih bahasa Indonesia sebagai bahasa ibu, terjemahannya ta
   tulisan dalam bahasa ibu Anda ke bahasa lain; tekan lagi untuk kembali ke aslinya. Mati secara bawaan.
 - **Skin kaca cair** (opsional): bingkai menjadi cincin kaca melengkung yang membiaskan isi di belakangnya; tab dan bola
   juga menjadi kaca.
-- Juga: panel riwayat, menyunting terjemahan, beberapa cermin sekaligus, cermin yang mengikuti jendela, jeda, tangkapan
-  layar, mulai bersama Windows, pembaruan dari dalam aplikasi.
+- **Tangkapan layar dan sematan**: Ctrl+1 mengambil tangkapan layar dan otomatis membingkai jendela, tombol, atau
+  paragraf di bawah penunjuk (atau seret sendiri bingkainya); beri anotasi, salin, simpan, sematkan di layar,
+  terjemahkan di tempat, atau jadikan cermin. Ctrl+2 menyematkan gambar dari clipboard di layar.
+- Juga: panel riwayat, menyunting terjemahan, beberapa cermin sekaligus, cermin yang mengikuti jendela, jeda, mulai
+  bersama Windows, pembaruan dari dalam aplikasi.
 
 ## Pemasangan
 
@@ -135,12 +138,14 @@ lagi kapan saja dari menu baki sistem). Lihat [panduan singkat](docs/QUICKSTART.
 | Menyembunyikan / menampilkan cermin | Ctrl+Alt+H |
 | Menyimpan cermin sebagai bola | Seret tab ke tepi layar; klik bola untuk membukanya lagi |
 | Mengganti ketikan ke bahasa lain | Tekan Spasi tiga kali di kotak teks, atau Ctrl+Alt+J (aktifkan di Settings → Text boxes) |
-| Tampilan kaca cair | Settings → Recognition and display → Skin |
+| Tampilan kaca cair | Settings → General → Skin |
 | Melihat lagi subtitel dan dialog barusan | Ctrl+Alt+Y membuka panel riwayat |
 | Jeda (bingkai tetap ada; tidak mengenali, tidak menerjemahkan) | Klik "Pause" di tab |
 | Memilih bahasa (misalnya EN→ID, ZH→ID, JA→ID) | Klik tombol bahasa di tab |
 | Menerjemahkan aplikasi obrolan (saat mengobrol dengan teman dari luar negeri) | Klik kanan tab atau ikon baki → "Translate chat apps" |
 | Terjemahan gambar (komik, huruf dekoratif, teks di dalam gambar) | Ctrl+Alt+V, atau klik "Image" di tab |
+| Tangkapan layar (bingkai otomatis, anotasi, terjemahan di tempat, jadikan cermin) | Ctrl+1 |
+| Menyematkan gambar dari clipboard di layar | Ctrl+2 |
 | Pengaturan | Klik ⚙ di tab, atau klik kanan ikon baki |
 | Memperbarui ke versi baru | Klik kanan ikon baki → "Check for updates…" |
 
@@ -154,7 +159,7 @@ lagi kapan saja dari menu baki sistem). Lihat [panduan singkat](docs/QUICKSTART.
   daripada "Whole screen".
 - Setelah beberapa saat tanpa masukan keyboard atau tetikus, hanya teks di dalam cermin yang diterjemahkan, dan
   semuanya berhenti selama layar terkunci atau screensaver berjalan; layanan cloud berhenti di 1.000.000 token per hari
-  secara bawaan. Semua ini ada di Settings → Scope and privacy.
+  secara bawaan. Semua ini ada di Settings → Usage and cost.
 - Setiap permintaan dicatat di `logs/usage-YYYY-MM.jsonl` (hanya jumlah dan nama program, tanpa teks layar);
   `usage --log` di baris perintah (lihat bagian berikutnya) merangkumnya per program, ukuran permintaan, dan jam.
 
@@ -200,9 +205,12 @@ AI Anda:
   terenkripsi di PC ini.
 - Terjemahan gambar mengirim tangkapan layar isi bingkai ke model gambar yang diatur di Settings. Secara bawaan itu
   Ollama di PC Anda, jadi gambarnya tidak keluar; dengan layanan cloud, Anda selalu ditanya dulu sebelum gambar dikirim.
+- Tangkapan layar (Ctrl+1) hanya ditulis ke disk saat Anda menyimpannya, dan gambar yang disematkan hanya ada di
+  memori. Hanya "Translate in place" yang mengirim teks yang dikenali di area pilihan ke layanan terjemahan;
+  gambarnya sendiri tidak pernah dikirim.
 - Pemeriksaan pembaruan menanyakan nomor versi terbaru dan catatan rilis ke GitHub, paling banyak sekali sehari
   setelah DeskMirror dijalankan; tidak ada isi layar yang dikirim, dan tidak ada yang diunduh sebelum Anda
-  mengekliknya. Bisa dimatikan di Settings → Scope and privacy.
+  mengekliknya. Bisa dimatikan di Settings → General.
 
 ## Keterbatasan yang diketahui
 

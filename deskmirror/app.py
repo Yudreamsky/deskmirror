@@ -124,7 +124,10 @@ def main() -> int:
     from .ui.guide import GuideDialog
     from .ui.history import HistoryPanel
     from .ui.vision import VisionPanel
+    from .ui.pin import Pins, to_logical
     from .ui.settings import SettingsDialog
+    from .ui.snip import PinData, Shot, SnipSession, TextWindow
+    from . import snap
     from .ui.update import UpdateDialog
     from . import updater
 
@@ -160,7 +163,22 @@ def main() -> int:
         p.end()
         return QIcon(pm)
 
+    class SnipServices:
+        """截图、贴图要用的识别和翻译：交给引擎，回调转回界面线程。"""
+
+        def __init__(self, app) -> None:
+            self.app = app
+
+        def ocr(self, bgr, origin, cb, detect_only: bool = False) -> None:
+            self.app._start_engine()
+            self.app.engine.snip_ocr(bgr, origin, lambda k, d: self.app.snip_deliver.emit(cb, k, d), detect_only)
+
+        def translate(self, texts, hwnd, cb) -> None:
+            self.app._start_engine()
+            self.app.engine.snip_translate(texts, hwnd, lambda k, d: self.app.snip_deliver.emit(cb, k, d))
+
     class App(QObject):
+        snip_deliver = Signal(object, object, object)   # 截图的识别、翻译结果：(回调, 种类, 数据)，引擎线程 → 界面线程
         snapshot_ready = Signal(object)
         motion_ready = Signal(object)         # 只有位移曲线（引擎量到新位移马上发，交给系统合成器的译文层）
         vision_piece = Signal(str)            # 看图翻译：后台线程拿到的一段译文
@@ -191,6 +209,13 @@ def main() -> int:
                 self.engine.motion_cb = self.motion_ready.emit
                 self.motion_ready.connect(self._on_motion)
             self.backdrop.engine = self.engine
+            self.snip_services = SnipServices(self)
+            self.snip_deliver.connect(lambda cb, kind, data: cb(kind, data))
+            self.pins = Pins(self.snip_services, lambda: self.cfg.style)
+            self.pins.save_requested.connect(self._save_snip)
+            self.pins.text_requested.connect(self._show_text)
+            self._snip: SnipSession | None = None
+            self._snip_hid = False
             self._sync_mirrors()
             self.snapshot_ready.connect(self._on_snapshot)
             self.hotkeys = HotkeyManager(qapp)
@@ -317,6 +342,10 @@ def main() -> int:
             menu.addAction(self.act_pause)
             menu.addAction(tr("刷新镜框内区域"), self.refresh)
             menu.addAction(tr("新建一个魔镜"), self.add_mirror)
+            hk = self.cfg.hotkeys
+            menu.addAction(tr("截图（{key}）").format(key=hk.capture) if hk.capture else tr("截图"), self.start_capture)
+            menu.addAction(tr("贴图（{key}）").format(key=hk.pin) if hk.pin else tr("贴图"), self.pin_clipboard)
+            menu.addAction(tr("关闭所有贴图"), self.pins.close_all)
             menu.addAction(tr("截原图（镜框内原样）"), lambda: self.take_shot("orig"))
             menu.addAction(tr("截译图（镜框内带译文）"), lambda: self.take_shot("trans"))
             self.act_shotmode = self._shotmode_action(menu)
@@ -460,20 +489,23 @@ def main() -> int:
             for o in self.overlays:
                 o.repaint_rect(box)
 
-        def add_mirror(self) -> None:
+        def add_mirror(self, rect: tuple | None = None) -> None:
+            """另开一个魔镜：给了 rect（截图的选区变成魔镜）就开在那里，否则在最后一个魔镜旁边。"""
             if len(self.frames) >= 4:
                 self.tray.showMessage(tr("桌面魔镜"), tr("最多同时开 4 个魔镜。"),
                                       QSystemTrayIcon.MessageIcon.Information, 4000)
                 return
-            base = self.frames[-1].mirror
-            w, h = min(640, base[2] - base[0]), min(360, base[3] - base[1])
-            scr = winapi.monitors()[0].work
-            for m in winapi.monitors():
-                if geom.contains_pt(m.rect, *geom.center(base)):
-                    scr = m.work
-            x = min(base[0] + 60, scr[2] - w - 20)
-            y = min(base[1] + 60, scr[3] - h - 20)
-            f = self._new_frame((x, y, x + w, y + h))
+            if not rect:          # 菜单项触发时传进来的是 checked=False
+                base = self.frames[-1].mirror
+                w, h = min(640, base[2] - base[0]), min(360, base[3] - base[1])
+                scr = winapi.monitors()[0].work
+                for m in winapi.monitors():
+                    if geom.contains_pt(m.rect, *geom.center(base)):
+                        scr = m.work
+                x = min(base[0] + 60, scr[2] - w - 20)
+                y = min(base[1] + 60, scr[3] - h - 20)
+                rect = (x, y, x + w, y + h)
+            f = self._new_frame(tuple(rect))
             self._update_meter()
             if not self.state.hidden:
                 f.show()
@@ -660,6 +692,7 @@ def main() -> int:
             hk = self.cfg.hotkeys
             errors = self.hotkeys.register({"peek": hk.peek, "refresh": hk.refresh, "toggle": hk.toggle_visible,
                                             "history": hk.history, "vision": hk.vision,
+                                            "capture": hk.capture, "pin": hk.pin,
                                             # 输入框翻译打开时才占用它的快捷键
                                             "input": hk.input if self.cfg.input.enabled else ""})
             try:
@@ -1120,6 +1153,110 @@ def main() -> int:
                 self.look()
             elif action == "input":
                 self.field.hotkey()
+            elif action == "capture":
+                self.start_capture()
+            elif action == "pin":
+                self.pin_clipboard()
+
+        # -------------------------------------------------------------- 截图、贴图
+        def start_capture(self) -> None:
+            """截图：每块屏幕定格，盖上截图界面（ui/snip.py）。魔镜和译文本来就对截屏隐身，截到的是原样；
+            截图期间先藏起来，免得挡住截图界面。"""
+            if self._snip is not None:
+                return
+            try:
+                shots = self._grab_screens()
+            except Exception as e:  # noqa: BLE001
+                log.warning("截图失败：%s", e)
+                self.tray.showMessage(tr("截图失败"), str(e), QSystemTrayIcon.MessageIcon.Warning, 5000)
+                return
+            if not shots:
+                return
+            wins = winapi.top_level_windows(skip_pid=os.getpid(), with_titles=True)
+            masks = snap.excluded_rects(wins, self.cfg)
+            s = SnipSession(shots, [(w.hwnd, w.rect) for w in wins], self.cfg, self.snip_services, masks)
+            s.copy_requested.connect(lambda img, s=s: self._snip_copied(img, s.sel))
+            s.save_requested.connect(self._save_snip)
+            s.pin_requested.connect(self._snip_pinned)
+            s.mirror_requested.connect(self.mirror_to)
+            s.text_requested.connect(self._show_text)
+            s.finished.connect(self._snip_done)
+            self._snip = s
+            self._snip_hid = not self.state.hidden
+            if self._snip_hid:
+                self.toggle_visible()
+            s.start()
+
+        def _grab_screens(self) -> list:
+            import mss
+            import numpy as np
+            from PySide6.QtGui import QImage
+            from .ui.screens import qscreen_for
+            shots = []
+            with mss.MSS() as grab:
+                for mon in winapi.monitors():
+                    scr = qscreen_for(mon)          # 不能按名字：有的屏幕 Qt 叫它显示器型号
+                    if scr is None:
+                        continue
+                    l, t, r, b = mon.rect
+                    raw = grab.grab({"left": l, "top": t, "width": r - l, "height": b - t})
+                    arr = np.frombuffer(raw.bgra, np.uint8).reshape(b - t, r - l, 4)
+                    img = QImage(arr.data, r - l, b - t, (r - l) * 4, QImage.Format.Format_RGB32).copy()
+                    shots.append(Shot(mon, scr, img, np.ascontiguousarray(arr[:, :, :3])))
+            return shots
+
+        def _snip_done(self) -> None:
+            self._snip = None
+            if self._snip_hid:
+                self._snip_hid = False
+                if self.state.hidden:
+                    self.toggle_visible()
+
+        def _snip_copied(self, img, rect) -> None:
+            qapp.clipboard().setImage(img)
+            if rect is not None:
+                self.pins.remember(PinData(img, rect))
+
+        def _snip_pinned(self, data) -> None:
+            self.pins.remember(data)
+            self.pins.pin(data)
+
+        def _save_snip(self, img) -> None:
+            path = self.save_image(img, time.strftime(tr("截图") + "_%Y%m%d_%H%M%S"))
+            self._report_saved(tr("已保存截图"), path, copied=False)
+
+        def _show_text(self, text: str, rect) -> None:
+            pos, _dpr = to_logical(int(rect[0]), int(rect[3]) + 8)
+            w = TextWindow(text, pos)
+            w.show()
+            w.raise_()
+            w.activateWindow()
+
+        def pin_clipboard(self) -> None:
+            if self.pins.pin_clipboard(winapi.cursor_pos()) is None:
+                self.tray.showMessage(tr("桌面魔镜"), tr("剪贴板里没有图片或文字，也还没截过图。"),
+                                      QSystemTrayIcon.MessageIcon.Information, 3000)
+
+        def mirror_to(self, rect, new: bool) -> None:
+            """截图的选区变成魔镜：主魔镜挪过去（收成球的就展开到那里）；new 时另开一个。"""
+            l, t, r, b = (int(v) for v in rect)
+            cx, cy = (l + r) // 2, (t + b) // 2
+            w, h = max(r - l, 120), max(b - t, 80)          # 太小放不下标签：以选区中心为准放大一点
+            if (w, h) != (r - l, b - t):
+                l, t = cx - w // 2, cy - h // 2
+                r, b = l + w, t + h
+            rect = (l, t, r, b)
+            if new:
+                self.add_mirror(rect)
+                return
+            f = self.frame
+            if f.dock.docked:
+                f.set_mirror(rect)
+                f.dock.unfold()
+            else:
+                f.set_mirror(rect)
+                self._on_frame_rect(f, rect, True)
+            self._start_engine()
 
         def _on_peek(self, on: bool) -> None:
             self.state.peek = on
@@ -1411,6 +1548,7 @@ def main() -> int:
                 self.apply_ui_lang(self.cfg.ui_lang)
             self.field.apply(self.cfg)
             self._register_keys()
+            self._build_menu()                  # 托盘菜单上写着截图、贴图的快捷键
             self._budget_hit = None             # 上限可能改了：重新判断，并且一定告诉引擎
             self._check_budget()
             self._update_meter()
@@ -1437,7 +1575,7 @@ def main() -> int:
                 if self._quit_event and _k32.WaitForSingleObject(self._quit_event, 0) == 0:
                     log.info("命令行请魔镜退出（要更新）")
                     self.quit_app()
-            if now - self._last_topmost > 2.0:
+            if now - self._last_topmost > 2.0 and self._snip is None:     # 截图时别把魔镜的层顶到截图界面上面
                 self._last_topmost = now
                 for hwnd in (self.glide.hwnds() if self.glide is not None else ()):
                     winapi.keep_topmost(hwnd)            # 从下到上：译文（合成器）、原来的译文层、魔镜边框
@@ -1655,6 +1793,49 @@ def main() -> int:
             if cmd == "shotmode":
                 self.set_shot_mode(bool(req.get("on", True)))
                 return {"ok": True}
+            if cmd == "snip":
+                # 截图（测试用）：看状态；grab 把截图界面画成图存到 path（截图界面对截屏隐身，截屏看不到它）
+                if req.get("start"):
+                    self.start_capture()
+                s = self._snip
+                if s is None:
+                    return {"active": False, "pins": len(self.pins.items)}
+                info = {"active": True, "state": s.state, "sel": s.sel, "level": s.level, "tool": s.tool,
+                        "chain": [[c.kind, list(c.rect)] for c in s.chain], "marks": len(s.marks.marks),
+                        "toolbar": s.toolbar is not None and s.toolbar.isVisible(),
+                        "translated": s.translated is not None, "tr_busy": s.tr_busy,
+                        "status": s.toolbar.status.text() if s.toolbar is not None else "",
+                        "texts": {k: len(v) for k, v in s.texts.items()}, "uia": [list(r) for r in s.uia_rects],
+                        "uia_at": s._uia_at, "uia_ms": round(s.probe.last_ms) if s.probe is not None else None,
+                        "views": len(s.views), "pins": len(self.pins.items)}
+                if s.toolbar is not None and s.sel_view is not None:
+                    from PySide6.QtCore import QPoint
+                    v = s.sel_view
+                    g = v.shot.screen.geometry()
+
+                    def phys(w) -> list[int]:
+                        tl = w.mapToGlobal(QPoint(0, 0))
+                        x0, y0 = (tl.x() - g.x()) * v.dpr, (tl.y() - g.y()) * v.dpr
+                        return [int(v.mon.rect[0] + x0), int(v.mon.rect[1] + y0), int(v.mon.rect[0] + x0 + w.width() * v.dpr),
+                                int(v.mon.rect[1] + y0 + w.height() * v.dpr)]
+                    info["buttons"] = {k: phys(b) for k, b in s.toolbar.buttons.items()}
+                if req.get("grab"):
+                    (s.sel_view or s.hover_view or s.views[0]).grab().save(str(req["grab"]))
+                if req.get("cancel"):
+                    s.cancel()
+                return info
+            if cmd == "pins":
+                if req.get("close"):
+                    self.pins.close_all()
+                out = []
+                for w in self.pins.items:
+                    sg, d = w.screen().geometry(), w.devicePixelRatioF()     # Qt 6：屏幕左上角是原始坐标
+                    cx, cy = w.x() + w.width() / 2, w.y() + w.height() / 2
+                    top = winapi.root_window_at(int(sg.x() + (cx - sg.x()) * d), int(sg.y() + (cy - sg.y()) * d))
+                    out.append([w.x(), w.y(), w.width(), w.height(), w.showing_tr,
+                                {"active": w.isActiveWindow(), "on_top": top == int(w.winId()),
+                                 "top_class": winapi.window_class(top) if top else ""}])
+                return {"pins": out}
             if cmd == "mirror":
                 rect = tuple(int(v) for v in req["rect"])
                 self.frame.set_mirror(rect)

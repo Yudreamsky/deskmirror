@@ -13,7 +13,7 @@ Bahasa Indonesia. The one matching your Windows language is already selected, so
 
 - Translations are shown in the language you choose.
 - With Chinese (Simplified or Traditional) the interface is in Chinese; with any other language it's in English.
-- Later you can change "Translate into" and "Interface language" separately in Settings → Recognition and display.
+- Later you can change "Translate into" and "Interface language" separately in Settings → General.
 
 ## 2. What the mirror is
 

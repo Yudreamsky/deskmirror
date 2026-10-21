@@ -21,7 +21,7 @@ browser or extension.
   translated paragraphs appear one by one.
 - **Quit**: right-click the tray icon → Quit. The mirror, the overlays and the background recognition process all
   close together.
-- **Start with Windows** (off by default): Settings → Recognition and display → Startup, or on the command line
+- **Start with Windows** (off by default): Settings → General → Startup, or on the command line
   `config set autostart true`. After you sign in, the mirror waits tucked away as a ball at the edge of the screen,
   without capturing or recognizing anything; it starts when you click the ball or drag it out (text recognition gets
   ready only then, so it doesn't slow down startup). It's stored in Windows' startup list, so you can also turn it off
@@ -41,20 +41,21 @@ browser or extension.
 | Peek at the original | **Hold Ctrl+Alt+O**; release it to get the translation back |
 | Refresh inside the frame | **Ctrl+Alt+T**, or click ⟳ on the tab (checks again, recognizes again and retries failed translations; the cache elsewhere is not affected) |
 | Hide / show the mirror | **Ctrl+Alt+H**, click — on the tab, or click the tray icon |
-| Choose languages | Click the language button on the tab (it shows the current languages, e.g. "Auto→EN" or "ZH→EN") and pick the source and target languages; the change takes effect at once. When you change the target language, all existing translations are translated again; when you choose Korean as the source, the Korean recognition model is used (about 14 MB, downloaded the first time) and the text on screen is recognized again. You can also change this in Settings → Recognition and display |
+| Choose languages | Click the language button on the tab (it shows the current languages, e.g. "Auto→EN" or "ZH→EN") and pick the source and target languages; the change takes effect at once. When you change the target language, all existing translations are translated again; when you choose Korean as the source, the Korean recognition model is used (about 14 MB, downloaded the first time) and the text on screen is recognized again. You can also change this in Settings → General |
 | Image translation | **Ctrl+Alt+V**, or click **Image** on the tab (also in the tray menu): sends what is inside the frame (as is, without translations) to a model that can read images. The result appears paragraph by paragraph in a pop-up window, where you can copy it or look at it again. Good for stylized lettering, sound effects, text in pictures and game fonts that normal recognition can't read (vertical text in comic speech bubbles is read by normal recognition too, and Chinese and Japanese translations are set vertically). Slower than live translation (usually a few seconds with a local model). The model is set in Settings → Translation service → Image translation; the default is gemma4:12b on Ollama. With a cloud service you are asked each time before a picture is sent |
 | Pause / resume | Click **Pause** on the tab (also in the tray menu): the frame stays, but nothing is captured, recognized or translated (no translation cost), and the mirror shows no translations. The button turns into a yellow **Resume**; click it to continue: the screen is checked again first, and anything already seen comes from the cache without new requests |
 | Settings | ⚙ on the tab, or right-click the tray icon → Settings… |
 | Getting started, About | Right-click the tray icon → Getting started… / About… (version, author's email, project page); the getting-started guide opens automatically on first launch |
-| Change the look (liquid glass) | Settings → Recognition and display → Display → **Skin** → "Liquid glass" (command line: `config set style.skin glass`), effective at once. The border becomes a ring of curved glass around the frame with rounded corners: what's behind it is stretched across the ring and bent around the corners, with a faint rainbow fringe at the edge. The tab becomes a strip of glass floating above the border, and the ball becomes a glass ball. The glass follows what's behind it: white glass over light pages, smoky glass over dark games and programs. The glass ring is also where you drag to resize. Choose "Classic" to get exactly the old look back |
-| Interface language | In step 1 of the getting-started guide you pick your native language: translations come out in it, and the interface is in Chinese (if you chose Simplified or Traditional Chinese) or in English (for any other language). Change it later in Settings → Recognition and display → Interface language; it takes effect at once |
+| Change the look (liquid glass) | Settings → General → Appearance → **Skin** → "Liquid glass" (command line: `config set style.skin glass`), effective at once. The border becomes a ring of curved glass around the frame with rounded corners: what's behind it is stretched across the ring and bent around the corners, with a faint rainbow fringe at the edge. The tab becomes a strip of glass floating above the border, and the ball becomes a glass ball. The glass follows what's behind it: white glass over light pages, smoky glass over dark games and programs. The glass ring is also where you drag to resize. Choose "Classic" to get exactly the old look back |
+| Interface language | In step 1 of the getting-started guide you pick your native language: translations come out in it, and the interface is in Chinese (if you chose Simplified or Traditional Chinese) or in English (for any other language). Change it later in Settings → General → Languages → Interface language; it takes effect at once |
 | Open another mirror | Right-click the tray icon → New mirror, or right-click the mirror's tab → New mirror (up to 4); right-click an extra mirror's tab to close it |
 | Make the mirror follow a window | Right-click the mirror's tab → Follow the window below: when the window moves or resizes, the mirror keeps its relative position; when the window is minimized the mirror hides, and when the window closes, following stops (the tab shows 📌) |
 | Look back at recent subtitles and dialogue | **Ctrl+Alt+Y** opens the history panel (also in the tray menu): the originals and translations that recently appeared in the mirror (up to 500), searchable and copyable. Kept in memory only and cleared when you quit |
 | Edit a translation | Double-click the entry in the history panel, edit it and save: this text now uses your translation, now and later (after a restart too if translation memory is on; otherwise until you quit) |
 | Fix how names and terms are translated | Settings → Glossary: enter a term as it appears in the original and its translation; translations must use it. English and similar languages match whole words (art doesn't match start). "Only for program" takes a program name, with or without .exe. After you change the glossary, existing translations containing those terms are translated again |
 | Keep terms consistent | On by default (can be turned off in Settings → Glossary): existing translations in the same window that contain the same words are sent along as reference, so terms that aren't in the glossary keep their earlier translation too (if Employer was translated one way earlier, it won't change later). The first time a term appears there is no reference yet; put terms you want fixed into the glossary |
-| Screenshots | Click **Orig. shot** (the frame as is) or **Shot** (the frame with translations, exactly as you see it) on the tab, or use the tray menu. The picture is copied to the clipboard and saved to the "Pictures\DeskMirror" folder ("图片\桌面魔镜" with the Chinese interface); click the notification to open the folder |
+| Screenshots of the frame | Click **Orig. shot** (the frame as is) or **Shot** (the frame with translations, exactly as you see it) on the tab, or use the tray menu. The picture is copied to the clipboard and saved to the folder chosen in Settings → Screenshot (by default "Pictures\DeskMirror", or "图片\桌面魔镜" with the Chinese interface); click the notification to open the folder |
+| Screenshot of any part of the screen, pins | **Ctrl+1** takes a screenshot, **Ctrl+2** pins the clipboard's picture on the screen; see [Screenshots and pins](#screenshots-and-pins) below |
 | Other screenshot or recording tools | The mirror is hidden from screen capture (it reads the screen through screen capture itself), so other tools don't see it or its translations. To use them, turn on **Let screenshot tools capture the mirror** in the tray menu or the tab's right-click menu: translations stay frozen meanwhile; turn it off when you're done and the mirror carries on |
 | Read a cut-off translation in full | A block with a small triangle at its bottom right didn't fit; hover over it to see the full text |
 
@@ -68,6 +69,50 @@ text on the screen…"; when the translation service fails, it says why (for exa
 service").
 Blocks that have been recognized and are waiting for a translation show a blue dashed line inside the mirror; blocks
 whose translation failed show a red one.
+
+## Screenshots and pins
+
+**Ctrl+1** takes a screenshot (also in the tray menu): every screen freezes and a screenshot layer covers it; the
+mirror hides meanwhile.
+
+- **Selecting**: wherever the pointer rests, a blue box snaps to what is under it: a line or paragraph of text, a
+  button, a block of a web page or the whole window. **Scroll up** for the next larger one, **down** for a smaller
+  one, and click to take it. Or press and drag to draw your own box. Once you have a box, drag inside it to move it
+  and drag its edges or corners to resize it; the arrow keys move it by 1 pixel (10 with Shift; hold Ctrl to resize).
+  Right-click starts over if there's a box and quits otherwise; Esc quits.
+- **Magnifier**: a zoomed view next to the pointer, with the coordinates and color below it; press C to copy the
+  color.
+- **Marking up**: rectangle, ellipse, arrow, pen, highlighter, text, numbered marker and mosaic on the toolbar;
+  picking a tool shows a row of colors and widths. Ctrl+Z undoes, Ctrl+Y redoes; hold Shift for a square or a circle.
+- **Using it**: **Enter** (or Ctrl+C, or double-click the box) copies it to the clipboard, **Ctrl+S** saves it,
+  **Ctrl+T** pins it on the screen. The toolbar also has:
+  - **Recognize text**: reads the text in the box and opens a small window where you can edit and copy it.
+  - **Translate in place**: replaces the text in the box with translations right where it is (the same plates and
+    fonts as in the mirror); click again to switch between original and translation. Copying, saving and pinning
+    take what you see.
+  - **Make it a mirror** (**M**): the main mirror moves onto the box at the same size (unfolding there if it was a
+    ball); **Shift+M** opens another mirror there instead.
+- When the screenshot layer closes, the focus goes back to the window you were using, so you can paste with Ctrl+V
+  right away.
+
+**Ctrl+2** pins the clipboard: a picture (or text, drawn as a card) goes on top of everything at the pointer; with
+nothing on the clipboard, the latest screenshot is pinned back where it was taken. Drag a pin to move it, scroll to
+zoom, Ctrl+scroll to change its opacity, double-click or press Esc to close it; Ctrl+C copies and Ctrl+S saves.
+Right-click for translate in place (then switch between original and translation), recognize text, actual size and
+close all pins.
+
+Settings → Screenshot: the two hotkeys, what happens after selecting (show the toolbar / copy right away / pin right
+away), switches for snapping and the magnifier, the folder to save to (by default "Pictures\DeskMirror") and the
+format (PNG / JPG).
+
+- A screenshot is written to disk only when you save it (Ctrl+S); pins and the last 20 screenshots are kept in
+  memory only and are gone when you quit.
+- Only **Translate in place** sends anything out: the text recognized in the box goes to the translation service
+  (excluded windows are blanked first, just as for the mirror); the picture itself is never sent. Finding paragraphs
+  for snapping runs on this PC and doesn't read the text.
+- Pins show up in screen captures (people see them when you share or record your screen); the screenshot layer
+  itself doesn't.
+- A box stays within one screen.
 
 ## How it keeps up with the original
 
@@ -150,7 +195,7 @@ default; turn it on in Settings → Text boxes (command line: `config set input.
 
 ## Translation scope and privacy
 
-Settings → "Scope and privacy" (the tray menu also has "Pre-translation scope" and "Don't translate the program
+Settings → "What to translate", "Usage and cost" and "Privacy and memory" (the tray menu also has "Pre-translation scope" and "Don't translate the program
 under the mirror"):
 
 - **Pre-translation scope**:
@@ -169,8 +214,8 @@ under the mirror"):
   - **Translate chat apps** (off by default): when chatting with colleagues or friends abroad, check it by
     right-clicking the mirror's tab or the tray icon, and the chat apps on the list are translated as usual (chat text
     is sent to the translation service; with Ollama on this PC it stays local); turn it off again when you're done.
-    Password managers and banking or payment pages are never translated. The same switch is in Settings → Scope and
-    privacy.
+    Password managers and banking or payment pages are never translated. The same switch ("Translate chat apps too") is in
+    Settings → What to translate.
   - When such a window is inside the mirror, the tab says so.
 - **Usage**: `↑12.3k ↓4.1k` on the mirror's tab is today's tokens sent to the translation service (↑ input, ↓ output);
   hover over it for details (service, model, requests, input that hit the provider's cache). The tray icon's tooltip
@@ -273,7 +318,7 @@ restart, and the command tells you so.
   goes wrong, the previous version is put back.
 - After starting, DeskMirror checks at most once a day (it only asks GitHub for the version number and release notes,
   and sends no screen content); a new version is announced in a tray notification that opens the update window when
-  clicked. Turn this off in Settings → Scope and privacy, or click "Skip this version" in the update window.
+  clicked. Turn this off in Settings → General → Startup, or click "Skip this version" in the update window.
 - From source (cloned with git): click "Update (git pull)"; after DeskMirror quits it pulls the new code, reinstalls
   the packages and reopens. Local code changes stop it from updating automatically.
 - Command line: `update --check` looks for a new version, `update --yes` downloads and installs it (a running mirror
@@ -287,7 +332,7 @@ restart, and the command tells you so.
   or the project folder when running from source) and start it again (the API key is removed too and has to be
   entered again).
 - **Uninstall**: quit DeskMirror and delete the whole program folder. It doesn't change any system settings. If you
-  turned on starting with Windows, turn it off first (Settings → Recognition and display, or `config set autostart
+  turned on starting with Windows, turn it off first (Settings → General, or `config set autostart
   false`); otherwise Windows' startup list keeps an entry pointing at a program that's gone.
 
 ## Known limitations

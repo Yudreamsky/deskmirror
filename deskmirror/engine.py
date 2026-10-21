@@ -165,6 +165,7 @@ class Inflight:
     batch: Batch
     received: set[int] = field(default_factory=set)
     dynamic: bool = False          # 这批里有一直在变的内容（字幕、计数器、视频画面里的字）
+    snip: dict | None = None       # 截图的原位翻译：结果交给它的回调，不进文字块（见 snip_translate）
 
 
 def _term_in(term: str, text: str) -> bool:
@@ -216,6 +217,8 @@ class Engine(threading.Thread):
         self.ocr_busy: JobState | None = None
         self.jobs: dict[int, JobState] = {}
         self._job_ids = 0
+        self.snip_jobs: dict[int, dict] = {}   # 截图的识别任务（编号和引擎自己的分开）：结果交给回调
+        self._snip_ids = 1 << 30
         self.pool: TranslatorPool | None = None
         self.inflight: dict[int, Inflight] = {}
         self._batch_ids = 0
@@ -302,6 +305,18 @@ class Engine(threading.Thread):
     def set_budget_hit(self, on: bool) -> None:
         """今天的 token 用到上限：停止发新的翻译请求（缓存里有的照常显示）。"""
         self.inbox.put(("budget", on))
+
+    def snip_ocr(self, bgr: np.ndarray, origin: tuple[int, int], callback, detect_only: bool = False) -> None:
+        """截图里的一块交给识别进程（和引擎共用，排在引擎下一个任务前面）。任何线程都能调。
+        callback(kind, data) 在引擎线程里调：("blocks", [OcrBlockOut])、("paras", [段落矩形])、("done", 信息)、
+        ("error", 说明)。detect_only：只找文字在哪（自动框选用），不认字。坐标都是屏幕物理像素。
+        排除名单里的窗口由截图那边按截图那一刻的位置先涂掉（见 snap.excluded_rects）。"""
+        self.inbox.put(("snip_ocr", (bgr, origin, callback, detect_only)))
+
+    def snip_translate(self, texts: list[str], hwnd: int, callback) -> None:
+        """截图里认出的几段文字：有缓存的直接给，其余发给翻译服务（和平时一样计用量、受每天的上限管）。
+        callback(kind, data) 在引擎线程里调：("segment", (第几段, 译文))、("done", None)、("error", 说明)。"""
+        self.inbox.put(("snip_tr", (list(texts), hwnd, callback)))
 
     def stop(self) -> None:
         self._stop_evt.set()
@@ -581,6 +596,10 @@ class Engine(threading.Thread):
                 self._on_ocr(msg[1])
             elif kind == "tr":
                 self._on_translation(msg[1])
+            elif kind == "snip_ocr":
+                self._snip_ocr(*msg[1])
+            elif kind == "snip_tr":
+                self._snip_translate(*msg[1])
             elif kind == "refresh":
                 self._refresh(msg[1])
             elif kind == "llm":
@@ -2047,8 +2066,84 @@ class Engine(threading.Thread):
         if tr > tl and tb > tt:
             m.needs[tt:tb, tl:tr] = 0
 
+    def _snip_ocr(self, bgr: np.ndarray, origin: tuple[int, int], callback, detect_only: bool) -> None:
+        if self.ocr is None or self.ocr_state == "error":
+            callback("error", tr("文字识别没有启动"))
+            return
+        img = np.array(bgr[:, :, :3], copy=True, order="C")
+        h, w = img.shape[:2]
+        rect = (origin[0], origin[1], origin[0] + w, origin[1] + h)
+        self._snip_ids += 1
+        job = OcrJob(self._snip_ids, img, origin, rect, self.cfg.track.ring_px, meta={"detect_only": detect_only})
+        self.snip_jobs[job.job_id] = {"cb": callback}
+        self.ocr.submit(job)
+
+    def _snip_ocr_msg(self, kind: str, job_id: int, data) -> None:
+        cb = self.snip_jobs[job_id]["cb"]
+        try:
+            if kind in ("blocks", "paras"):
+                cb(kind, data)
+            elif kind == "error":
+                cb("error", tr("识别出错"))
+            elif kind == "done":
+                del self.snip_jobs[job_id]
+                cb("done", data)
+        except Exception:  # noqa: BLE001  回调出错不能拖垮引擎
+            log.exception("截图识别的回调出错")
+
+    def _snip_translate(self, texts: list[str], hwnd: int, callback) -> None:
+        """截图的原位翻译：缓存里有的马上给；其余按平时的批大小分批发（同样的系统说明、术语表、参考译文），
+        用量照样记、每天的上限照样管。结果只交给回调，不建文字块。"""
+        svc = self.service
+        keys = [textutil.cache_key(t) for t in texts]
+        todo = []
+        for i, (t, k) in enumerate(zip(texts, keys)):
+            hit = self._cached(k, t)
+            if hit is not None:
+                callback("segment", (i, hit))
+            else:
+                todo.append(i)
+        if not todo:
+            callback("done", None)
+            return
+        if svc["budget"]:
+            callback("error", tr("今天的 token 用到上限了（设置 → 用量与省钱）"))
+            return
+        if self.pool is None:
+            callback("error", tr("翻译服务还没准备好"))
+            return
+        groups: list[list[int]] = [[]]
+        chars = 0
+        for i in todo:
+            if groups[-1] and (chars + len(texts[i]) > self.cfg.llm.max_batch_chars
+                               or len(groups[-1]) >= self.cfg.llm.max_batch_items):
+                groups.append([])
+                chars = 0
+            groups[-1].append(i)
+            chars += len(texts[i])
+        state = {"cb": callback, "left": len(groups), "errors": []}
+        app = self._app_of(hwnd)
+        context = winapi.window_title(hwnd)[:120] if hwnd else "Windows desktop (icon labels, file and app names)"
+        for idxs in groups:
+            sub, sub_keys = [texts[i] for i in idxs], [keys[i] for i in idxs]
+            refs = self.refs.select(sub, sub_keys, hwnd, app) if self.cfg.llm.consistency else []
+            self._batch_ids += 1
+            batch = Batch(self._batch_ids, sub, sub_keys, self.cfg.target_lang, context,
+                          self._glossary_terms(hwnd, sub), refs, hwnd, app, self.cfg.source_lang, [])
+            self.inflight[batch.batch_id] = Inflight(batch, snip={"state": state, "idxs": idxs})
+            svc["requests"] += 1
+            svc["chars"] = svc.get("chars", 0) + sum(len(t) for t in sub)
+            svc["state"] = "busy"
+            self.pool.submit(batch)
+            self._metric("tr_submit", batch=batch.batch_id, n=len(sub), chars=sum(len(t) for t in sub), hwnd=hwnd,
+                         keys=[zlib.crc32(k.encode("utf-8")) for k in sub_keys], refs=len(refs), ref_chars=0,
+                         dialog=0, snip=True)
+
     def _on_ocr(self, msg: tuple) -> None:
         kind, job_id, data = msg
+        if job_id in self.snip_jobs:
+            self._snip_ocr_msg(kind, job_id, data)
+            return
         if kind == "ready":
             self.ocr_state = "ready"
             log.info("识别进程就绪（%s，%s）", data.get("device"), data.get("lang", "default"))
@@ -2702,6 +2797,9 @@ class Engine(threading.Thread):
             inf = self.inflight.get(batch_id)
             if inf is None or idx >= len(inf.batch.keys):
                 return
+            if inf.snip is not None:
+                self._snip_segment(inf, idx, text)
+                return
             inf.received.add(idx)
             key = inf.batch.keys[idx]
             if key not in self.retry_single and textutil.looks_untranslated(inf.batch.texts[idx], text,
@@ -2774,6 +2872,20 @@ class Engine(threading.Thread):
                 msg = str(err)
                 retry = now + backoff
                 log.warning("翻译批次失败：%s（%.1f 秒）", err, secs)
+            if inf.snip is not None:
+                st = inf.snip["state"]
+                if err is not None:
+                    st["errors"].append(str(err))
+                st["left"] -= 1
+                if st["left"] == 0:
+                    try:
+                        st["cb"]("error", st["errors"][0]) if st["errors"] else st["cb"]("done", None)
+                    except Exception:  # noqa: BLE001
+                        log.exception("截图翻译的回调出错")
+                self._metric("tr_done", batch=batch_id, ok=err is None, secs=round(secs, 3), missing=len(missing),
+                             snip=True)
+                self._dirty = True
+                return
             for key in missing:
                 for bid in self.by_key.get(key, ()):
                     b = self.blocks.get(bid)
@@ -2784,6 +2896,23 @@ class Engine(threading.Thread):
                         b.retry_at = retry
             self._metric("tr_done", batch=batch_id, ok=err is None, secs=round(secs, 3), missing=len(missing))
             self._dirty = True
+
+    def _snip_segment(self, inf: Inflight, idx: int, text: str) -> None:
+        """截图原位翻译的一段：和平时一样进缓存（以后同样的文字不再请求），交给截图那边。"""
+        inf.received.add(idx)
+        key = inf.batch.keys[idx]
+        if not textutil.looks_untranslated(inf.batch.texts[idx], text, inf.batch.target):
+            self.cache[key] = text
+            self.cache.move_to_end(key)
+            self.templates.learn(textutil.cache_key, inf.batch.texts[idx], text)
+            if self.memory is not None:
+                self.memory.put(self.cfg.target_lang, key, text)
+            if textutil.cache_key(text) != key:
+                self.refs.add(key, inf.batch.texts[idx], text, inf.batch.hwnd, inf.batch.app)
+        try:
+            inf.snip["state"]["cb"]("segment", (inf.snip["idxs"][idx], text))
+        except Exception:  # noqa: BLE001
+            log.exception("截图翻译的回调出错")
 
     def _cached(self, key: str, text: str) -> str | None:
         """已有的译文：用户改过的 → 内存缓存 → 本地记忆 → 只有数字不同的已有译文（套模板）。"""

@@ -61,8 +61,11 @@ Screenshots of DeskMirror running on the project's test pages (translation servi
   typed in your own language into another one; press again to switch back. Off by default.
 - **Liquid glass skin** (optional): the border becomes a ring of curved glass that refracts what's behind it, and the
   tab and the ball turn into glass too.
-- Also: a history panel, editing translations, several mirrors, mirrors that follow a window, pause, screenshots,
-  starting with Windows, updating from inside the app.
+- **Screenshots and pins**: Ctrl+1 takes a screenshot that snaps to the window, button or paragraph under the
+  pointer (or drag your own box); mark it up, copy, save, pin it on the screen, translate it in place, or turn it
+  into a mirror. Ctrl+2 pins the clipboard's picture on the screen.
+- Also: a history panel, editing translations, several mirrors, mirrors that follow a window, pause, starting
+  with Windows, updating from inside the app.
 
 ## Installation
 
@@ -129,12 +132,14 @@ Common actions:
 | Hide / show the mirror | Ctrl+Alt+H |
 | Tuck the mirror away as a ball | Drag the tab to the edge of the screen; click the ball to bring it back |
 | Turn what you type into another language | Press Space three times in a text box, or Ctrl+Alt+J (turn it on in Settings → Text boxes) |
-| Liquid glass look | Settings → Recognition and display → Skin |
+| Liquid glass look | Settings → General → Skin |
 | Look back at recent subtitles and dialogue | Ctrl+Alt+Y opens the history panel |
 | Pause (the frame stays; no recognition, no translation) | Click "Pause" on the tab |
 | Choose languages (e.g. ZH→EN, ID→EN, JA→EN) | Click the language button on the tab |
 | Translate chat apps (when chatting with friends abroad) | Right-click the tab or the tray icon → "Translate chat apps" |
 | Image translation (comics, stylized text, text in pictures) | Ctrl+Alt+V, or click "Image" on the tab |
+| Take a screenshot (snap, mark up, translate in place, turn into a mirror) | Ctrl+1 |
+| Pin the clipboard's picture on the screen | Ctrl+2 |
 | Settings | Click ⚙ on the tab, or right-click the tray icon |
 | Update to a new version | Right-click the tray icon → "Check for updates…" |
 
@@ -147,7 +152,7 @@ Common actions:
   "Only near the frame" pre-translation scopes cost much less than "Whole screen".
 - After a while without keyboard or mouse input only the text inside the mirror is translated, and everything stops
   while the screen is locked; cloud services stop at 1,000,000 tokens a day by default. All of this is in
-  Settings → Scope and privacy.
+  Settings → Usage and cost.
 - Every request is logged to `logs/usage-YYYY-MM.jsonl` (counts and program names only, no screen text);
   `usage --log` on the command line (see the next section) sums it up by program, batch size and hour.
 
@@ -190,9 +195,11 @@ DeskMirrorCLI.exe test
   text was in. "Remember translations" is off by default; when it's on, translations are stored encrypted on this PC.
 - Image translation sends a screenshot of the frame to the vision model set in Settings. By default that's Ollama on
   your PC, so the picture stays local; with a cloud service you are asked each time before a picture is sent.
+- Screenshots (Ctrl+1) are written to disk only when you save them, and pins are kept in memory only. Only
+  "Translate in place" sends the text recognized in the selection to the translation service; the picture itself is
+  never sent.
 - Checking for updates asks GitHub for the latest version number and release notes, at most once a day after
-  starting; no screen content is sent, and nothing is downloaded until you click. Turn it off in Settings → Scope and
-  privacy.
+  starting; no screen content is sent, and nothing is downloaded until you click. Turn it off in Settings → General.
 
 ## Known limitations
 

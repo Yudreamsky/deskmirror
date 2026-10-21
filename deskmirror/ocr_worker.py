@@ -266,6 +266,13 @@ def _process(engine, job: OcrJob, out_q) -> None:
             q = rects[i]
             r = (min(r[0], q[0]), min(r[1], q[1]), max(r[2], q[2]), max(r[3], q[3]))
         para_rects.append(r)
+    if job.meta.get("detect_only"):
+        # 截图的自动框选：只要每段文字在哪（屏幕坐标），不认字
+        found = para_rects + list(cols)
+        out_q.put(("paras", job.job_id, [(r[0] + ox, r[1] + oy, r[2] + ox, r[3] + oy) for r in found]))
+        out_q.put(("done", job.job_id, {"det_s": t_det, "total_s": time.perf_counter() - t0, "lines": 0,
+                                        "blocks": len(found), "size": img.shape[:2]}))
+        return
     focus = (job.focus[0] - ox, job.focus[1] - oy, job.focus[2] - ox, job.focus[3] - oy)
     order = sorted(range(len(paras)), key=lambda k: _priority(para_rects[k], focus, job.ring_px))
     # 按段落分批识别：一批约 48 行；每批完成后立即把这些段落的文字块发回去。
