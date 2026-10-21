@@ -93,6 +93,9 @@ class HotkeyConfig:
     history: str = "Ctrl+Alt+Y"       # 历史面板：最近的原文和译文
     vision: str = "Ctrl+Alt+V"        # 看图翻译：把镜框里的画面发给能看图的模型
     input: str = "Ctrl+Alt+J"         # 输入框翻译：翻译正在打字的输入框，再按一次换回原文（打开输入框翻译时才注册）
+    # 截图、贴图沿用 PixPin 的默认键（用户要求），会和 Excel 的“设置单元格格式”、浏览器切到第 1 个标签页冲突
+    capture: str = "Ctrl+1"           # 截图：框选（自动框住窗口、按钮、段落），可标注、贴到屏幕、原位翻译、变成魔镜
+    pin: str = "Ctrl+2"               # 贴图：把剪贴板里的图（或文字）贴在屏幕最上层；剪贴板里没有就贴最近一次截图
 
 
 @dataclass
@@ -192,6 +195,16 @@ class InputConfig:
 
 
 @dataclass
+class CaptureConfig:
+    """截图（hotkeys.capture）。截下的图只在点“保存”时写到硬盘；贴图、截图历史只放在内存里。"""
+    after: str = "toolbar"            # 框选完：toolbar 弹出工具栏；copy 直接复制；pin 直接贴到屏幕
+    snap: bool = True                 # 鼠标停在哪就自动框住那个窗口、按钮、段落（滚轮换大一层、小一层）
+    magnifier: bool = True            # 光标旁边显示放大镜、坐标和颜色（按 C 复制颜色）
+    save_dir: str = ""                # 保存到哪个文件夹；空 = “图片”里的“桌面魔镜”（魔镜标签上的截图按钮也存这里）
+    format: str = "png"               # png / jpg
+
+
+@dataclass
 class UsageConfig:
     """当天发给翻译服务的请求数、字数和 token（只有数量，不含任何文字）。"""
     date: str = ""
@@ -243,6 +256,7 @@ class AppConfig:
     guard: GuardConfig = field(default_factory=GuardConfig)
     update: UpdateConfig = field(default_factory=UpdateConfig)
     input: InputConfig = field(default_factory=InputConfig)
+    capture: CaptureConfig = field(default_factory=CaptureConfig)
 
 
 def is_local_url(base_url: str) -> bool:
@@ -311,6 +325,7 @@ CHOICES: dict[str, tuple[str, ...]] = {
     "source_lang": tuple(SOURCE_LANGS), "target_lang": tuple(LANGUAGES), "ui_lang": ("", "zh", "en"),
     "llm.protocol": ("ollama", "openai"), "vision.protocol": ("ollama", "openai"), "ocr.device": ("gpu", "cpu"),
     "scope.mode": tuple(SCOPE_MODES), "input.target": ("",) + tuple(LANGUAGES), "style.skin": ("classic", "glass"),
+    "capture.after": ("toolbar", "copy", "pin"), "capture.format": ("png", "jpg"),
 }
 # 改了要重启魔镜才生效的设置（启动时就定下来的：识别进程、截屏方式、处理哪些屏幕）
 RESTART_KEYS = ("ocr.device", "ocr.threads", "track.all_monitors", "track.wheel_predict", "track.prefer_dxgi")

@@ -414,8 +414,6 @@ EN: dict[str, str] = {
         'DeskMirror · Settings',
     '翻译服务':
         'Translation service',
-    '范围与隐私':
-        'Scope and privacy',
     '术语表':
         'Glossary',
     '识别与显示':
@@ -468,8 +466,6 @@ EN: dict[str, str] = {
         'Clear remembered translations',
     '译文记忆':
         'Translation memory',
-    '用量':
-        'Usage',
     '人名、地名、游戏里的专有名词：在这里写好译法，翻译时必须照用（不分大小写）。译法和原文一样表示保持不译。“只用于程序”填程序名（如 game.exe），空着表示所有程序都用。改了术语表后，含这些词的已有译文会重新翻译。':
         "Names, places and game terms: set their translations here and they'll always be used (case-insensitive). A translation identical to the original means “keep as is”. “Only for program” takes a program name (e.g. game.exe); leave it empty to apply everywhere. After you change the glossary, existing translations containing these terms are translated again.",
     '保持术语前后一致（推荐）':
@@ -478,8 +474,6 @@ EN: dict[str, str] = {
         'Add row',
     '删除所选行':
         'Delete selected rows',
-    '翻译与识别':
-        'Translation and recognition',
     '显卡（DirectML，快）':
         'Graphics card (DirectML, fast)',
     'CPU（玩游戏时不和游戏抢显卡）':
@@ -570,9 +564,6 @@ EN: dict[str, str] = {
         'Ctrl+Z undoes it.',
     '启动':
         'Startup',
-    '开机时自动启动桌面魔镜（收成球待命：点开或拖出来才开始识别、翻译）':
-        'Start DeskMirror with Windows (it waits tucked away as a ball and starts recognizing and translating '
-        'when you click it or drag it out)',
     '界面语言':
         'Interface language',
     '最小字号':
@@ -608,14 +599,10 @@ EN: dict[str, str] = {
         'Parallel requests',
     '超时':
         'Timeout',
-    '提示：用云端服务时，屏幕上识别出的文字和所在窗口的标题会发送给该服务。哪些内容会被翻译，见“范围与隐私”。':
-        'Note: with a cloud service, the recognized text and the titles of the windows it comes from are sent to that service. See “Scope and privacy” for what gets translated.',
     '“整块屏幕”：魔镜所在屏幕上看得见的文字都在后台预先翻译，拖到哪里都能立刻看到译文，但别的窗口里的文字也会发给翻译服务。另外两种只翻魔镜所在的窗口或镜框附近，其余等魔镜移过去再翻，更省、也更不容易把无关内容发出去。':
         "“Whole screen”: all visible text on the mirror's screen is translated ahead of time in the background, so translations appear instantly wherever you drag, but text in other windows is also sent to the translation service. The other two options only translate the window under the mirror or the area near the frame, and the rest once the mirror moves there: cheaper, and less likely to send unrelated content.",
     '名单里的窗口在送去识别之前就被遮掉：不识别、不翻译，不会发给任何翻译服务。也可以右键托盘图标 →“不翻译魔镜下的这个程序”。名单里的聊天软件只在打开“聊天软件也翻译”时照常翻（托盘菜单、右键魔镜标签也能随时开关），密码管理器和网银、支付页面始终不翻。':
         "Windows on these lists are masked before recognition: they're never recognized, translated or sent to any translation service. You can also right-click the tray icon → “Don't translate the program under the mirror”. Chat apps on the list are translated only while “Translate chat apps too” is on (you can also switch it from the tray menu or by right-clicking the mirror tab); password managers and banking and payment pages are never translated.",
-    '聊天软件也翻译（微信、QQ、钉钉、飞书、Telegram、WhatsApp 等；聊天内容会发给翻译服务）':
-        'Translate chat apps too (WeChat, QQ, DingTalk, Feishu, Telegram, WhatsApp and more; chat text is sent to the translation service)',
     '会把屏幕上识别出的原文和译文存进本机文件（只有当前 Windows 账户能解开）。只有数字不同的文字（计时器、进度、血量）不管开不开，都会套用已有译文、不再请求翻译。':
         'Saves recognized originals and translations to a file on this PC (only your current Windows account can decrypt it). Text that differs only in numbers (timers, progress, HP) always reuses existing translations without new requests, whether or not this is on.',
     '原文里的词':
@@ -935,8 +922,6 @@ EN: dict[str, str] = {
         'Update to {version}? [y/N] ',
     '检查更新':
         'Check for updates',
-    '启动后检查有没有新版本（一天最多一次，只访问 GitHub 取版本号，不发送屏幕内容；有新版只提示，点了才下载）':
-        'Check for a new version after starting (at most once a day; only asks GitHub for the version number and sends no screen content; it just tells you, and downloads only when you click)',
     '桌面魔镜 · 检查更新':
         'DeskMirror · Updates',
     '跳过这个版本':
@@ -1112,4 +1097,147 @@ EN: dict[str, str] = {
         '--env needs the name of an environment variable',
     '没有这个环境变量：{name}':
         'No such environment variable: {name}',
+    # 新设置窗口（ui/settings.py、ui/keyedit.py）、截图设置
+    '截图：框选屏幕上的一块，可以标注、复制、保存、贴到屏幕、原位翻译、变成魔镜':
+        'Screenshot: select part of the screen, then annotate, copy, save, pin it on screen, translate it in '
+        'place or turn it into a mirror',
+    '贴图：把剪贴板里的图或文字贴在屏幕最上层；剪贴板里没有就贴最近一次截图':
+        'Pin: put the image or text on the clipboard on top of the screen; with nothing on the clipboard, pin '
+        'the latest screenshot',
+    '框选完做什么：toolbar = 弹出工具栏；copy = 直接复制；pin = 直接贴到屏幕':
+        'What happens after you select: toolbar = show the toolbar; copy = copy right away; pin = pin it on '
+        'screen right away',
+    '截图时鼠标停在哪，就自动框住那个窗口、按钮或段落（滚轮换大一层、小一层）':
+        'While taking a screenshot, outline the window, button or paragraph under the mouse (the wheel picks '
+        'a larger or smaller one)',
+    '截图时光标旁边显示放大镜、坐标和颜色（按 C 复制颜色）':
+        'While taking a screenshot, show a magnifier, coordinates and the color next to the cursor (press C '
+        'to copy the color)',
+    '截图保存到哪个文件夹；空着 = “图片”里的“桌面魔镜”':
+        'Folder to save screenshots in; empty = “DeskMirror” in your Pictures folder',
+    '截图保存的格式：png 或 jpg':
+        'File format for saved screenshots: png or jpg',
+    '这个键不能用作快捷键':
+        "This key can't be used in a hotkey",
+    '点一下，再按新的组合键。Esc 取消；Backspace 清空（不用这个快捷键）':
+        'Click, then press the new key combination. Esc cancels; Backspace clears it (no hotkey)',
+    '点一下，再按住想用的修饰键（比如 Ctrl+Alt），松开就记下':
+        "Click, then hold the modifier keys you want (for example Ctrl+Alt); they're saved when you let go",
+    '没法录快捷键（装不上键盘钩子）':
+        "Can't record hotkeys (the keyboard hook couldn't be installed)",
+    '按住修饰键…':
+        'Hold modifier keys…',
+    '请按组合键…':
+        'Press a key combination…',
+    '（不用）':
+        '(none)',
+    '只按 Ctrl、Alt、Shift、Win（可以几个一起按），松开就记下':
+        "Press only Ctrl, Alt, Shift or Win (several at once is fine); they're saved when you let go",
+    '拖动魔镜用的键不能清空':
+        "The keys for dragging the mirror can't be empty",
+    '常用':
+        'General',
+    '翻译范围':
+        'What to translate',
+    '截图':
+        'Screenshot',
+    '用量与省钱':
+        'Usage and cost',
+    '隐私与记忆':
+        'Privacy and memory',
+    '贴图':
+        'Pin to screen',
+    '语言':
+        'Languages',
+    '外观':
+        'Appearance',
+    '开机时自动启动':
+        'Start with Windows',
+    '启动后收成球待命：点开或拖出来才开始识别、翻译。':
+        'It starts as a ball and waits: recognition and translation begin when you click it or drag it out.',
+    '启动后检查有没有新版本':
+        'Check for a new version at startup',
+    '一天最多一次，只访问 GitHub 取版本号，不发送屏幕内容；有新版只提示，点了才下载。':
+        'At most once a day. It only asks GitHub for the version number and sends nothing from your screen; a '
+        'new version is only announced and downloads when you click.',
+    '不翻译的程序和窗口':
+        'Programs and windows not to translate',
+    '聊天软件也翻译':
+        'Translate chat apps too',
+    '微信、QQ、钉钉、飞书、Telegram、WhatsApp 等；打开后聊天内容会发给翻译服务。':
+        'WeChat, QQ, DingTalk, Feishu, Telegram, WhatsApp and so on; when on, chat messages are sent to the '
+        'translation service.',
+    '框选':
+        'Selecting',
+    '框选完':
+        'After selecting',
+    '自动框住窗口、按钮、段落':
+        'Outline windows, buttons and paragraphs automatically',
+    '鼠标停在哪就框住哪，滚轮换大一层或小一层；按住拖动就自己画框。':
+        'Whatever is under the mouse gets outlined, and the wheel picks a larger or smaller one; drag to draw '
+        'your own box.',
+    '显示放大镜、坐标和颜色':
+        'Show the magnifier, coordinates and color',
+    '按 C 复制光标处的颜色。':
+        'Press C to copy the color under the cursor.',
+    '默认：“图片”里的“桌面魔镜”文件夹':
+        'Default: the “DeskMirror” folder in Pictures',
+    '选择…':
+        'Choose…',
+    '保存到':
+        'Save to',
+    '格式':
+        'Format',
+    '隐私':
+        'Privacy',
+    '恢复默认快捷键':
+        'Restore default hotkeys',
+    '今天':
+        'Today',
+    '省钱':
+        'Saving money',
+    '什么会发出去':
+        'What gets sent',
+    '识别':
+        'Recognition',
+    '截图保存到哪个文件夹':
+        'Folder for saved screenshots',
+    '用云端服务时，识别出的文字和所在窗口的标题会发给这个服务；哪些内容会翻译，见“翻译范围”。':
+        'With a cloud service, the recognized text and the window title are sent to it. What gets translated '
+        'is set under “What to translate”.',
+    '截图：框选屏幕上的一块，可以标注、复制、保存、贴到屏幕、原位翻译，或者直接变成魔镜。贴图：把剪贴板里的图或文字贴在屏幕最上层，剪贴板里没有就贴最近一次截图。':
+        'Screenshot: select part of the screen, then annotate, copy, save, pin it on screen, translate it in '
+        'place, or turn it straight into a mirror. Pin to screen: put the image or text on the clipboard on '
+        'top of everything; with nothing on the clipboard, it pins the latest screenshot.',
+    '弹出工具栏':
+        'Show the toolbar',
+    '直接复制':
+        'Copy right away',
+    '直接贴到屏幕':
+        'Pin to screen right away',
+    '点“保存”才写到这个文件夹；贴图和截图历史只放在内存里，退出就没了。魔镜标签上的截图按钮也存到这里。':
+        'Files are written here only when you click “Save”. Pins and the screenshot history stay in memory '
+        "and are gone when you quit. The screenshot buttons on the mirror's label save here too.",
+    '点一下再按新的组合键（别的程序占着的也录得到，录的时候不会触发它）；Esc 取消，Backspace 清空（不用这个快捷键）。设置窗口开着时，魔镜的快捷键暂时不起作用。':
+        'Click, then press the new key combination (keys taken by other programs can be recorded too, without '
+        "triggering them). Esc cancels; Backspace clears it (no hotkey). DeskMirror's hotkeys are paused "
+        'while this window is open.',
+    '识别出的文字和所在窗口的标题会发给翻译服务（用本机 Ollama 时不出本机）；“翻译范围”里排除的程序不识别、不发送。截图只在点“原位翻译”时才把选区里识别出的文字发出去，截下的图不发送。魔镜、译文和设置窗口对截屏隐身：别的截图、录屏软件截不到它们。':
+        'Recognized text and the window title go to the translation service (with a local Ollama they stay on '
+        'this PC). Programs excluded under “What to translate” are not recognized or sent. A screenshot sends '
+        'the text recognized in the selection only when you click “Translate in place”; the image itself is '
+        'never sent. The mirror, translations and this window are hidden from screen capture, so other '
+        "screenshot and recording tools can't see them.",
+    '和“{name}”重复了':
+        'Same as “{name}”',
+    # 快捷键冲突提示
+    '被别的程序占着':
+        'Taken by another program',
+    '换一个，或者先在那个程序里把它关掉':
+        'Pick another one, or turn it off in that program first',
+    # 保存截图的提示
+    '已保存到 {path}（点这条提示打开文件夹）':
+        'Saved to {path} (click this message to open the folder)',
+    '保存到 {folder} 失败。':
+        "Couldn't save to {folder}.",
 }

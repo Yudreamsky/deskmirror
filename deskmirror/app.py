@@ -654,6 +654,9 @@ def main() -> int:
             return (x, y, x + cw, y + ch)
 
         def _register_keys(self) -> None:
+            dlg = getattr(self, "_settings", None)      # 启动时第一次注册早于 _settings 赋值
+            if dlg is not None and dlg.isVisible():
+                return              # 设置窗口开着时快捷键先放开（见 open_settings），关窗时再注册
             hk = self.cfg.hotkeys
             errors = self.hotkeys.register({"peek": hk.peek, "refresh": hk.refresh, "toggle": hk.toggle_visible,
                                             "history": hk.history, "vision": hk.vision,
@@ -1160,10 +1163,7 @@ def main() -> int:
 
         def take_shot(self, kind: str, f: MirrorFrame | None = None) -> None:
             """截下镜框内的画面：原图（屏幕原样）或译图（叠上译文，和镜里看到的一样）。
-            复制到剪贴板，同时存到“图片”里的“桌面魔镜”文件夹（用户点按钮才保存）。"""
-            from pathlib import Path
-
-            from PySide6.QtCore import QStandardPaths
+            复制到剪贴板，同时存到截图文件夹（用户点按钮才保存，见 shot_folder）。"""
             region = (f or self.frame).mirror
             try:
                 img = self._grab_region(region, translated=(kind == "trans"))
@@ -1172,28 +1172,50 @@ def main() -> int:
                 self.tray.showMessage(tr("截图失败"), str(e), QSystemTrayIcon.MessageIcon.Warning, 5000)
                 return
             qapp.clipboard().setImage(img)
+            path = self.save_image(img, time.strftime((tr("魔镜译图") if kind == "trans" else tr("魔镜原图"))
+                                                      + "_%Y%m%d_%H%M%S"))
+            self._report_saved(tr("已截译图") if kind == "trans" else tr("已截原图"), path, copied=True)
+
+        def shot_folder(self):
+            """截图存到哪：设置 → 截图里填的文件夹；空着就是“图片”里的“桌面魔镜”。"""
+            from pathlib import Path
+
+            from PySide6.QtCore import QStandardPaths
+            if self.cfg.capture.save_dir.strip():
+                return Path(os.path.expandvars(self.cfg.capture.save_dir.strip()))
             pics = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.PicturesLocation)
-            folder = (Path(pics) if pics else ROOT) / tr("桌面魔镜")
-            stem = time.strftime((tr("魔镜译图") if kind == "trans" else tr("魔镜原图")) + "_%Y%m%d_%H%M%S")
+            return (Path(pics) if pics else ROOT) / tr("桌面魔镜")
+
+        def save_image(self, img, stem: str):
+            """存一张截图（同名就加 _2、_3，不覆盖）；存不上返回 None。只在用户点了保存、截图按钮时调用。"""
+            folder = self.shot_folder()
+            jpg = self.cfg.capture.format == "jpg"
+            ext = "jpg" if jpg else "png"
             try:
                 folder.mkdir(parents=True, exist_ok=True)
-                path = folder / f"{stem}.png"
+                path = folder / f"{stem}.{ext}"
                 n = 2
                 while path.exists():
-                    path = folder / f"{stem}_{n}.png"
+                    path = folder / f"{stem}_{n}.{ext}"
                     n += 1
-                saved = img.save(str(path))
+                ok = img.save(str(path), "JPG" if jpg else "PNG", 92 if jpg else -1)
             except OSError:
-                saved = False
-            title = tr("已截译图") if kind == "trans" else tr("已截原图")
-            if saved:
-                self._last_shot = str(path)
-                log.info("已保存截图：%s", path)
+                return None
+            if not ok:
+                return None
+            self._last_shot = str(path)
+            log.info("已保存截图：%s", path)
+            return path
+
+        def _report_saved(self, title: str, path, copied: bool) -> None:
+            if path is not None:
                 self._on_click_message(self._open_last_shot)
-                self.tray.showMessage(title, tr("已复制到剪贴板，并保存到 {path}（点这条提示打开文件夹）").format(path=path),
-                                      QSystemTrayIcon.MessageIcon.Information, 4000)
+                msg = (tr("已复制到剪贴板，并保存到 {path}（点这条提示打开文件夹）") if copied
+                       else tr("已保存到 {path}（点这条提示打开文件夹）"))
+                self.tray.showMessage(title, msg.format(path=path), QSystemTrayIcon.MessageIcon.Information, 4000)
             else:
-                self.tray.showMessage(title, tr("已复制到剪贴板；保存到 {folder} 失败。").format(folder=folder),
+                msg = tr("已复制到剪贴板；保存到 {folder} 失败。") if copied else tr("保存到 {folder} 失败。")
+                self.tray.showMessage(title, msg.format(folder=self.shot_folder()),
                                       QSystemTrayIcon.MessageIcon.Warning, 5000)
 
         def _on_click_message(self, action) -> None:
@@ -1319,6 +1341,8 @@ def main() -> int:
             if self._settings is not None and self._settings.isVisible():
                 self._settings.raise_()
                 return
+            # 设置窗口开着时先放开自己的快捷键：录快捷键时按得到它们，检查“被别的程序占着”也不会把自己算进去
+            self.hotkeys.unregister_all()
             dlg = SettingsDialog(self.cfg)
             dlg.guide_requested.connect(self.open_guide)
             dlg.update_requested.connect(lambda: self.open_update())
@@ -1330,9 +1354,11 @@ def main() -> int:
                     self._keep_mirrors(new)
                     new.usage = self.cfg.usage      # 设置窗口打开期间的用量照样累计
                     new.update.skip_version = self.cfg.update.skip_version
-                    self.apply_config(new, clear_memory=dlg.clear_memory_requested)
+                    self.apply_config(new, clear_memory=dlg.clear_memory_requested)   # 里面会重新注册快捷键
                     if dlg.autostart.isChecked() != dlg.autostart_was:
                         self.set_autostart(dlg.autostart.isChecked())
+                else:
+                    self._register_keys()
                 self._settings = None
             dlg.finished.connect(done)
             dlg.show()
