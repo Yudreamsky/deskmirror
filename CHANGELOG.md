@@ -1,5 +1,81 @@
 # 更新记录 / Changelog
 
+## 1.5.0（2026-10-21）
+
+新增截图（Ctrl+1）和贴图（Ctrl+2）：鼠标停在哪就框住那里的窗口、按钮、段落，能标注、复制、保存、贴到屏幕、原位翻译，
+还能一键把选区变成魔镜。设置窗口改版：左边分页、每页自己滚动，快捷键点一下、按新的组合键就录好。
+托盘菜单重新排过，右键收起来的球弹出的也是它。
+
+- **截图（Ctrl+1）**：每块屏幕先定格，鼠标停在哪就自动框住那里的一行字、一段文字、按钮、网页里的一块或者整个窗口，
+  滚轮换大一层、小一层，点一下就选它；也能自己拖框，拖动、拖边角、方向键微调（Shift 一次 10 像素）。光标旁边有放大镜、
+  坐标和颜色（C 复制颜色）。按钮、网页里的元素靠 Windows 的 UI Automation 找；文字段落由本机的识别进程只找位置、不认字。
+- **标注**：矩形、椭圆、箭头、画笔、荧光笔、文字、序号、马赛克，可选颜色和粗细，能撤销、重做。
+- **用掉它**：Enter（或 Ctrl+C、双击选区）复制，Ctrl+S 保存（文件夹和 PNG / JPG 在 设置 → 截图 里选），Ctrl+T 贴到屏幕。
+  **识别文字**弹出一个能改、能复制的小窗口；**原位翻译**把选区里的字就地换成译文（和魔镜一样的底板和字体），能在原文、
+  译文之间换，复制、保存、贴图的就是看到的样子；**变成魔镜**（M）把主魔镜挪到选区上、和选区一样大（收成球的就在那里展开），
+  Shift+M 另开一个。截图界面关掉后，焦点回到截图前在用的窗口，复制完直接 Ctrl+V。
+- **贴图（Ctrl+2）**：把剪贴板里的图（或文字，画成一张卡片）贴在鼠标那里，剪贴板里没有就把最近一次截图贴回原处。
+  拖动挪位置，滚轮缩放，Ctrl+滚轮调透明度，双击或 Esc 关掉；右键还有原位翻译、原文译文来回换、识别文字、原始大小、
+  关闭所有贴图。
+- 截下的图只在点“保存”时才写进硬盘，贴图和最近 20 次截图只放在内存里。只有点“原位翻译”时，才把选区里识别出的字
+  发给翻译服务（排除名单里的窗口先涂掉），图本身不发送。
+- 默认的 Ctrl+1、Ctrl+2 会占掉 Excel 的“设置单元格格式”和浏览器切到第 1、2 个标签页；用不惯就在 设置 → 截图 里换一个
+  或者清空。被别的软件占着时，托盘会提示没注册上。
+- **设置窗口改版**：左边 11 页（常用、翻译服务、翻译范围、截图、输入框翻译、快捷键、用量与省钱、隐私与记忆、术语表、
+  识别与显示、关于），原来 11 项挤在一页的“范围与隐私”拆成三页。窗口不再被最长的一页撑高（以前至少 759 像素，
+  1080p 笔记本开 150% 缩放时保存按钮在屏幕外）。
+- **快捷键点一下就能录**：点录入框再按新的组合键，被别的程序占着的也录得到、录的时候不会触发它；重复的、被占用的当场提示。
+  设置窗口开着时，魔镜的快捷键先放开。
+- **托盘菜单重新排**：天天用的（隐藏、暂停、刷新、截图、贴图、看图翻译、历史记录）在上面，快捷键写在右边；
+  翻译范围、截镜框里的画面、帮助（新手指南、检查更新、关于）收进子菜单，顶层从 19 项减到 13 项；有贴图时才出现
+  “关闭所有贴图”。**右键收起来的球**弹出的也是这个菜单，设置、退出都在里面。
+- 魔镜标签上的截图按钮也按 设置 → 截图 里的文件夹和格式保存。
+
+New screenshot (Ctrl+1) and pin (Ctrl+2) tools: the box snaps to the window, button or paragraph under the pointer,
+and you can mark it up, copy, save, pin it on the screen, translate it in place, or turn the selection into a mirror
+with one key. The settings window is redesigned with pages on the left that scroll on their own, and you set a hotkey
+by clicking it and pressing the new combination. The tray menu is reorganized, and right-clicking the tucked-away
+ball opens it too.
+
+- **Screenshot (Ctrl+1)**: every screen freezes; wherever the pointer rests, a box snaps to the line or paragraph of
+  text, the button, the block of a web page or the whole window under it. Scroll for the next larger or smaller one
+  and click to take it, or drag your own box; move it, drag its edges or nudge it with the arrow keys (10 px with
+  Shift). A magnifier next to the pointer shows the coordinates and the color (C copies the color). Buttons and web
+  page elements are found through Windows UI Automation; paragraphs are located by the local recognition process,
+  which doesn't read the text for this.
+- **Marking up**: rectangle, ellipse, arrow, pen, highlighter, text, numbered marker and mosaic, with colors and
+  widths, undo and redo.
+- **Using it**: Enter (or Ctrl+C, or double-click the box) copies, Ctrl+S saves (folder and PNG / JPG under
+  Settings → Screenshot), Ctrl+T pins it on the screen. **Recognize text** opens a small window where you can edit and
+  copy the text; **Translate in place** replaces the text in the box with translations right where it is (the same
+  plates and fonts as in the mirror) and switches between original and translation, and copying, saving and pinning
+  take what you see; **Make it a mirror** (M) moves the main mirror onto the box at the same size (unfolding it there
+  if it was a ball), and Shift+M opens another mirror. When the screenshot closes, the focus goes back to the window
+  you were using, so Ctrl+V pastes right away.
+- **Pin (Ctrl+2)**: the picture on the clipboard (or text, drawn as a card) is pinned at the pointer; with nothing on
+  the clipboard, the latest screenshot is pinned back where it was taken. Drag to move it, scroll to zoom, Ctrl+scroll
+  for opacity, double-click or Esc to close; right-click to translate it in place, switch between original and
+  translation, recognize text, show it at actual size or close all pins.
+- A screenshot is written to disk only when you save it; pins and the last 20 screenshots stay in memory. Only
+  Translate in place sends anything out: the text recognized in the selection goes to the translation service
+  (excluded windows are blanked first); the picture itself is never sent.
+- The default Ctrl+1 and Ctrl+2 take over Excel's Format Cells and the browser's switch to tab 1 and 2; if that gets
+  in your way, pick other keys or clear them in Settings → Screenshot. If another program already holds them, the tray
+  tells you they couldn't be registered.
+- **Redesigned settings window**: 11 pages on the left (General, Translation service, What to translate, Screenshot,
+  Text boxes, Hotkeys, Usage and cost, Privacy and memory, Glossary, Recognition and display, About); the old
+  "Scope and privacy" page with 11 items is split into three. The window is no longer as tall as the longest page (it
+  used to be at least 759 px, which put the Save button off screen on a 1080p laptop at 150 % scaling).
+- **Hotkeys are recorded with a click**: click the box and press the new combination; combinations held by other
+  programs can be recorded too, without triggering them, and duplicates or taken combinations are flagged right away.
+  DeskMirror's own hotkeys are released while the settings window is open.
+- **Tray menu reorganized**: everyday items (hide, pause, refresh, screenshot, pin, image translation, history)
+  come first, with their hotkeys on the right; What to translate, Screenshot of the frame and Help (Getting started,
+  Check for updates, About) are submenus, so the top level is down from 19 items to 13; Close all pins shows up
+  only while there are pins. **Right-clicking the tucked-away ball** opens the same menu, with Settings and Quit in
+  it.
+- The screenshot buttons on the mirror's tab also save to the folder and in the format set in Settings → Screenshot.
+
 ## 1.4.0（2026-10-12）
 
 滚动时译文由 Windows 的系统合成器每一帧移动，和原文贴得住，不再一格一格地跳；跟踪本身也更快、更准。
