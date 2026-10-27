@@ -1,19 +1,25 @@
 # 更新记录 / Changelog
 
-## 未发布
+## 1.5.1（2026-10-27）
 
-- 魔镜标签上的 token 用量（↑ ↓）挪到标签最右头，鼠标停上去不再弹明细（去点按钮时一划过就弹，容易误触）：
-  点一下才弹，再点一下或者鼠标移开就收起；像按钮一样，鼠标移上去有底色。
+截图框好就放进剪贴板，不点复制、按 Esc 关掉也能直接粘贴；魔镜标签上的 token 用量挪到最右头，点一下才弹明细。
+
 - **截图框好就放进剪贴板**：以前要按 Enter、双击或点复制才放进去，框好直接去粘贴会粘出上一张；现在框好就放进去，
   挪框、画标注、换成译文后跟着更新，工具栏上写着“已复制到剪贴板 · Esc 关掉”，按 Esc 关掉也能直接粘贴。
+- **token 用量点一下才弹明细**：魔镜标签上的 token 用量（↑ ↓）挪到标签最右头，鼠标停上去不再弹明细（去点按钮时
+  一划过就弹，容易误触）：点一下才弹，再点一下或者鼠标移开就收起；像按钮一样，鼠标移上去有底色。
 
-- The token usage on the mirror's tab (↑ ↓) moved to the right end of the tab, and hovering over it no longer pops
-  up the details (it used to pop up whenever the pointer passed over it on the way to a button): click it to show
-  them, click again or move away to close them. Like the buttons, it lights up under the pointer.
+A screenshot box now goes to the clipboard as soon as you make it, so you can paste without clicking Copy, even after
+closing with Esc. The token usage on the mirror's tab moved to the right end and shows its details only when clicked.
+
 - **A screenshot box goes to the clipboard as soon as you make it**: it used to need Enter, a double-click or the
   Copy button, so pasting right after selecting gave the previous picture. Now the box is put on the clipboard right
   away and updated as you move it, mark it up or switch to the translation; the toolbar says "Copied to the
   clipboard · Esc to close", and pasting works even after closing with Esc.
+- **Token usage details on click**: the token usage on the mirror's tab (↑ ↓) moved to the right end of the tab, and
+  hovering over it no longer pops up the details (it used to pop up whenever the pointer passed over it on the way
+  to a button): click it to show them, click again or move away to close them. Like the buttons, it lights up under
+  the pointer.
 
 ## 1.5.0（2026-10-21）
 
