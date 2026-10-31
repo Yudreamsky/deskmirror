@@ -1,6 +1,7 @@
 """没接住的错误、Qt 警告、崩溃记录：都要进日志（没有控制台时 Python 默认会把它们丢掉）。"""
 import faulthandler
 import gc
+import logging
 import os
 import sys
 import tempfile
@@ -54,6 +55,22 @@ class HookTest(unittest.TestCase):
                 if cm.output:
                     break
         self.assertIn("ValueError", cm.output[0])
+
+    def test_error_text_only_in_debug_log(self) -> None:
+        # 错误说明里可能有屏幕上的字（比如 KeyError 的键是认出来的原文）：只进调试日志
+        def boom():
+            screen_text = "Tickets are sold at the pier"
+            return {}[screen_text]
+        with self.assertLogs("deskmirror.errors", "DEBUG") as cm:
+            t = threading.Thread(target=boom, name="probe")
+            t.start()
+            t.join()
+        shown = "\n".join(r.getMessage() for r in cm.records if r.levelno >= logging.INFO)
+        debug = "\n".join(r.getMessage() for r in cm.records if r.levelno == logging.DEBUG)
+        self.assertIn("KeyError", shown)
+        self.assertIn("return {}[screen_text]", shown)          # 出在哪一行代码
+        self.assertNotIn("Tickets are sold", shown)
+        self.assertIn("Tickets are sold", debug)
 
     def test_ignored_error_is_logged(self) -> None:
         class Bad:

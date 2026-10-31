@@ -1,8 +1,9 @@
 """没接住的错误、Qt 的警告、程序崩溃：都记进日志。
 
 魔镜用 pythonw / 打包版启动时没有控制台，Python 默认把没接住的错误写到控制台，等于直接丢了：界面上的按钮、
-菜单、定时器出错，临时的后台线程出错，日志里一个字都没有。这里把它们接到日志里（和引擎记错误一样记调用位置
-和错误说明）。程序直接崩掉（显卡驱动、系统接口这类）时，faulthandler 把各线程当时在做什么写进 logs/crash.log。
+菜单、定时器出错，临时的后台线程出错，日志里一个字都没有。这里把它们接到日志里：错误种类和出在代码哪一行；
+错误说明里可能带着屏幕上的字（比如 KeyError 的键就是认出来的原文），只进调试日志（屏幕文字只在调试日志里）。
+程序直接崩掉（显卡驱动、系统接口这类）时，faulthandler 把各线程当时在做什么（只有代码位置）写进 logs/crash.log。
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ import logging
 import sys
 import threading
 import time
+import traceback
 from pathlib import Path
 
 log = logging.getLogger("deskmirror.errors")
@@ -40,27 +42,34 @@ def enable_crash_log(logdir: Path) -> None:
         log.warning("崩溃记录打不开：%s", e)
 
 
+def _stack(tb) -> str:
+    """调用栈：只有代码位置（文件、行号、那行代码），不带变量的值。"""
+    return "".join(traceback.format_tb(tb)).rstrip()
+
+
 def _excepthook(kind, value, tb) -> None:
     if issubclass(kind, KeyboardInterrupt):
         sys.__excepthook__(kind, value, tb)
         return
-    log.error("没接住的错误", exc_info=(kind, value, tb))
+    log.error("没接住的错误：%s\n%s", kind.__name__, _stack(tb))
+    log.debug("错误说明：%s", value)
 
 
 def _thread_excepthook(args) -> None:
     if args.exc_type is SystemExit:
         return
     name = args.thread.name if args.thread is not None else "?"
-    log.error("后台线程 %s 出错停下了", name, exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+    log.error("后台线程 %s 出错停下了：%s\n%s", name, args.exc_type.__name__, _stack(args.exc_traceback))
+    log.debug("错误说明：%s", args.exc_value)
 
 
 def _unraisablehook(u) -> None:
     where = getattr(u.object, "__qualname__", None) or type(u.object).__name__
-    if u.exc_value is None:
+    if u.exc_type is None:
         log.warning("%s %s", u.err_msg or "忽略了一个错误", where)
-    else:
-        log.warning("%s %s", u.err_msg or "忽略了一个错误", where,
-                    exc_info=(u.exc_type, u.exc_value, u.exc_traceback))
+        return
+    log.warning("%s %s：%s\n%s", u.err_msg or "忽略了一个错误", where, u.exc_type.__name__, _stack(u.exc_traceback))
+    log.debug("错误说明：%s", u.exc_value)
 
 
 class Throttle:
