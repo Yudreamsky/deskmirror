@@ -601,9 +601,11 @@ def _option(args: list[str], name: str) -> str:
 def _helper_logging(folder: Path) -> None:
     """助手进程没有窗口：过程记到 logs\\update.log。"""
     import logging
+
+    from . import errorlog
     (folder / "logs").mkdir(exist_ok=True)
     handler = logging.FileHandler(folder / "logs" / "update.log", encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    handler.setFormatter(errorlog.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     logging.getLogger().addHandler(handler)
     logging.getLogger().setLevel(logging.INFO)
 

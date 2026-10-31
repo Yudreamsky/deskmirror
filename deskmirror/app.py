@@ -57,11 +57,12 @@ def _setup_logging() -> None:
     root.setLevel(logging.INFO)
     fh = logging.handlers.RotatingFileHandler(logdir / "deskmirror.log", maxBytes=1_000_000, backupCount=3,
                                               encoding="utf-8")
-    fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    # 错误只写种类和代码位置：错误说明里可能有屏幕上的字（见 errorlog）
+    fh.setFormatter(errorlog.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     root.addHandler(fh)
     if sys.stderr is not None:
         sh = logging.StreamHandler()
-        sh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        sh.setFormatter(errorlog.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
         root.addHandler(sh)
     errorlog.install(logdir)        # 没有控制台时，没接住的错误也要进日志
 

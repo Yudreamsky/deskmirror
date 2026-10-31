@@ -164,9 +164,16 @@ class SegmentParser:
 
 
 class ServiceError(Exception):
-    def __init__(self, message: str, retryable: bool = True) -> None:
+    def __init__(self, message: str, retryable: bool = True, detail: str = "") -> None:
         super().__init__(message)
         self.retryable = retryable
+        # 服务自己写的说明（已经拼在 message 里，界面照常显示）：可能带着请求里的原文，日志里只在调试级别记
+        self.detail = detail
+
+    @property
+    def brief(self) -> str:
+        """给日志用：去掉服务自己写的说明。"""
+        return str(self).replace(self.detail, "…") if self.detail else str(self)
 
 
 def _http_error(resp: httpx.Response) -> ServiceError:
@@ -184,11 +191,12 @@ def _http_error(resp: httpx.Response) -> ServiceError:
     if code == 402:
         return ServiceError(tr("账户余额不足（HTTP 402）：到服务商那里充值后点 ⟳ 继续"), retryable=False)
     if code == 404:
-        return ServiceError(tr("地址或模型不存在（HTTP 404）{detail}").format(detail=detail), retryable=False)
+        return ServiceError(tr("地址或模型不存在（HTTP 404）{detail}").format(detail=detail), retryable=False,
+                            detail=detail)
     if code == 429:
         return ServiceError(tr("请求太频繁或额度用完（HTTP 429）"))
     return ServiceError(tr("服务返回错误 HTTP {code} {detail}").format(code=code, detail=detail),
-                        retryable=code >= 500)
+                        retryable=code >= 500, detail=detail)
 
 
 # 不认附加参数（"thinking"、"stream_options"）的 OpenAI 兼容服务（按服务地址记住）：这次运行里不再带，
@@ -266,7 +274,8 @@ def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: 
                             continue
                         data = json.loads(line)
                         if data.get("error"):
-                            raise ServiceError(tr("服务报错：{detail}").format(detail=str(data["error"])[:120]))
+                            detail = str(data["error"])[:120]
+                            raise ServiceError(tr("服务报错：{detail}").format(detail=detail), detail=detail)
                         piece = (data.get("message") or {}).get("content", "")
                         if piece:
                             parser.feed_raw(piece)
@@ -313,7 +322,8 @@ def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: 
                         except ValueError:
                             continue
                         if obj.get("error"):
-                            raise ServiceError(tr("服务报错：{detail}").format(detail=str(obj["error"])[:120]))
+                            detail = str(obj["error"])[:120]
+                            raise ServiceError(tr("服务报错：{detail}").format(detail=detail), detail=detail)
                         u = obj.get("usage")
                         if isinstance(u, dict) and isinstance(u.get("prompt_tokens"), int):
                             usage.tokens_in = u["prompt_tokens"]

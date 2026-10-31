@@ -8,6 +8,9 @@
 - **出错会记进日志**：以前没有控制台窗口时（开始菜单、开机自启、安装版），按钮、菜单、定时器和后台线程里没接住的错误
   直接丢了，日志里一个字都没有；现在都记进 `logs\deskmirror.log`（哪种错误、出在代码哪一行，不记屏幕上的字），
   Qt 的警告也记（同一句一分钟只记一次）；程序直接崩掉时，各线程当时在做什么记在 `logs\crash.log`。
+- **日志里的错误不带屏幕上的字**：错误说明里可能夹着认出来的原文（比如“找不到某段文字”时说明里就是那段文字），
+  以前引擎、翻译线程等记错误时会原样写进日志；现在所有错误都只写种类和出在代码哪一行，识别子进程报回来的错误、
+  翻译服务回的错误说明也一样（翻译服务的说明照常显示在魔镜上，只是不写进日志）。
 - **快捷键被占用看得见、自动接回来**：被别的程序占着的快捷键（比如 PixPin 占着 Ctrl+1），托盘菜单上这个键后面写着
   “（被占用）”；那个程序退出或者换了键，魔镜几秒内自动接回来，不用重启魔镜。
 - **设置文件留备份**：保存设置时先确实写进硬盘再换上，同时写一份备份 `deskmirror.bak.json`；`deskmirror.json` 万一坏了
@@ -25,6 +28,11 @@ memory no longer keeps growing the longer DeskMirror runs.
   `logs\deskmirror.log` (what kind of error and where in the code, never screen text), Qt's own warnings too (the
   same warning at most once a minute); if the program crashes outright, what each thread was doing goes to
   `logs\crash.log`.
+- **No screen text in logged errors**: an error's description can contain recognized text (when a paragraph isn't
+  found, the description is that paragraph), and the engine, translation threads and others used to write it to the
+  log as is. Now every error is logged with only its kind and where in the code it happened, including errors
+  reported by the recognition process and the translation service's own error wording (still shown on the mirror,
+  just not written to the log).
 - **Hotkeys in use are shown and taken back**: a hotkey held by another program (say PixPin holding Ctrl+1) shows
   "(in use)" after it in the tray menu; once that program quits or changes its key, DeskMirror takes the key back
   within a few seconds, without a restart.

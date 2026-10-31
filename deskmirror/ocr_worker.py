@@ -12,6 +12,7 @@ import logging
 import math
 import multiprocessing as mp
 import queue
+import sys
 import threading
 import time
 import traceback
@@ -356,8 +357,16 @@ def worker_main(in_q, out_q, device: str, threads: int, lang: str = "default") -
         try:
             _process(engine, job, out_q)
         except Exception:  # noqa: BLE001
-            out_q.put(("error", job.job_id, traceback.format_exc(limit=3)))
+            out_q.put(("error", job.job_id, job_error()))
             out_q.put(("done", job.job_id, {}))
+
+
+def job_error() -> tuple[str, str]:
+    """（在 except 里调）识别一块画面时出的错：(种类和调用栈, 错误说明)。说明里可能有认出来的字，
+    主进程只在调试日志里记它。"""
+    from . import errorlog
+    kind, value, tb = sys.exc_info()
+    return errorlog.brief(kind, value, tb), str(value)
 
 
 # --------------------------------------------------------------------- 主进程端

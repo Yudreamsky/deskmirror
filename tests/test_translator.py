@@ -152,5 +152,20 @@ class ListModelsTest(unittest.TestCase):
         self.assertIn("连不上", list_models(self.cfg("openai", f"http://127.0.0.1:{port}", "good"))[1])
 
 
+class ServiceDetailTest(unittest.TestCase):
+    def test_service_wording_stays_out_of_the_log(self) -> None:
+        # 服务自己写的说明可能带着请求里的原文：界面上照常显示，日志用的 brief 里没有
+        import httpx
+
+        from deskmirror.translator import _http_error
+        resp = httpx.Response(400, json={"error": {"message": "Input 'Tickets are sold at the pier' is too long"}})
+        err = _http_error(resp)
+        self.assertIn("Tickets are sold", str(err))
+        self.assertIn("HTTP 400", err.brief)
+        self.assertNotIn("Tickets are sold", err.brief)
+        plain = ServiceError("连不上翻译服务")
+        self.assertEqual(plain.brief, "连不上翻译服务")
+
+
 if __name__ == "__main__":
     unittest.main()

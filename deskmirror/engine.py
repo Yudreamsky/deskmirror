@@ -2167,7 +2167,9 @@ class Engine(threading.Thread):
                 self._accept_block(st, ob)
             self._scene_changed()
         elif kind == "error":
-            log.warning("识别任务出错：%s", data)
+            where, detail = data if isinstance(data, tuple) else (data, "")
+            log.warning("识别任务出错：%s", where)
+            log.debug("错误说明：%s", detail)            # 可能带着认出来的字：只进调试日志
         elif kind == "done":
             self._finish_job(st, data)
 
@@ -2871,7 +2873,9 @@ class Engine(threading.Thread):
                     svc["paused"] = True
                 msg = str(err)
                 retry = now + backoff
-                log.warning("翻译批次失败：%s（%.1f 秒）", err, secs)
+                # 服务自己写的说明可能带着请求里的原文：界面上照常显示，日志里只在调试级别
+                log.warning("翻译批次失败：%s（%.1f 秒）", getattr(err, "brief", err), secs)
+                log.debug("服务的说明：%s", getattr(err, "detail", ""))
             if inf.snip is not None:
                 st = inf.snip["state"]
                 if err is not None:

@@ -1,6 +1,7 @@
 """没接住的错误、Qt 警告、崩溃记录：都要进日志（没有控制台时 Python 默认会把它们丢掉）。"""
 import faulthandler
 import gc
+import io
 import logging
 import os
 import sys
@@ -12,6 +13,36 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from deskmirror import errorlog  # noqa: E402
+
+SCREEN_TEXT = "Tickets are sold at the pier"
+
+
+def run_thread(target) -> None:
+    t = threading.Thread(target=target, name="probe")
+    t.start()
+    t.join()
+
+
+def log_through_formatter(action, logger_name: str, debug: bool = False) -> str:
+    """做 action，返回魔镜日志格式（errorlog.Formatter）写出来的字；debug=True 时临时打开调试日志。"""
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.setFormatter(errorlog.Formatter("%(levelname)s %(name)s: %(message)s"))
+    logger, root = logging.getLogger(logger_name), logging.getLogger()
+    old_level = root.level
+    logger.addHandler(handler)
+    root.setLevel(logging.DEBUG if debug else logging.INFO)
+    try:
+        action()
+    finally:
+        logger.removeHandler(handler)
+        root.setLevel(old_level)
+    return buf.getvalue()
+
+
+def raise_with_screen_text():
+    screen_text = SCREEN_TEXT
+    return {}[screen_text]
 
 
 class HookTest(unittest.TestCase):
@@ -56,21 +87,16 @@ class HookTest(unittest.TestCase):
                     break
         self.assertIn("ValueError", cm.output[0])
 
-    def test_error_text_only_in_debug_log(self) -> None:
-        # 错误说明里可能有屏幕上的字（比如 KeyError 的键是认出来的原文）：只进调试日志
+    def test_thread_error_in_log_file_has_no_screen_text(self) -> None:
+        # 错误说明里可能有屏幕上的字（比如 KeyError 的键是认出来的原文）：写进日志文件时只有种类和代码位置
         def boom():
             screen_text = "Tickets are sold at the pier"
             return {}[screen_text]
-        with self.assertLogs("deskmirror.errors", "DEBUG") as cm:
-            t = threading.Thread(target=boom, name="probe")
-            t.start()
-            t.join()
-        shown = "\n".join(r.getMessage() for r in cm.records if r.levelno >= logging.INFO)
-        debug = "\n".join(r.getMessage() for r in cm.records if r.levelno == logging.DEBUG)
-        self.assertIn("KeyError", shown)
-        self.assertIn("return {}[screen_text]", shown)          # 出在哪一行代码
-        self.assertNotIn("Tickets are sold", shown)
-        self.assertIn("Tickets are sold", debug)
+        text = log_through_formatter(lambda: run_thread(boom), "deskmirror.errors")
+        self.assertIn("后台线程 probe 出错停下了", text)
+        self.assertIn("KeyError", text)
+        self.assertIn("return {}[screen_text]", text)           # 出在哪一行代码
+        self.assertNotIn("Tickets are sold", text)
 
     def test_ignored_error_is_logged(self) -> None:
         class Bad:
@@ -85,6 +111,63 @@ class HookTest(unittest.TestCase):
     def test_crash_log_is_on(self) -> None:
         self.assertTrue(faulthandler.is_enabled())
         self.assertTrue((Path(self.tmp.name) / "crash.log").exists())
+
+
+class FormatterTest(unittest.TestCase):
+    """老代码里的 log.exception（引擎、翻译线程……）也走这个格式。"""
+
+    def test_caught_error_only_kind_and_place(self) -> None:
+        log = logging.getLogger("deskmirror.test.fmt")
+
+        def act():
+            try:
+                raise_with_screen_text()
+            except KeyError:
+                log.exception("引擎处理出错")
+        text = log_through_formatter(act, "deskmirror.test.fmt")
+        self.assertIn("引擎处理出错", text)
+        self.assertIn("KeyError", text)
+        self.assertIn("return {}[screen_text]", text)
+        self.assertNotIn(SCREEN_TEXT, text)
+
+    def test_detail_only_with_debug_log_on(self) -> None:
+        log = logging.getLogger("deskmirror.test.fmt")
+
+        def act():
+            try:
+                raise_with_screen_text()
+            except KeyError:
+                log.exception("引擎处理出错")
+        self.assertIn(SCREEN_TEXT, log_through_formatter(act, "deskmirror.test.fmt", debug=True))
+
+
+class WorkerErrorTest(unittest.TestCase):
+    def test_worker_keeps_screen_text_apart(self) -> None:
+        from deskmirror.ocr_worker import job_error
+        try:
+            raise_with_screen_text()
+        except KeyError:
+            where, detail = job_error()
+        self.assertIn("KeyError", where)
+        self.assertNotIn(SCREEN_TEXT, where)
+        self.assertIn(SCREEN_TEXT, detail)
+
+    def test_engine_logs_detail_only_at_debug(self) -> None:
+        from deskmirror import engine as E
+        from deskmirror.config import AppConfig
+        from deskmirror.ocr_worker import job_error
+        eng = E.Engine(AppConfig(), lambda snap: None)
+        eng.jobs[7] = object()                 # 只要任务还登记着
+        try:
+            raise_with_screen_text()
+        except KeyError:
+            report = job_error()
+        with self.assertLogs("deskmirror.engine", "DEBUG") as cm:
+            eng._on_ocr(("error", 7, report))
+        shown = [r.getMessage() for r in cm.records if r.levelno >= logging.INFO]
+        hidden = [r.getMessage() for r in cm.records if r.levelno == logging.DEBUG]
+        self.assertTrue(shown and all(SCREEN_TEXT not in m for m in shown))
+        self.assertTrue(any(SCREEN_TEXT in m for m in hidden))
 
 
 class QtWarningTest(unittest.TestCase):
