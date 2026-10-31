@@ -77,8 +77,7 @@ def _make_engine(device: str, threads: int, lang: str = "default"):
         "Global.log_level": "error",
         "EngineConfig.onnxruntime.intra_op_num_threads": threads,
         "EngineConfig.onnxruntime.inter_op_num_threads": 1,
-        # 显卡一次认 64 行：一批段落（约 48 行）一趟送完，比 16 行一趟快 5%～12%，认出的字一样；128 反而慢
-        "Rec.rec_batch_num": 64 if device == "gpu" else 6,
+        "Rec.rec_batch_num": 16 if device == "gpu" else 6,
     }
     if lang == "korean":
         # 检测模型通用；只换识别模型。没有时 RapidOCR 从 ModelScope 下载并按 SHA256 校验
