@@ -11,6 +11,7 @@ __pycache__/
 
 # 用户自己的设置（含加密的 API Key）、学到的滚轮曲线、译文记忆：只属于这台电脑
 deskmirror.json
+deskmirror.bak.json
 deskmirror.broken.json
 deskmirror_wheel.json
 deskmirror_memory.bin

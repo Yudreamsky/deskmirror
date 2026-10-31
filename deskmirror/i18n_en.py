@@ -1352,4 +1352,11 @@ EN: dict[str, str] = {
         'DeskMirror takes these keys back by itself once that program lets go of them.',
     '{key}（被占用）':
         '{key} (in use)',
+    # 设置文件坏了：用备份恢复
+    '设置文件坏了（可能是断电或死机时正在保存），已经用备份恢复。':
+        'The settings file was damaged (probably by a power cut or crash while saving), so it was restored '
+        'from the backup.',
+    '设置文件坏了，也没有能用的备份，只好用默认设置。坏的文件另存成了 {name}。':
+        'The settings file was damaged and there was no usable backup, so the default settings are in use. '
+        'The damaged file was saved as {name}.',
 }

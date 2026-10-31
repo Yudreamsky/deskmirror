@@ -286,6 +286,10 @@ def main() -> int:
             for f in self.frames:
                 if not f.dock.docked:
                     f.show()
+            note = config.load_note()
+            if note:            # 启动时配置文件坏了：用备份恢复了，或者只好用默认设置
+                QTimer.singleShot(2000, lambda: self.tray.showMessage(tr("桌面魔镜"), note,
+                                                                      QSystemTrayIcon.MessageIcon.Warning, 10000))
             if winapi.capture_failures:
                 log.warning("有 %d 个窗口没能对截屏隐身（错误码 %s）", len(winapi.capture_failures),
                             sorted(set(winapi.capture_failures)))

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from . import ROOT, winapi
-from .i18n import N_
+from .i18n import N_, tr
 
 log = logging.getLogger(__name__)
 
@@ -388,30 +388,80 @@ def validate(cfg: AppConfig) -> AppConfig:
     return cfg
 
 
+def backup_path() -> Path:
+    """配置的备份：每次保存都写一份一模一样的，配置文件万一坏了（断电、死机时正在存，或者被改坏了）就用它恢复。"""
+    path = config_path()
+    return path.with_name(f"{path.stem}.bak.json")
+
+
+# 上次 load() 的情况（魔镜启动时据此提示一句）："ok"；"backup"：配置文件坏了，用备份恢复了；
+# "defaults"：坏了也没有能用的备份，用了默认设置
+load_result = "ok"
+
+
+def load_note() -> str:
+    """上次 load() 碰上配置文件坏了时给用户的说明（没坏是空串）。"""
+    if load_result == "backup":
+        return tr("设置文件坏了（可能是断电或死机时正在保存），已经用备份恢复。")
+    if load_result == "defaults":
+        return tr("设置文件坏了，也没有能用的备份，只好用默认设置。坏的文件另存成了 {name}。").format(
+            name=config_path().with_suffix(".broken.json").name)
+    return ""
+
+
+def _read(path: Path) -> dict | None:
+    """读出一个配置文件；读不出来、不是 JSON 对象都算坏了（None）。"""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def load() -> AppConfig:
+    global load_result
+    load_result = "ok"
     path = config_path()
     data: dict = {}
-    if path.exists():
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            log.warning("配置文件损坏，已改用默认设置（原文件另存为 .broken）")
+    if path.exists():      # 没有配置文件（第一次用，或者用户删了它想从头来）：用默认设置，不去翻备份
+        got = _read(path)
+        if got is None:
+            bak = _read(backup_path())
             try:
                 path.replace(path.with_suffix(".broken.json"))
             except OSError:
                 pass
-            data = {}
+            if bak is not None:
+                log.warning("配置文件损坏，已用备份恢复（坏的另存为 .broken.json）")
+                data, load_result = bak, "backup"
+            else:
+                log.warning("配置文件损坏，也没有能用的备份，已改用默认设置（原文件另存为 .broken.json）")
+                load_result = "defaults"
+        else:
+            data = got
     cfg = _load_into(AppConfig, data)
     cfg.llm.api_key = _decrypt(cfg.llm.api_key)
     cfg.vision.api_key = _decrypt(cfg.vision.api_key)
     return validate(cfg)
 
 
+def _write(path: Path, text: str) -> None:
+    """先写临时文件、确实写进硬盘，再换名：断电、死机时也不会留下写了一半的文件。"""
+    tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp")     # 魔镜和命令行可能同时在存：各用各的临时文件
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    tmp.replace(path)
+
+
 def save(cfg: AppConfig) -> None:
     data = asdict(cfg)
     data["llm"]["api_key"] = _encrypt(cfg.llm.api_key)
     data["vision"]["api_key"] = _encrypt(cfg.vision.api_key)
-    path = config_path()
-    tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp")     # 魔镜和命令行可能同时在存：各用各的临时文件
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    text = json.dumps(data, ensure_ascii=False, indent=2)
+    _write(config_path(), text)
+    try:
+        _write(backup_path(), text)
+    except OSError as e:
+        log.warning("配置备份没写成：%s", e)

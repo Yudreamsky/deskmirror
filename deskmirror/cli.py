@@ -721,6 +721,8 @@ def main(argv: list[str]) -> int:
     argv = [a for a in argv if a != "--json"]
     cfg = config.load()
     i18n.set_ui_lang(cfg.ui_lang or i18n.ui_lang_for(i18n.native_from_locale(i18n.system_locale())))
+    if config.load_note():
+        print(config.load_note(), file=sys.stderr)
     if not argv or argv[0] in ("-h", "--help", "help"):
         print(usage())
         if not argv and _own_console():
