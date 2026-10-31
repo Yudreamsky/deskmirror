@@ -332,6 +332,8 @@ def _process(engine, job: OcrJob, out_q) -> None:
 
 
 def worker_main(in_q, out_q, device: str, threads: int, lang: str = "default") -> None:
+    from . import ROOT, errorlog
+    errorlog.enable_crash_log(ROOT / "logs")      # 显卡运行库把这个进程带崩时，留下当时在做什么
     try:
         try:
             engine, actual = _make_engine(device, threads, lang)

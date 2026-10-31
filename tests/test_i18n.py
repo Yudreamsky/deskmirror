@@ -16,7 +16,7 @@ from deskmirror import i18n
 PKG = pathlib.Path(deskmirror.__file__).resolve().parent
 CJK = re.compile(r"[　-〿一-鿿＀-￯]")
 SKIP_FILES = {"i18n.py", "i18n_en.py"}
-LOG_METHODS = {"debug", "info", "warning", "error", "exception", "critical"}
+LOG_METHODS = {"debug", "info", "warning", "error", "exception", "critical", "log"}
 # 有意不翻译的中文（日志、正则之外）：不是界面文字
 ALLOWED = {
     "app.py": {"镜"},                                                     # 托盘图标上的字：标志

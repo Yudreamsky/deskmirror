@@ -14,7 +14,7 @@ import time
 
 os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "0")  # 全程用物理像素，和截屏坐标一致
 
-from . import ROOT, __version__, autostart as boot, config, geom, i18n, winapi  # noqa: E402
+from . import ROOT, __version__, autostart as boot, config, errorlog, geom, i18n, winapi  # noqa: E402
 from .i18n import N_, tr  # noqa: E402
 
 log = logging.getLogger("deskmirror")
@@ -63,6 +63,7 @@ def _setup_logging() -> None:
         sh = logging.StreamHandler()
         sh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
         root.addHandler(sh)
+    errorlog.install(logdir)        # 没有控制台时，没接住的错误也要进日志
 
 
 _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -111,6 +112,7 @@ def main() -> int:
     from PySide6.QtGui import QAction, QColor, QFont, QIcon, QPainter, QPixmap
     from PySide6.QtWidgets import QApplication, QLabel, QMenu, QMessageBox, QSystemTrayIcon
 
+    errorlog.install_qt()
     from .engine import Engine
     from .fieldtrans import FieldTranslator
     from .hotkeys import HoldShortcut, HotkeyManager, modifiers_down, parse_modifiers
