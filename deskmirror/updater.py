@@ -24,7 +24,7 @@ import time
 import urllib.request
 import zipfile
 from ctypes import wintypes as wt
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -456,7 +456,3 @@ def cleanup(root: Path | None = None) -> None:
 def message_box(text: str) -> None:
     """助手进程没有窗口：出错时弹个系统对话框告诉用户。"""
     ctypes.windll.user32.MessageBoxW(None, text, tr("桌面魔镜"), 0x30)       # MB_ICONWARNING
-
-
-def release_dict(rel: Release) -> dict:
-    return asdict(rel)

@@ -9,7 +9,6 @@ from PySide6.QtCore import QObject, QPoint, QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter, QPen, QTextDocument
 from PySide6.QtWidgets import QMenu, QWidget
 
-from ..geom import Rect
 from ..i18n import tr
 from .intrans import InPlace, qimage_bgr
 from .screens import screen_at

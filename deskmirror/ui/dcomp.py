@@ -135,9 +135,6 @@ class Visual:
     def remove(self, child: "Visual") -> None:
         self.com.hr("RemoveVisual", 17, (ctypes.c_void_p,), child.com.ptr)
 
-    def remove_all(self) -> None:
-        self.com.hr("RemoveAllVisuals", 18, ())
-
     def release(self) -> None:
         self.com.release()
 

@@ -115,7 +115,8 @@ def main() -> int:
     errorlog.install_qt()
     from .engine import Engine
     from .fieldtrans import FieldTranslator
-    from .hotkeys import HoldShortcut, HotkeyManager, modifiers_down, parse_modifiers
+    from .hotkeys import HoldShortcut, HotkeyManager, modifiers_down
+    from .keys import parse_modifiers
     from .ui import glass, layered
     from .ui.dock import Docker
     from .ui.glide import Glide

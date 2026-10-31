@@ -175,13 +175,6 @@ class VisionConfig:
 
 
 @dataclass
-class GlossaryEntry:
-    src: str = ""                     # 原文里的词（不分大小写）
-    dst: str = ""                     # 必须用的译法；和原文一样表示“保持不译”
-    app: str = ""                     # 只用于这个程序（如 game.exe）；空表示所有程序
-
-
-@dataclass
 class MemoryConfig:
     enabled: bool = False             # 记住译文（加密存在本机，下次相同的文字直接用）；用户主动打开才用
 

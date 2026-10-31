@@ -164,7 +164,7 @@ class UpdaterTest(unittest.TestCase):
             raise OSError("disk full")
         shutil.copytree = broken
         try:
-            with self.assertRaises(updater.UpdateError):
+            with self.assertRaises(updater.UpdateError), self.assertLogs("deskmirror.updater", "ERROR"):
                 updater.apply_package(new_app, target, 0, restart=False, old_version="1.0.0")
         finally:
             shutil.copytree = real

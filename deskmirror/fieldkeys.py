@@ -1,27 +1,23 @@
 """输入框翻译用到的键盘：被动地听空格（Raw Input），模拟按 Ctrl+A、Ctrl+V，等用户松开修饰键，找光标在屏幕上的位置。
 
-听键盘用 Raw Input（和 wheel.py 听滚轮一样挂在一个只收消息的隐藏窗口上）：只听、不拦，不会拖慢别的软件打字，
-也不是钩子、不是注入。只看空格和 Ctrl、Alt、Shift、Win；别的键只用来“重新数”，不看是什么键、不记。
+听键盘用 Raw Input（和 wheel.py 听滚轮一样挂在一个只收消息的隐藏窗口上，见 rawinput.py）：只听、不拦，
+不会拖慢别的软件打字，也不是钩子、不是注入。只看空格和 Ctrl、Alt、Shift、Win；别的键只用来“重新数”，不看是什么键、不记。
 """
 from __future__ import annotations
 
 import ctypes
 import logging
-import threading
 import time
 from ctypes import wintypes as wt
 from typing import Callable
 
-from .wheel import HWND_MESSAGE, LRESULT, RAWINPUTDEVICE, RAWINPUTHEADER, WNDCLASSW, WNDPROC
+from .rawinput import RAWINPUTHEADER, RawInputSink
 
 log = logging.getLogger(__name__)
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
-kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
-WM_INPUT, WM_CLOSE = 0x00FF, 0x0010
-RIDEV_INPUTSINK, RIDEV_REMOVE = 0x00000100, 0x00000001
-RID_INPUT, RIM_TYPEKEYBOARD, RI_KEY_BREAK = 0x10000003, 1, 1
+RIM_TYPEKEYBOARD, RI_KEY_BREAK = 1, 1
 VK_SPACE, VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN = 0x20, 0x10, 0x11, 0x12, 0x5B, 0x5C
 VK_RIGHT, VK_A, VK_C, VK_V = 0x27, 0x41, 0x43, 0x56
 MODIFIERS = (VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN)
@@ -60,18 +56,6 @@ class GUITHREADINFO(ctypes.Structure):
                 ("hwndCaret", wt.HWND), ("rcCaret", wt.RECT)]
 
 
-user32.DefWindowProcW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
-user32.DefWindowProcW.restype = LRESULT
-user32.RegisterClassW.argtypes = [ctypes.POINTER(WNDCLASSW)]
-user32.CreateWindowExW.argtypes = [wt.DWORD, wt.LPCWSTR, wt.LPCWSTR, wt.DWORD, ctypes.c_int, ctypes.c_int,
-                                   ctypes.c_int, ctypes.c_int, wt.HWND, wt.HMENU, wt.HINSTANCE, wt.LPVOID]
-user32.CreateWindowExW.restype = wt.HWND
-user32.RegisterRawInputDevices.argtypes = [ctypes.POINTER(RAWINPUTDEVICE), wt.UINT, wt.UINT]
-user32.GetRawInputData.argtypes = [wt.HANDLE, wt.UINT, wt.LPVOID, ctypes.POINTER(wt.UINT), wt.UINT]
-user32.GetRawInputData.restype = wt.UINT
-user32.GetMessageW.argtypes = [ctypes.POINTER(wt.MSG), wt.HWND, wt.UINT, wt.UINT]
-user32.PostMessageW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
-user32.DestroyWindow.argtypes = [wt.HWND]
 user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
 user32.GetAsyncKeyState.restype = ctypes.c_short
 user32.GetForegroundWindow.restype = wt.HWND
@@ -83,8 +67,6 @@ user32.SendInput.argtypes = [wt.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
 user32.SendInput.restype = wt.UINT
 user32.MapVirtualKeyW.argtypes = [wt.UINT, wt.UINT]
 user32.MapVirtualKeyW.restype = wt.UINT
-kernel32.GetModuleHandleW.argtypes = [wt.LPCWSTR]
-kernel32.GetModuleHandleW.restype = wt.HMODULE
 
 
 def modifiers_down() -> bool:
@@ -138,73 +120,31 @@ def press(*keys: int) -> None:
     user32.SendInput(len(seq), arr, ctypes.sizeof(INPUT))
 
 
-class SpaceListener(threading.Thread):
+class SpaceListener(RawInputSink):
     """在后台线程里听空格：on_space(时间, 前台窗口, 是否带修饰键) 每按下一次空格调一次（按住不放的连发也会来，
     由 inputbox.Taps 去认）；on_space_up() 松开空格；on_other() 按了别的键。"""
+    CLASS_NAME = "DeskMirrorSpaceSink"
+    USAGE = (0x01, 0x06)                     # 通用桌面 / 键盘
 
     def __init__(self, on_space: Callable[[float, int, bool], None], on_space_up: Callable[[], None],
                  on_other: Callable[[], None]) -> None:
-        super().__init__(name="space-listener", daemon=True)
+        super().__init__("space-listener")
         self._on_space, self._on_up, self._on_other = on_space, on_space_up, on_other
-        self.ok = False
-        self._hwnd = None
-        self._ready = threading.Event()
-        self._buf = ctypes.create_string_buffer(128)
 
-    def run(self) -> None:
-        self._proc = WNDPROC(self._wndproc)       # 保持引用，防止回调被回收
-        hinst = kernel32.GetModuleHandleW(None)
-        wc = WNDCLASSW()
-        wc.lpfnWndProc = self._proc
-        wc.hInstance = hinst
-        wc.lpszClassName = "DeskMirrorSpaceSink"
-        user32.RegisterClassW(ctypes.byref(wc))
-        self._hwnd = user32.CreateWindowExW(0, wc.lpszClassName, "", 0, 0, 0, 0, 0, HWND_MESSAGE, None, hinst, None)
-        dev = RAWINPUTDEVICE(0x01, 0x06, RIDEV_INPUTSINK, self._hwnd)       # 通用桌面 / 键盘
-        self.ok = bool(self._hwnd) and bool(user32.RegisterRawInputDevices(ctypes.byref(dev), 1,
-                                                                             ctypes.sizeof(RAWINPUTDEVICE)))
-        if not self.ok:
-            log.warning("听不到键盘（错误码 %s）：输入框翻译只能用快捷键", ctypes.get_last_error())
-        self._ready.set()
-        msg = wt.MSG()
-        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
-            user32.TranslateMessage(ctypes.byref(msg))
-            user32.DispatchMessageW(ctypes.byref(msg))
-        dev = RAWINPUTDEVICE(0x01, 0x06, RIDEV_REMOVE, None)
-        user32.RegisterRawInputDevices(ctypes.byref(dev), 1, ctypes.sizeof(RAWINPUTDEVICE))
+    def on_failed(self, err: int) -> None:
+        log.warning("听不到键盘（错误码 %s）：输入框翻译只能用快捷键", err)
 
-    def _wndproc(self, hwnd, umsg, wparam, lparam):
-        if umsg == WM_INPUT:
-            try:
-                size = wt.UINT(ctypes.sizeof(self._buf))
-                n = user32.GetRawInputData(lparam, RID_INPUT, self._buf, ctypes.byref(size),
-                                           ctypes.sizeof(RAWINPUTHEADER))
-                if n != 0xFFFFFFFF and n >= ctypes.sizeof(RAWINPUT_KB):
-                    ri = RAWINPUT_KB.from_buffer_copy(self._buf.raw[:ctypes.sizeof(RAWINPUT_KB)])
-                    if ri.header.dwType == RIM_TYPEKEYBOARD:
-                        vk, up = ri.keyboard.VKey, bool(ri.keyboard.Flags & RI_KEY_BREAK)
-                        if vk == VK_SPACE:
-                            if up:
-                                self._on_up()
-                            else:
-                                self._on_space(time.perf_counter(), foreground()[0], modifiers_down())
-                        elif not up and vk != 0xFF:
-                            self._on_other()
-            except Exception:  # noqa: BLE001 - 消息回调里不能抛异常
-                log.debug("解析键盘输入失败", exc_info=True)
-            return user32.DefWindowProcW(hwnd, umsg, wparam, lparam)
-        if umsg == WM_CLOSE:
-            user32.DestroyWindow(hwnd)
-            user32.PostQuitMessage(0)
-            return 0
-        return user32.DefWindowProcW(hwnd, umsg, wparam, lparam)
-
-    def start_and_wait(self, timeout: float = 2.0) -> bool:
-        self.start()
-        self._ready.wait(timeout)
-        return self.ok
-
-    def stop(self) -> None:
-        if self._hwnd:
-            user32.PostMessageW(self._hwnd, WM_CLOSE, 0, 0)
-        self.join(2.0)
+    def on_input(self, data: bytes, size: int) -> None:
+        if size < ctypes.sizeof(RAWINPUT_KB):
+            return
+        ri = RAWINPUT_KB.from_buffer_copy(data[:ctypes.sizeof(RAWINPUT_KB)])
+        if ri.header.dwType != RIM_TYPEKEYBOARD:
+            return
+        vk, up = ri.keyboard.VKey, bool(ri.keyboard.Flags & RI_KEY_BREAK)
+        if vk == VK_SPACE:
+            if up:
+                self._on_up()
+            else:
+                self._on_space(time.perf_counter(), foreground()[0], modifiers_down())
+        elif not up and vk != 0xFF:
+            self._on_other()

@@ -8,7 +8,7 @@ import os
 import tempfile
 import threading
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
@@ -191,9 +191,8 @@ class EngineGuardTest(unittest.TestCase):
 
 class CliTest(unittest.TestCase):
     def setUp(self) -> None:
-        fd, self.path = tempfile.mkstemp(suffix=".json")
-        os.close(fd)
-        os.unlink(self.path)
+        self._dir = tempfile.TemporaryDirectory()        # 配置和它的备份都放这里，用完整个删掉
+        self.path = os.path.join(self._dir.name, "deskmirror.json")
         self.env = mock.patch.dict(os.environ, {"DESKMIRROR_CONFIG": self.path})
         self.env.start()
 
@@ -201,12 +200,11 @@ class CliTest(unittest.TestCase):
         from deskmirror import i18n
         i18n.set_ui_lang("zh")          # 命令行按配置换了界面语言：别影响后面的测试
         self.env.stop()
-        if os.path.exists(self.path):
-            os.unlink(self.path)
+        self._dir.cleanup()
 
     def run_cli(self, *argv: str) -> tuple[int, str]:
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        with redirect_stdout(buf), redirect_stderr(io.StringIO()):      # 出错说明写在 stderr：测试只看退出码
             try:
                 code = cli.main(list(argv))
             except SystemExit as e:

@@ -32,6 +32,7 @@ WS_EX_LAYERED = 0x00080000
 WS_EX_NOACTIVATE = 0x08000000
 WDA_NONE = 0x0
 WDA_EXCLUDEFROMCAPTURE = 0x11
+ERROR_INVALID_WINDOW_HANDLE = 1400
 HWND_TOPMOST = wt.HWND(-1)
 SWP_NOSIZE = 0x0001
 SWP_NOMOVE = 0x0002
@@ -49,8 +50,6 @@ user32.SetWindowLongPtrW.argtypes = [wt.HWND, ctypes.c_int, LONG_PTR]
 user32.SetWindowLongPtrW.restype = LONG_PTR
 user32.SetWindowDisplayAffinity.argtypes = [wt.HWND, wt.DWORD]
 user32.SetWindowDisplayAffinity.restype = wt.BOOL
-user32.GetWindowDisplayAffinity.argtypes = [wt.HWND, ctypes.POINTER(wt.DWORD)]
-user32.GetWindowDisplayAffinity.restype = wt.BOOL
 user32.SetWindowPos.argtypes = [wt.HWND, wt.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wt.UINT]
 user32.SetWindowPos.restype = wt.BOOL
 user32.GetTopWindow.argtypes = [wt.HWND]
@@ -69,8 +68,6 @@ user32.SetLayeredWindowAttributes.argtypes = [wt.HWND, wt.DWORD, ctypes.c_ubyte,
 user32.SetLayeredWindowAttributes.restype = wt.BOOL
 user32.GetLayeredWindowAttributes.argtypes = [wt.HWND, ctypes.POINTER(wt.DWORD), ctypes.POINTER(ctypes.c_ubyte),
                                               ctypes.POINTER(wt.DWORD)]
-user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
-user32.GetAsyncKeyState.restype = ctypes.c_short
 user32.GetCursorPos.argtypes = [ctypes.POINTER(wt.POINT)]
 user32.GetForegroundWindow.restype = wt.HWND
 user32.GetAncestor.argtypes = [wt.HWND, wt.UINT]
@@ -150,6 +147,10 @@ def exclude_from_capture(hwnd: int) -> bool:
     if user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE):
         return True
     err = ctypes.get_last_error()
+    if err == ERROR_INVALID_WINDOW_HANDLE:
+        # 不是真的窗口（测试里不上屏的离屏窗口）：没有可隐身的，也不是这台电脑不支持，不提示用户
+        log.debug("SetWindowDisplayAffinity：%s 不是窗口", hwnd)
+        return False
     capture_failures.append(err)
     log.warning("SetWindowDisplayAffinity 失败，错误码 %s", err)
     return False
@@ -190,11 +191,6 @@ def include_in_capture(hwnd: int) -> bool:
     return bool(user32.SetWindowDisplayAffinity(hwnd, WDA_NONE))
 
 
-def display_affinity(hwnd: int) -> int:
-    value = wt.DWORD()
-    return int(value.value) if user32.GetWindowDisplayAffinity(hwnd, ctypes.byref(value)) else -1
-
-
 def set_exstyle(hwnd: int, add: int = 0, remove: int = 0) -> None:
     style = user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
     new = (style | add) & ~remove
@@ -208,10 +204,6 @@ def exstyle(hwnd: int) -> int:
 
 def keep_topmost(hwnd: int) -> None:
     user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER)
-
-
-def key_down(vk: int) -> bool:
-    return bool(user32.GetAsyncKeyState(vk) & 0x8000)
 
 
 def cursor_pos() -> tuple[int, int]:
@@ -415,10 +407,6 @@ def unprotect_bytes(data: bytes) -> bytes:
         return ctypes.string_at(out.pbData, out.cbData)
     finally:
         kernel32.LocalFree(out.pbData)
-
-
-def current_pid() -> int:
-    return os.getpid()
 
 
 # ---------------------------------------------------------------- 用户在不在（省钱保护）

@@ -8,7 +8,7 @@ from ctypes import wintypes
 from PySide6.QtCore import QAbstractNativeEventFilter, QObject, QTimer, Signal
 
 from .i18n import tr
-from .keys import MOD_NOREPEAT, parse_hotkey, parse_modifiers  # noqa: F401  app 从这里导入
+from .keys import MOD_NOREPEAT, parse_hotkey
 
 log = logging.getLogger(__name__)
 

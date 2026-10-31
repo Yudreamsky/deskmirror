@@ -44,22 +44,6 @@ def text_font(width: float) -> QFont:
     return f
 
 
-def bounds(m: Mark) -> QRectF:
-    """标注占的范围（大致，判断要不要重画用）。"""
-    if m.tool == "text":
-        fm = QFontMetricsF(text_font(m.width))
-        lines = m.text.split("\n") or [""]
-        w = max(fm.horizontalAdvance(s) for s in lines)
-        return QRectF(m.pts[0], m.pts[0] + QPointF(w, fm.height() * len(lines)))
-    if m.tool == "number":
-        r = number_d(m.width) / 2
-        return QRectF(m.pts[0] - QPointF(r, r), m.pts[0] + QPointF(r, r))
-    xs = [p.x() for p in m.pts]
-    ys = [p.y() for p in m.pts]
-    pad = m.width * 3 + 2
-    return QRectF(min(xs) - pad, min(ys) - pad, max(xs) - min(xs) + 2 * pad, max(ys) - min(ys) + 2 * pad)
-
-
 def _arrow(p: QPainter, a: QPointF, b: QPointF, color: QColor, width: float) -> None:
     """尾巴细、头大的箭头（和常见截图工具一样）。"""
     dx, dy = b.x() - a.x(), b.y() - a.y()

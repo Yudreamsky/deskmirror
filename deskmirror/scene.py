@@ -134,9 +134,6 @@ class Block:
     def screen_rect(self) -> Rect:
         return self.canvas.to_screen(self.rect)
 
-    def verified_here(self) -> bool:
-        return self.ok_rect is not None and self.ok_rect == self.screen_rect()
-
 
 @dataclass(frozen=True)
 class DrawItem:
