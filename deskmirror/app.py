@@ -787,6 +787,8 @@ def main() -> int:
         # -------------------------------------------------------------- 事件
         def _on_snapshot(self, snap) -> None:
             self.state.snapshot = snap
+            # 排好的译文图片只留屏幕上还在的段落（不清的话每认出一段新文字就多 0.1～0.5 MB，越用越大）
+            self.state.renderer.prune({it.bid for it in snap.items})
             self._glide_sync()
             if not self.state.hidden and not self.state.paused and self._overlay_changed(snap):
                 for o in self.overlays:

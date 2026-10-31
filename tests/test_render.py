@@ -133,6 +133,18 @@ class RenderTest(unittest.TestCase):
         c = r.image.pixelColor(150, 20)
         self.assertEqual((c.red(), c.green(), c.blue()), (24, 24, 28))
 
+    def test_cache_does_not_keep_every_paragraph_ever_seen(self) -> None:
+        # 每认出一段新文字就有一张排好的译文图：只留屏幕上还在的，不然开得越久内存越大
+        r = Renderer(StyleConfig())
+        rect = (100, 100, 600, 140)
+        for bid in range(1, 601):
+            r.get(item("Tickets are sold at the pier.", rect, bid=bid))
+            r.prune(set(range(max(1, bid - 29), bid + 1)))          # 屏幕上同时有 30 段
+        self.assertLessEqual(len(r._cache), 2 * 256 + 1)
+        self.assertTrue(set(range(571, 601)) <= set(r._cache), "屏幕上的都还在")
+        hit = r._cache[600][2]
+        self.assertIs(r.get(item("Tickets are sold at the pier.", rect, bid=600)), hit, "还在的不用重画")
+
     def test_vertical_bubble_translation_reads_vertically(self) -> None:
         # 竖排气泡的中文译文也竖着排：在“！”后面换列，标点换成竖排的写法；英文译文照旧横排
         from unittest import mock

@@ -218,6 +218,7 @@ class Renderer:
         return r
 
     def prune(self, live: set[int]) -> None:
+        """缓存太多时只留 live 里的段落（屏幕上还在的）；刚滚出去的在上限以内照样留着，滚回来不用重画。"""
         if len(self._cache) > 2 * max(256, len(live)):
             for bid in [b for b in self._cache if b not in live]:
                 del self._cache[bid]
