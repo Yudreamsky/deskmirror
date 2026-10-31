@@ -81,11 +81,22 @@ class HotkeyManager(QObject):
     def __init__(self, app) -> None:
         super().__init__()
         self._actions: dict[int, str] = {}
+        self._taken: dict[str, tuple[int, int, int, str]] = {}   # 被别的程序占着的：动作名 → (编号, 修饰键, 键, 组合键)
         self._filter = _NativeFilter(self._dispatch)
         app.installNativeEventFilter(self._filter)
 
+    @property
+    def registered(self) -> list[str]:
+        """已经注册上的动作名。"""
+        return sorted(self._actions.values())
+
+    @property
+    def taken(self) -> dict[str, str]:
+        """被别的程序占着、还没接回来的快捷键：动作名 → 组合键。"""
+        return {action: t[3] for action, t in self._taken.items()}
+
     def register(self, bindings: dict[str, str]) -> list[str]:
-        """注册一组热键（动作名 → 组合键），返回注册失败的说明。"""
+        """注册一组热键（动作名 → 组合键），返回注册失败的说明。被别的程序占着的记下来，retry() 再试。"""
         self.unregister_all()
         errors = []
         for hid, (action, combo) in enumerate(bindings.items(), start=1):
@@ -99,15 +110,28 @@ class HotkeyManager(QObject):
             if user32.RegisterHotKey(None, hid, mods | MOD_NOREPEAT, vk):
                 self._actions[hid] = action
             else:
+                self._taken[action] = (hid, mods, vk, combo)
                 errors.append(tr("{combo} 注册失败，可能被其他程序占用了").format(combo=combo))
         for err in errors:
             log.warning(err)
         return errors
 
+    def retry(self) -> list[str]:
+        """被占着的快捷键再试一次（那个程序退了、换了键就能接回来），返回这次接回来的动作名。"""
+        got = []
+        for action, (hid, mods, vk, combo) in list(self._taken.items()):
+            if user32.RegisterHotKey(None, hid, mods | MOD_NOREPEAT, vk):
+                self._actions[hid] = action
+                del self._taken[action]
+                log.info("快捷键 %s 现在能用了", combo)
+                got.append(action)
+        return got
+
     def unregister_all(self) -> None:
         for hid in self._actions:
             user32.UnregisterHotKey(None, hid)
         self._actions.clear()
+        self._taken.clear()
 
     def _dispatch(self, hid: int) -> bool:
         action = self._actions.get(hid)

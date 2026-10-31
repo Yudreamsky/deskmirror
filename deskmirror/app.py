@@ -276,6 +276,9 @@ def main() -> int:
             self.field.tip.connect(self._show_field_tip)
             self.field.used.connect(self._count_field_usage)
             self._register_keys()
+            # 被别的程序占着的快捷键隔几秒再试一次：那个程序退了就接回来，不用重启魔镜
+            self._key_timer = QTimer(self, interval=5000, timeout=self._retry_keys)
+            self._key_timer.start()
             self._engine_on = False
             self._restore_docks()
             for o in self.overlays:
@@ -343,28 +346,30 @@ def main() -> int:
             少用的收进子菜单，快捷键写在右边。"""
             menu = QMenu()
             menu.setToolTipsVisible(True)
-            hk = self.cfg.hotkeys
+            self._key_items = []
 
-            def item(parent: QMenu, text: str, slot, key: str = "", tip: str = "") -> QAction:
-                act = QAction(_keyed(text, key), parent)
+            def item(parent: QMenu, text: str, slot, action: str = "", tip: str = "") -> QAction:
+                """action：快捷键对应的动作名（见 _bindings），有的话快捷键写在右边。"""
+                act = QAction(self._key_text(text, action), parent)
                 act.triggered.connect(lambda *_a, s=slot: s())        # 不把 checked 传给 slot
                 if tip:
                     act.setToolTip(tip)
                 parent.addAction(act)
+                if action:
+                    self._key_items.append((act, text, action))
                 return act
 
-            self.act_toggle = item(menu, tr("显示魔镜") if self.state.hidden else tr("隐藏魔镜"), self.toggle_visible,
-                                   hk.toggle_visible)
+            self.act_toggle = item(menu, tr("显示魔镜") if self.state.hidden else tr("隐藏魔镜"), self.toggle_visible)
             self.act_pause = item(menu, tr("继续翻译") if self.state.paused else tr("暂停翻译"), self.toggle_pause,
                                   tip=tr("框留着，不识别、不翻译，也不花翻译费用"))
-            item(menu, tr("刷新镜框内区域"), self.refresh, hk.refresh)
+            item(menu, tr("刷新镜框内区域"), self.refresh, "refresh")
             item(menu, tr("新建一个魔镜"), self.add_mirror)
             menu.addSeparator()
-            item(menu, tr("截图"), self.start_capture, hk.capture)
-            item(menu, tr("贴图"), self.pin_clipboard, hk.pin)
+            item(menu, tr("截图"), self.start_capture, "capture")
+            item(menu, tr("贴图"), self.pin_clipboard, "pin")
             self.act_close_pins = item(menu, tr("关闭所有贴图"), self.pins.close_all)
-            item(menu, tr("看图翻译"), self.look, hk.vision, tr("把镜框里的画面交给能看图的模型来读、来翻"))
-            item(menu, tr("历史记录…"), self.toggle_history, hk.history, tr("最近在魔镜里出现过的原文和译文"))
+            item(menu, tr("看图翻译"), self.look, "vision", tr("把镜框里的画面交给能看图的模型来读、来翻"))
+            item(menu, tr("历史记录…"), self.toggle_history, "history", tr("最近在魔镜里出现过的原文和译文"))
             menu.addSeparator()
             scope_menu = menu.addMenu(tr("翻译范围"))
             scope_menu.addSection(tr("预译范围"))
@@ -402,6 +407,8 @@ def main() -> int:
             # 屏幕上有贴图时才出现“关闭所有贴图”
             self.act_close_pins.setVisible(bool(self.pins.items))
             menu.aboutToShow.connect(lambda: self.act_close_pins.setVisible(bool(self.pins.items)))
+            self._toggle_text()
+            menu.aboutToShow.connect(self._retry_keys)       # 打开菜单时先再试一次被占着的快捷键，菜单上写的是现在的情况
             old, self._menu = self._menu, menu
             self.tray.setContextMenu(menu)
             if old is not None:
@@ -718,24 +725,55 @@ def main() -> int:
             x, y = r[0] + ((r[2] - r[0]) - cw) // 2, r[1] + ((r[3] - r[1]) - ch) // 2
             return (x, y, x + cw, y + ch)
 
+        def _bindings(self) -> dict[str, str]:
+            """动作名 → 快捷键。"""
+            hk = self.cfg.hotkeys
+            return {"peek": hk.peek, "refresh": hk.refresh, "toggle": hk.toggle_visible, "history": hk.history,
+                    "vision": hk.vision, "capture": hk.capture, "pin": hk.pin,
+                    # 输入框翻译打开时才占用它的快捷键
+                    "input": hk.input if self.cfg.input.enabled else ""}
+
         def _register_keys(self) -> None:
             dlg = getattr(self, "_settings", None)      # 启动时第一次注册早于 _settings 赋值
             if dlg is not None and dlg.isVisible():
                 return              # 设置窗口开着时快捷键先放开（见 open_settings），关窗时再注册
-            hk = self.cfg.hotkeys
-            errors = self.hotkeys.register({"peek": hk.peek, "refresh": hk.refresh, "toggle": hk.toggle_visible,
-                                            "history": hk.history, "vision": hk.vision,
-                                            "capture": hk.capture, "pin": hk.pin,
-                                            # 输入框翻译打开时才占用它的快捷键
-                                            "input": hk.input if self.cfg.input.enabled else ""})
+            errors = self.hotkeys.register(self._bindings())
             try:
-                self._drag_mods = parse_modifiers(hk.drag_modifiers)
+                self._drag_mods = parse_modifiers(self.cfg.hotkeys.drag_modifiers)
             except ValueError as e:
                 errors.append(str(e))
                 self._drag_mods = []
+            self._refresh_key_texts()
             if errors:
+                if self.hotkeys.taken:
+                    errors.append(tr("那个程序放开这些键以后，魔镜会自动接回来。"))
                 self.tray.showMessage(tr("部分快捷键不可用"), "\n".join(errors), QSystemTrayIcon.MessageIcon.Warning, 8000)
                 log.warning("快捷键：%s", errors)
+
+        def _retry_keys(self) -> None:
+            """被别的程序占着的快捷键再试一次，接回来了就把菜单上的“被占用”去掉。设置窗口开着时不试（那时故意放开）。"""
+            dlg = getattr(self, "_settings", None)
+            if not self.hotkeys.taken or (dlg is not None and dlg.isVisible()):
+                return
+            if self.hotkeys.retry():
+                self._refresh_key_texts()
+
+        def _key_text(self, text: str, action: str) -> str:
+            """菜单项的字：快捷键写在右边；被别的程序占着时注明（按了不会到魔镜这里）。"""
+            key = self._bindings().get(action, "") if action else ""
+            if key and action in self.hotkeys.taken:
+                key = tr("{key}（被占用）").format(key=key)
+            return _keyed(text, key)
+
+        def _toggle_text(self) -> None:
+            self.act_toggle.setText(self._key_text(tr("显示魔镜") if self.state.hidden else tr("隐藏魔镜"), "toggle"))
+
+        def _refresh_key_texts(self) -> None:
+            if self._menu is None:
+                return              # 启动时菜单先建好，这里只在注册之后、接回来之后更新字
+            for act, text, action in self._key_items:
+                act.setText(self._key_text(text, action))
+            self._toggle_text()
 
         def _on_tray(self, reason) -> None:
             if reason == QSystemTrayIcon.ActivationReason.Trigger:
@@ -1503,8 +1541,7 @@ def main() -> int:
             for f in self.frames:
                 f.dock.set_hidden(self.state.hidden)
                 f.setVisible(not self.state.hidden and not f.suspended and not f.dock.docked)
-            self.act_toggle.setText(_keyed(tr("显示魔镜") if self.state.hidden else tr("隐藏魔镜"),
-                                           self.cfg.hotkeys.toggle_visible))
+            self._toggle_text()
             self._glide_sync()
             for o in self.overlays:
                 o.update()
@@ -1913,6 +1950,12 @@ def main() -> int:
                 if req.get("close"):
                     m.close()
                 return out
+            if cmd == "hotkeys":
+                # 快捷键（测试用）：注册上的、被别的程序占着的、托盘菜单上写的字（不用弹菜单）；retry 先再试一次
+                if req.get("retry"):
+                    self._retry_keys()
+                return {"registered": self.hotkeys.registered, "taken": self.hotkeys.taken,
+                        "menu": [a.text() for a in self._menu.actions() if a.text()]}
             if cmd == "settings":
                 # 设置窗口开没开（测试用）；close 不保存关掉
                 d = self._settings
@@ -2301,6 +2344,7 @@ def main() -> int:
             log.info("正在退出")
             self.timer.stop()
             self._guard_timer.stop()
+            self._key_timer.stop()
             self._count_engine_usage()
             self.hotkeys.unregister_all()
             self._keep_mirrors(self.cfg)

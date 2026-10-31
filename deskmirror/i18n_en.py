@@ -1347,4 +1347,9 @@ EN: dict[str, str] = {
     '框选完做什么（框好就已经放进剪贴板）：toolbar = 弹出工具栏；copy = 直接关掉；pin = 直接贴到屏幕':
         'What happens after you select (the selection is already on the clipboard): toolbar = show the '
         'toolbar; copy = close right away; pin = pin it on screen right away',
+    # 快捷键被别的程序占着：菜单上注明，放开后自动接回来
+    '那个程序放开这些键以后，魔镜会自动接回来。':
+        'DeskMirror takes these keys back by itself once that program lets go of them.',
+    '{key}（被占用）':
+        '{key} (in use)',
 }
