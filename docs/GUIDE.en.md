@@ -27,7 +27,9 @@ browser or extension.
   ready only then, so it doesn't slow down startup). It's stored in Windows' startup list, so you can also turn it off
   under Startup apps in Task Manager.
 - To see the log: `start.bat debug` (runs with a console window). The log file is `logs\deskmirror.log`; it records
-  only timings and counts, never screen text.
+  only timings and counts, never screen text. Program errors go there too (what kind of error and where in the
+  code); if the program ever crashes outright, what each thread was doing is written to `logs\crash.log`. If you run
+  into a problem, sending these two files to the author is enough.
 
 ## Controls
 
@@ -59,8 +61,9 @@ browser or extension.
 | Other screenshot or recording tools | The mirror is hidden from screen capture (it reads the screen through screen capture itself), so other tools don't see it or its translations. To use them, turn on **Let screenshot tools capture the mirror** under "Screenshot of the frame" in the tray menu, or in the tab's right-click menu: translations stay frozen meanwhile; turn it off when you're done and the mirror carries on |
 | Read a cut-off translation in full | A block with a small triangle at its bottom right didn't fit; hover over it to see the full text |
 
-The default hotkeys may conflict with other programs on your PC: if registering one fails, the tray tells you, and
-you can change them in Settings → Hotkeys.
+The default hotkeys may conflict with other programs on your PC: if registering one fails, the tray tells you, and the
+tray menu shows "(in use)" after that key. Once the other program quits or changes its key, DeskMirror takes the key
+back within a few seconds, without a restart; you can also pick another key in Settings → Hotkeys.
 While Ctrl+Alt is held, the mouse inside the frame drags the mirror, so actions like "Ctrl+Alt+click" don't reach the
 program underneath while the pointer is inside the frame.
 
@@ -333,9 +336,12 @@ restart, and the command tells you so.
 
 ## Resetting and uninstalling
 
-- **Reset to default settings**: quit DeskMirror, delete `deskmirror.json` in the program folder (the unzipped folder,
-  or the project folder when running from source) and start it again (the API key is removed too and has to be
-  entered again).
+- **Reset to default settings**: quit DeskMirror, delete `deskmirror.json` and its backup `deskmirror.bak.json` in the
+  program folder (the unzipped folder, or the project folder when running from source) and start it again (the API
+  key is removed too and has to be entered again).
+- **If the settings file gets damaged**: every time the settings are saved, a backup `deskmirror.bak.json` is written
+  too. If `deskmirror.json` is ever damaged (say, by a power cut or crash while saving), the next start restores it
+  from the backup and says so in a tray notification; the damaged file is kept as `deskmirror.broken.json`.
 - **Uninstall**: quit DeskMirror and delete the whole program folder. It doesn't change any system settings. If you
   turned on starting with Windows, turn it off first (Settings → General, or `config set autostart
   false`); otherwise Windows' startup list keeps an entry pointing at a program that's gone.

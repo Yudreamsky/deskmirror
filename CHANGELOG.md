@@ -1,5 +1,43 @@
 # 更新记录 / Changelog
 
+## 未发布
+
+出错、崩溃都会记进日志；快捷键被别的程序占着时托盘菜单上会注明，那个程序放开后自动接回来；设置文件留备份，
+坏了自动恢复；修好开久了内存一直涨的问题；用显卡识别稍快一点。
+
+- **出错会记进日志**：以前没有控制台窗口时（开始菜单、开机自启、安装版），按钮、菜单、定时器和后台线程里没接住的错误
+  直接丢了，日志里一个字都没有；现在都记进 `logs\deskmirror.log`（哪种错误、出在代码哪一行，不记屏幕上的字），
+  Qt 的警告也记（同一句一分钟只记一次）；程序直接崩掉时，各线程当时在做什么记在 `logs\crash.log`。
+- **快捷键被占用看得见、自动接回来**：被别的程序占着的快捷键（比如 PixPin 占着 Ctrl+1），托盘菜单上这个键后面写着
+  “（被占用）”；那个程序退出或者换了键，魔镜几秒内自动接回来，不用重启魔镜。
+- **设置文件留备份**：保存设置时先确实写进硬盘再换上，同时写一份备份 `deskmirror.bak.json`；`deskmirror.json` 万一坏了
+  （比如断电、死机时正在保存），下次启动用备份恢复，托盘提示一句，不再丢掉所有设置和 API Key。
+- **开久了内存不再一直涨**：排好的译文图片以前从不清理，每认出一段新文字就多占一点内存（一段约 0.2 MB）；
+  现在只留屏幕上还在的段落。
+- **用显卡识别稍快一点**：一次认 64 行（原来 16 行），整屏网页认字快约一成，认出的字不变。
+- 代码整理：删掉没人用的代码，滚轮和输入框翻译共用一份监听键盘鼠标的代码。
+
+Errors and crashes are now written to the log; a hotkey held by another program is marked in the tray menu and taken
+back automatically once that program lets go; the settings file keeps a backup and is restored from it if damaged;
+memory no longer keeps growing the longer DeskMirror runs; recognition on the graphics card is a little faster.
+
+- **Errors go to the log**: without a console window (Start menu, start with Windows, installed version), uncaught
+  errors in buttons, menus, timers and background threads used to vanish without a trace. They are now written to
+  `logs\deskmirror.log` (what kind of error and where in the code, never screen text), Qt's own warnings too (the
+  same warning at most once a minute); if the program crashes outright, what each thread was doing goes to
+  `logs\crash.log`.
+- **Hotkeys in use are shown and taken back**: a hotkey held by another program (say PixPin holding Ctrl+1) shows
+  "(in use)" after it in the tray menu; once that program quits or changes its key, DeskMirror takes the key back
+  within a few seconds, without a restart.
+- **Settings backup**: settings are now made sure to be on disk before replacing the old file, and a backup
+  `deskmirror.bak.json` is written too. If `deskmirror.json` is ever damaged (say, by a power cut or crash while
+  saving), the next start restores it from the backup and says so, instead of losing all settings and the API key.
+- **Memory no longer keeps growing**: laid-out translations were never cleared, so every newly recognized paragraph
+  took a little more memory (about 0.2 MB each); now only the paragraphs still on screen are kept.
+- **Slightly faster recognition on the graphics card**: 64 lines at a time instead of 16, about 10% faster on a
+  full-screen web page, with the same text recognized.
+- Code cleanup: removed unused code; mouse-wheel and input-box listening now share one piece of code.
+
 ## 1.5.1（2026-10-27）
 
 截图框好就放进剪贴板，不点复制、按 Esc 关掉也能直接粘贴；魔镜标签上的 token 用量挪到最右头，点一下才弹明细。
