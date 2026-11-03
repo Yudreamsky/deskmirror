@@ -262,6 +262,7 @@ class Engine(threading.Thread):
         self._geo_frame_t = 0.0
         self._last_others = 0.0
         self._all_infos: list[winapi.Monitor] = []
+        self._monitors_dirty = False                         # 界面发现显示器变了（见 monitors_changed）
         self._last_mon_check = 0.0
         self._switch_to: tuple[str, float] | None = None
         self.wheel = None
@@ -365,6 +366,32 @@ class Engine(threading.Thread):
         if now - self._switch_to[1] < 0.5:
             return
         self._switch_to = None
+        self._use_monitors([info])
+        self._metric("monitor_switch", device=info.device)
+        log.info("改为处理魔镜所在的屏幕 %s", info.device)
+
+    def monitors_changed(self) -> None:
+        """显示器变了（分辨率、插拔、排列；界面线程调）：下一轮按现在的显示器重新准备截屏。"""
+        self._monitors_dirty = True
+
+    def _reset_monitors(self) -> None:
+        self._all_infos = winapi.monitors()
+        if not self.mons or not self._all_infos:
+            return
+        infos = self._all_infos if self.cfg.track.all_monitors else [self._mirror_monitor()]
+        self._use_monitors(infos)
+        # 分辨率变了，窗口里的内容多半也挪了：所有段落先当作没核对过，对得上的才显示
+        self.episodes.clear()
+        self._vel_shown = set()
+        for b in self.blocks.values():
+            b.ok_rect = None
+        for mr in self._mirrors:
+            self._refresh(mr)
+        self._metric("monitors_changed", devices=[i.device for i in infos])
+        log.info("显示器变了，按现在的显示器重新截屏：%s", ", ".join(i.device for i in infos))
+
+    def _use_monitors(self, infos: list[winapi.Monitor]) -> None:
+        """换成处理这些显示器：关掉旧的截屏，在途的识别作废；不再处理的屏幕上的块没法再核对，删掉（译文缓存还在）。"""
         for m in self.mons:
             try:
                 m.cap.close()
@@ -373,12 +400,11 @@ class Engine(threading.Thread):
         if self.ocr_busy is not None:
             self.jobs.pop(self.ocr_busy.job.job_id, None)
             self.ocr_busy = None
-        self.mons = [self._make_mon(0, info)]
+        self.mons = [self._make_mon(i, info) for i, info in enumerate(infos)]
+        self._hashes.clear()                      # 按显示器和帧号记的行哈希：帧号从头数，旧的不能再用
         for b in list(self.blocks.values()):
-            if not geom.overlaps(b.screen_rect(), info.rect):
-                self._delete_block(b, "monitor")  # 不再处理的屏幕上的块：没法再核对，删掉（译文缓存还在）
-        self._metric("monitor_switch", device=info.device)
-        log.info("改为处理魔镜所在的屏幕 %s", info.device)
+            if not any(geom.overlaps(b.screen_rect(), info.rect) for info in infos):
+                self._delete_block(b, "monitor")
         self._scene_changed()
 
     def _tick(self) -> bool:
@@ -390,6 +416,9 @@ class Engine(threading.Thread):
             self._maybe_save_memory(t0)
             time.sleep(0.05)
             return True
+        if self._monitors_dirty:
+            self._monitors_dirty = False
+            self._reset_monitors()
         self._check_monitor_switch(t0)
         t1 = time.perf_counter()
         if t1 - self._last_windows >= 0.02:

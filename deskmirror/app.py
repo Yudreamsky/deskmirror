@@ -50,6 +50,36 @@ def _short_num(n: int) -> str:
     return f"{n / 1_000_000:.2f}M"
 
 
+def _monitor_sig(mons) -> tuple:
+    """显示器布局的样子（名字、范围、缩放）：有一样变了，译文层就要按新的显示器重建。"""
+    return tuple((m.device, tuple(m.rect), m.dpi) for m in mons)
+
+
+def _monitor_text(sig: tuple) -> str:
+    return ", ".join(f"{dev} {r[2] - r[0]}x{r[3] - r[1]}" for dev, r, _dpi in sig) or "none"
+
+
+class _Settled:
+    """一个值变了、而且停稳 delay 秒以后才算数：换分辨率、插拔显示器时，中间会闪过几种样子。"""
+
+    def __init__(self, value, delay: float = 1.0) -> None:
+        self.value, self.delay = value, delay
+        self._new = None                  # (还没停稳的新值, 第一次看到它的时刻)
+
+    def update(self, value, now: float) -> bool:
+        """又看到一次 value：确定换成它了返回 True（self.value 跟着换）。"""
+        if value == self.value:
+            self._new = None
+            return False
+        if self._new is None or self._new[0] != value:
+            self._new = (value, now)
+            return False
+        if now - self._new[1] < self.delay:
+            return False
+        self.value, self._new = value, None
+        return True
+
+
 def _setup_logging() -> None:
     logdir = ROOT / "logs"
     logdir.mkdir(exist_ok=True)
@@ -119,7 +149,7 @@ def main() -> int:
     from .hotkeys import HoldShortcut, HotkeyManager, modifiers_down
     from .keys import parse_modifiers
     from .ui import glass, layered
-    from .ui.dock import Docker
+    from .ui.dock import Docker, fit_rect
     from .ui.glide import Glide
     from .ui.mirror import MirrorFrame
     from .ui.overlay import Overlay, UiState
@@ -203,6 +233,7 @@ def main() -> int:
             mons = winapi.monitors()
             self.overlays = [Overlay(m, self.state) for m in mons]
             self.glide = self._make_glide(mons)                # 镜内的译文交给系统合成器（建不起来就用原来的）
+            self._monitors = _Settled(_monitor_sig(mons))      # 显示器变了就重建上面两层（见 _check_monitors）
             self._overlay_sig = None
             rect = tuple(cfg.mirror_rect) if cfg.mirror_rect else self._default_rect(mons)
             self.state.mirror = rect
@@ -1652,6 +1683,7 @@ def main() -> int:
             if now - self._last_cfg_check > 1.0:
                 self._last_cfg_check = now
                 self._check_config_file()
+                self._check_monitors(now)
                 if self._quit_event and _k32.WaitForSingleObject(self._quit_event, 0) == 0:
                     log.info("命令行请魔镜退出（要更新）")
                     self.quit_app()
@@ -1669,6 +1701,47 @@ def main() -> int:
                     for f in self.frames:
                         if f.dock.docked and f.dock.ball.isVisible():
                             winapi.keep_topmost(int(f.dock.ball.winId()))
+
+        def _check_monitors(self, now: float) -> None:
+            """显示器变了（分辨率、插拔、排列、缩放），停稳以后按新的显示器重建译文层。开机自启时屏幕可能先是
+            1024×768，过一会儿才变成真正的分辨率：不重建的话，译文、收起的球、缩成球的动画只画在原来那么大的一块里。"""
+            mons = winapi.monitors()
+            old = self._monitors.value
+            if mons and self._monitors.update(_monitor_sig(mons), now):
+                self._rebuild_layers(mons, old)
+
+        def _rebuild_layers(self, mons, old_sig: tuple) -> None:
+            log.info("显示器变了：%s → %s，按新的显示器重建译文层", _monitor_text(old_sig),
+                     _monitor_text(_monitor_sig(mons)))
+            for f in self.frames:
+                f.dock.cancel()                         # 正在拖：按现在的样子了结
+            old = self.overlays
+            self.overlays = [Overlay(m, self.state) for m in mons]
+            for o in self.overlays:
+                o.show()
+            for o in old:
+                o.close()
+                o.deleteLater()
+            if self.glide is not None:                  # 原来没用系统合成器（Windows 10 色键窗口等）就照旧不用
+                g, self.glide = self.glide, None
+                try:
+                    g.close()
+                except Exception:  # noqa: BLE001 - 旧的关不干净也要建新的
+                    log.exception("关掉旧的译文层（系统合成器）出错")
+                self.glide = self._make_glide(mons)
+            self.state.glide = self.engine.glide = self.glide is not None
+            self._overlay_sig = None
+            for f in self.frames:
+                if f.dock.docked:
+                    f.dock.dock_now(f.dock.saved())     # 球按新的显示器重新放（原来那块屏幕没了就吸到最近的一边）
+                else:
+                    home = fit_rect(f.mirror, mons)     # 魔镜在拔掉的屏幕上：挪回看得见的地方
+                    if home != f.mirror:
+                        f.set_mirror(home)
+                        f.rect_changed.emit(home, True)
+            self.engine.monitors_changed()
+            self._sync_mirrors()
+            self._save_mirrors()
 
         def _glass_tick(self, now: float) -> None:
             """液态玻璃：边框、标签、球后面的画面变了就重新折射（截图模式下魔镜截得到自己，不更新）。"""
@@ -2277,6 +2350,25 @@ def main() -> int:
                 out["meter_open"] = f.meter_open
                 out["tip"] = self.tip.isVisible()
                 return out
+            if cmd == "fake_monitors":
+                # 测试用：按假的显示器范围（rects，一块一个）重建译文层，像开机时屏幕先是 1024×768 那样；
+                # 每秒一次的 _check_monitors 会发现真的显示器不是这样，停稳后按真的改回来
+                real = winapi.monitors()
+                fake = [winapi.Monitor(m.device, tuple(r), tuple(r), m.dpi, m.primary)
+                        for m, r in zip(real, req["rects"])]
+                self._rebuild_layers(fake, self._monitors.value)
+                self._monitors = _Settled(_monitor_sig(fake))
+                cmd = "layers"
+            if cmd == "layers":
+                # 译文层、合成器层、各个魔镜收起的球现在在哪（测试用）
+                return {"monitors": [[m.device, list(m.rect)] for m in winapi.monitors()],
+                        "overlays": [list(o.mon.rect) for o in self.overlays],
+                        "overlay_windows": [list(winapi.window_rect(int(o.winId())) or ()) for o in self.overlays],
+                        "glide": [list(winapi.window_rect(h) or ()) for h in (self.glide.hwnds() if self.glide else ())],
+                        "balls": [{"docked": f.dock.docked, "edge": f.dock.edge, "visible": f.dock.ball.isVisible(),
+                                   "window": list(f.dock.ball.geometry().getCoords()),
+                                   "shape": list(f.dock.shape().box()) if f.dock.shape() else None}
+                                  for f in self.frames]}
             if cmd == "dock":
                 # 不要动画直接收成球（spot：{"edge", "x", "y"}，不给就吸到近的一边）；unfold：点开
                 f = self.frames[int(req.get("index", 0))]
