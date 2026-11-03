@@ -2,9 +2,12 @@
 
 ## 未发布
 
-出错、崩溃都会记进日志；快捷键被别的程序占着时托盘菜单上会注明，那个程序放开后自动接回来；设置文件留备份，
-坏了自动恢复；修好开久了内存一直涨的问题。
+显示器变了（开机时分辨率还没就绪、改分辨率、插拔显示器）魔镜能跟上；出错、崩溃都会记进日志；快捷键被别的程序占着时
+托盘菜单上会注明，那个程序放开后自动接回来；设置文件留备份，坏了自动恢复；修好开久了内存一直涨的问题。
 
+- **显示器变了也能跟上**：开机自启时屏幕可能先是 1024×768，过一会儿才变成真正的分辨率。以前魔镜按开机那一刻的屏幕
+  画译文和收起的球，之后在左上角那一块以外吸边成球时，魔镜藏起来了球却看不见，译文也只出现在那一块里。现在分辨率、
+  显示器、排列一变，魔镜一两秒内按新的显示器重来；收起的球回到原来那条边，点开照样回到原来的地方。
 - **出错会记进日志**：以前没有控制台窗口时（开始菜单、开机自启、安装版），按钮、菜单、定时器和后台线程里没接住的错误
   直接丢了，日志里一个字都没有；现在都记进 `logs\deskmirror.log`（哪种错误、出在代码哪一行，不记屏幕上的字），
   Qt 的警告也记（同一句一分钟只记一次）；程序直接崩掉时，各线程当时在做什么记在 `logs\crash.log`。
@@ -19,10 +22,17 @@
   现在只留屏幕上还在的段落。
 - 代码整理：删掉没人用的代码，滚轮和输入框翻译共用一份监听键盘鼠标的代码。
 
-Errors and crashes are now written to the log; a hotkey held by another program is marked in the tray menu and taken
-back automatically once that program lets go; the settings file keeps a backup and is restored from it if damaged;
-memory no longer keeps growing the longer DeskMirror runs.
+DeskMirror now keeps up when the displays change (a resolution not ready yet at startup, a new resolution, a monitor
+plugged in or out); errors and crashes are written to the log; a hotkey held by another program is marked in the tray
+menu and taken back automatically once that program lets go; the settings file keeps a backup and is restored from it
+if damaged; memory no longer keeps growing the longer DeskMirror runs.
 
+- **Keeps up when the displays change**: right after signing in, Windows may run the screen at 1024×768 for a while
+  before switching to its real resolution. DeskMirror used to draw translations and the tucked-away ball only within
+  the screen as it was at startup, so when you tucked a mirror away outside that top-left area, the mirror hid but no
+  ball appeared, and translations only showed up in that area. Now when the resolution, the monitors or their
+  arrangement change, DeskMirror adapts within a second or two; a tucked-away ball goes back to its edge and still
+  opens where it was.
 - **Errors go to the log**: without a console window (Start menu, start with Windows, installed version), uncaught
   errors in buttons, menus, timers and background threads used to vanish without a trace. They are now written to
   `logs\deskmirror.log` (what kind of error and where in the code, never screen text), Qt's own warnings too (the
