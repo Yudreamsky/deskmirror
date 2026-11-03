@@ -497,17 +497,15 @@ class Docker(QObject):
     def shape(self) -> Shape | None:
         return self.shapes.get(id(self))
 
-    def dock_now(self, spot: dict | None = None) -> None:
-        """不要动画，直接收成球藏在边上（启动时恢复上次的样子、开机自启）。spot：上次存的位置，
-        没有或者用不了就吸到离魔镜近的一边。"""
-        mons = winapi.monitors()
+    def dock_now(self, spot: dict | None = None, mons: list | None = None) -> None:
+        """不要动画，直接收成球藏在边上（启动时恢复上次的样子、开机自启、显示器变了以后重新放）。spot：上次存的位置，
+        没有或者用不了就吸到离魔镜近的一边。mons：按这些显示器放（默认现在的）。
+        魔镜自己的位置（点开回到哪）这里不动：开机时屏幕可能暂时是 1024×768，点开时 unfold 才按那时的显示器挪进来。"""
+        mons = mons or winapi.monitors()
         edge, mon, along = (restore_dock(spot, mons) if spot else None) or default_dock(self.frame.mirror, mons)
         self._end_live(keep=False)
         self.g = None
         self.edge, self.mon, self.along, self.tucked = edge, mon, along, True
-        home = fit_rect(self.frame.mirror, mons)
-        if home != self.frame.mirror:
-            self.frame.set_mirror(home)
         self.frame.set_ghost(False)
         self.frame.hide()
         shape = self._ball_shape(True)

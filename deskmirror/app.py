@@ -1733,7 +1733,7 @@ def main() -> int:
             self._overlay_sig = None
             for f in self.frames:
                 if f.dock.docked:
-                    f.dock.dock_now(f.dock.saved())     # 球按新的显示器重新放（原来那块屏幕没了就吸到最近的一边）
+                    f.dock.dock_now(f.dock.saved(), mons)   # 球按新的显示器重新放（原来那块屏幕没了就吸到最近的一边）
                 else:
                     home = fit_rect(f.mirror, mons)     # 魔镜在拔掉的屏幕上：挪回看得见的地方
                     if home != f.mirror:
@@ -2366,6 +2366,7 @@ def main() -> int:
                         "overlay_windows": [list(winapi.window_rect(int(o.winId())) or ()) for o in self.overlays],
                         "glide": [list(winapi.window_rect(h) or ()) for h in (self.glide.hwnds() if self.glide else ())],
                         "balls": [{"docked": f.dock.docked, "edge": f.dock.edge, "visible": f.dock.ball.isVisible(),
+                                   "home": list(f.mirror),
                                    "window": list(f.dock.ball.geometry().getCoords()),
                                    "shape": list(f.dock.shape().box()) if f.dock.shape() else None}
                                   for f in self.frames]}

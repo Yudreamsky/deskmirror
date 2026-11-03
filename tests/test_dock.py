@@ -262,6 +262,24 @@ class GestureTest(unittest.TestCase):
         self.assertTrue(f.visible)
         self.assertEqual(f.mirror, (600, 300, 1240, 660))
 
+    def test_small_screen_at_startup_keeps_where_it_opens(self) -> None:
+        # 开机自启时屏幕可能暂时是 1024×768：球放在那块小屏幕的边上，点开回到哪不动；
+        # 屏幕变回原来的大小以后重新放，球回到真的右边，点开照样回到原来的地方
+        d, f = self.d, self.frame
+        home = f.mirror
+        small = winapi.Monitor(MAIN.device, (0, 0, 1024, 768), (0, 0, 1024, 728), 96, True)
+        d.dock_now({"edge": "r", "x": 1887, "y": 400}, [small])
+        self.assertEqual(f.mirror, home, "点开回到哪不动")
+        tuck = d.ball.x() + d.ball.width() - 1024
+        self.assertTrue(0 <= tuck < 40, "球在小屏幕的右边（藏进边缘一部分）")
+        d.dock_now(d.saved(), [MAIN])
+        self.assertEqual(d.ball.x() + d.ball.width() - 1920, tuck, "屏幕变回来：球回到真的右边")
+        self.assertEqual(d.edge, "r")
+        d.ball_press(QPoint(1915, 400))
+        d.release(QPoint(1915, 400))
+        self._settle()
+        self.assertEqual(f.mirror, home, "点开回到原来的地方")
+
     def test_hover_slides_out_and_tucks_back(self) -> None:
         d = self.d
         d.dock_now({"edge": "r", "x": 1887, "y": 400})
