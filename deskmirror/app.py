@@ -917,7 +917,7 @@ def main() -> int:
             """看图翻译：把镜框里的画面（原样，不带译文）发给能看图的模型，结果在弹出窗口里一段段出来。
             发给本机以外的服务前，每次都先问。"""
             from . import vision
-            vc = self.cfg.vision
+            vc = config.vision_service(self.cfg)
             region = tuple(region or (f or self.frame).mirror)
             local = vision.is_local(vc.base_url)
             if not local and not self._confirm(

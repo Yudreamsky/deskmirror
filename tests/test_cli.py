@@ -124,6 +124,14 @@ class CliTest(unittest.TestCase):
         self.assertEqual(config.load().llm.concurrency, 1, "本机 Ollama 一次一个")
         self.assertEqual(self.json_cli("service", "nosuch")[0], 1)
 
+    def test_vision_can_use_the_translation_service(self) -> None:
+        self.json_cli("service", "ollama-cloud")
+        self.assertEqual(cli._service_config(config.load(), True).model, "gemma4:12b", "默认看图翻译单独设")
+        code, res = self.json_cli("config", "set", "vision.use_llm", "true")
+        self.assertEqual((code, res["changed"]), (0, {"vision.use_llm": True}))
+        v = cli._service_config(config.load(), True)       # models --vision 也问翻译服务
+        self.assertEqual((v.protocol, v.base_url, v.model), ("ollama", "https://ollama.com", "gemma4:31b"))
+
     def test_glossary(self) -> None:
         self.json_cli("glossary", "add", "Port Lumen", "卢门港")
         self.json_cli("glossary", "add", "Mina", "米娜", "--app", "game.exe")

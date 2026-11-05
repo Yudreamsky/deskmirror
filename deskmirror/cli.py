@@ -89,6 +89,8 @@ DOCS = {
     "scope.exclude_titles": N_("窗口标题里带这些字就不翻译（逗号分隔）"),
     "scope.translate_chat": N_("聊天软件也翻译（默认不翻；密码管理器、网银始终不翻）"),
     "memory.enabled": N_("记住译文：加密存在本机，同样的文字下次直接用"),
+    "vision.use_llm": N_("看图翻译也用翻译服务（接入方式、地址、模型、API Key 都照 llm 的）；翻译用的模型要能看图，"
+                         "比如 Ollama 云端的 gemma4:31b"),
     "vision.protocol": N_("看图翻译的接口：ollama 或 openai"),
     "vision.base_url": N_("看图翻译服务的地址"),
     "vision.model": N_("看图翻译用的模型（要能看图），比如 gemma4:12b"),
@@ -458,7 +460,7 @@ def cmd_service(cfg: AppConfig, args: list[str], as_json: bool) -> int:
 def _service_config(cfg: AppConfig, vision: bool) -> LlmConfig:
     if not vision:
         return cfg.llm
-    v = cfg.vision
+    v = config.vision_service(cfg)
     return LlmConfig(protocol=v.protocol, base_url=v.base_url, model=v.model, api_key=v.api_key)
 
 

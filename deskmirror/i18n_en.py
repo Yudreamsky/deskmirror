@@ -437,6 +437,11 @@ EN: dict[str, str] = {
     'Ollama 云端要 API Key：登录 ollama.com，在 Settings → Keys 里新建一个，填到上面的“API Key”里，再点“测试连接”':
         'Ollama Cloud needs an API key: sign in at ollama.com, create one under Settings → Keys, '
         'paste it into "API Key" above, then click "Test connection"',
+    '看图翻译也用这个 API':
+        'Use this API for image translation too',
+    '下面“看图翻译”的接入方式、地址、模型和 API Key 都照这里的，不用再填一遍。这里的模型要能看图，比如 Ollama 云端的 gemma4:31b':
+        '"Image translation" below takes its API type, address, model and API key from here, so you don\'t fill them '
+        'in twice. The model here must read images, e.g. gemma4:31b on Ollama Cloud',
     ' 秒':
         ' s',
     '并发与超时':
@@ -767,6 +772,9 @@ EN: dict[str, str] = {
         'Translate chat apps too (off by default; password managers and online banking are never translated)',
     '记住译文：加密存在本机，同样的文字下次直接用':
         'Remember translations: stored encrypted on this PC and reused next time',
+    '看图翻译也用翻译服务（接入方式、地址、模型、API Key 都照 llm 的）；翻译用的模型要能看图，比如 Ollama 云端的 gemma4:31b':
+        'Image translation uses the translation service too (API type, address, model and API key from llm); '
+        'the translation model must read images, e.g. gemma4:31b on Ollama Cloud',
     '看图翻译的接口：ollama 或 openai':
         'Image translation API: ollama or openai',
     '看图翻译服务的地址':

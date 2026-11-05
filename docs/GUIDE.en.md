@@ -258,8 +258,11 @@ Settings → "Translation service":
   the model `gemma4:31b`; create the API key at ollama.com under Settings → Keys after signing in. Write the model
   name as "Fetch models" lists it, without `-cloud` (names ending in `-cloud` are what a local Ollama calls them).
   It is billed per token and, like other cloud services, counts toward the daily token limit; the pay-as-you-go and
-  Pro plans handle up to 3 requests at a time and queue the rest. Image translation can use it too: choose Ollama
-  native API, the address `https://ollama.com`, the model `gemma4:31b` (it can read images) and the same API key.
+  Pro plans handle up to 3 requests at a time and queue the rest. Image translation can use it too: `gemma4:31b` can
+  read images, so just tick "Use this API for image translation too" at the bottom of "Translation service".
+- **Use this API for image translation too**: when ticked, image translation takes its API type, address, model and
+  API key from the translation service (its own fields turn grey and show the ones above); untick it to go back to
+  image translation's own settings. The translation model must read images; text-only models won't do.
 - **Model**: type it in, or click "Fetch models": when the list arrives, the drop-down opens by itself; when it
   doesn't, the reason is shown (for example a wrong key, or the address has no such endpoint).
 - **API key**: only needed for cloud services; stored only on this PC in `deskmirror.json`, encrypted with your

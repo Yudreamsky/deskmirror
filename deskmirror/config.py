@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import asdict, dataclass, field, fields, is_dataclass
+from dataclasses import asdict, dataclass, field, fields, is_dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -167,7 +167,9 @@ class ScopeConfig:
 
 @dataclass
 class VisionConfig:
-    """看图翻译用的模型（要能看图的多模态模型）。和翻译服务分开设：常用的翻译服务（如 DeepSeek）不收图片。"""
+    """看图翻译用的模型（要能看图的多模态模型）。默认和翻译服务分开设：常用的翻译服务（如 DeepSeek）不收图片；
+    翻译用的模型能看图时（比如 Ollama 云端的 gemma4:31b），打开 use_llm 直接用翻译服务。"""
+    use_llm: bool = False             # 也用翻译服务：接入方式、地址、模型、API Key 照 llm 的（下面这几项留着，关掉时还用）
     protocol: str = "ollama"          # ollama：Ollama 原生接口；openai：OpenAI 兼容接口
     base_url: str = "http://127.0.0.1:11434"
     model: str = "gemma4:12b"         # 本机的 gemma4 能看图，画面不出本机
@@ -270,6 +272,17 @@ def is_ollama_cloud(base_url: str) -> bool:
     """服务地址是不是 Ollama 云端（ollama.com）：按 token 收费，模型不用载入显存。"""
     host = _host(base_url)
     return host == "ollama.com" or host.endswith(".ollama.com")
+
+
+def vision_service(cfg: AppConfig) -> VisionConfig:
+    """看图翻译实际用的服务。打开 use_llm 时接入方式、地址、模型、API Key 照翻译服务的（Ollama 的上下文长度也照它的，
+    同一个本机模型才不用重新加载）；超时、图片大小还用看图翻译自己的。"""
+    v = cfg.vision
+    if not v.use_llm:
+        return v
+    llm = cfg.llm
+    return replace(v, protocol=llm.protocol, base_url=llm.base_url, model=llm.model, api_key=llm.api_key,
+                   num_ctx=llm.num_ctx)
 
 
 def config_path() -> Path:

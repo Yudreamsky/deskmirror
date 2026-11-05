@@ -7,6 +7,9 @@
 - **Ollama 云端（API Key）**：设置 → 翻译服务的“常用服务”和新手指南的“云端服务”里多了这一项，选了就填好接入方式
   （Ollama 原生接口）、地址 `https://ollama.com` 和模型 `gemma4:31b`，再填上 API Key（ollama.com 登录后在 Settings → Keys
   里新建）、点“测试连接”就行。以前 Ollama 原生接口只当本机用，不带密钥，直连 ollama.com 会被拒（HTTP 401）。
+- **看图翻译也用这个 API**：设置 → 翻译服务，“翻译服务”一栏最下面多了这个勾选项。勾上后看图翻译直接用翻译服务的
+  接入方式、地址、模型和 API Key，不用再填一遍（模型要能看图，比如 Ollama 云端的 `gemma4:31b`）；取消勾选换回
+  看图翻译自己的设置。命令行：`config set vision.use_llm true`。
 - 发给 ollama.com 时不再带只对本机有用的参数（模型留在显存里多久、上下文长度）；按 token 收费，和别的云端服务一样
   受每日 token 上限管，看图翻译发过去前照样先问。
 - 出错说明更清楚：没填密钥时说“这个服务要 API Key”，不再说密钥无效；ollama.com 上找不到模型时提醒模型名不带 cloud
@@ -22,6 +25,10 @@ translation and image translation.
   and the model `gemma4:31b`; then enter the API key (create one at ollama.com under Settings → Keys after signing in)
   and click "Test connection". Until now the Ollama native API was treated as local only and sent no key, so
   connecting to ollama.com directly was refused (HTTP 401).
+- **Use this API for image translation too**: a new tick box at the bottom of the "Translation service" box in
+  Settings → Translation service. When ticked, image translation uses the translation service's API type, address,
+  model and API key, so you don't fill them in twice (the model must read images, e.g. `gemma4:31b` on Ollama Cloud);
+  untick it to go back to image translation's own settings. On the command line: `config set vision.use_llm true`.
 - Requests to ollama.com no longer carry the settings that only matter to a local Ollama (how long the model stays in
   video memory, the context length). It is billed per token and, like other cloud services, counts toward the daily
   token limit; image translation still asks before sending a picture there.

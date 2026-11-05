@@ -75,14 +75,31 @@ class VisionConfigTest(unittest.TestCase):
             try:
                 c = AppConfig()
                 c.vision.api_key = "secret-vision-key"
+                c.vision.use_llm = True
                 config.save(c)
                 self.assertNotIn("secret-vision-key", p.read_text(encoding="utf-8"))
                 self.assertEqual(config.load().vision.api_key, "secret-vision-key")
+                self.assertTrue(config.load().vision.use_llm)
             finally:
                 if old is None:
                     os.environ.pop("DESKMIRROR_CONFIG", None)
                 else:
                     os.environ["DESKMIRROR_CONFIG"] = old
+
+    def test_use_llm(self) -> None:
+        c = AppConfig()
+        c.llm.base_url, c.llm.model, c.llm.api_key, c.llm.num_ctx = "https://ollama.com", "gemma4:31b", "k", 8192
+        self.assertIs(config.vision_service(c), c.vision, "默认看图翻译单独设")
+        c.vision.use_llm = True
+        v = config.vision_service(c)
+        self.assertEqual((v.protocol, v.base_url, v.model, v.api_key, v.num_ctx),
+                         ("ollama", "https://ollama.com", "gemma4:31b", "k", 8192))
+        self.assertEqual((v.timeout_s, v.max_side), (120.0, 1600), "超时、图片大小还用看图翻译自己的")
+        self.assertEqual((c.vision.base_url, c.vision.model), ("http://127.0.0.1:11434", "gemma4:12b"),
+                         "看图翻译自己的设置留着，取消勾选时还用")
+        c.llm.protocol, c.llm.base_url, c.llm.model = "openai", "https://api.example.com/v1", "vl"
+        url, _p, h = vision.build_request(config.vision_service(c), "prompt", "QUJD")
+        self.assertEqual((url, h["Authorization"]), ("https://api.example.com/v1/chat/completions", "Bearer k"))
 
 
 class QtPartsTest(unittest.TestCase):
@@ -101,6 +118,46 @@ class QtPartsTest(unittest.TestCase):
         dlg.v_protocol.setCurrentIndex(1)
         c = dlg.collect()
         self.assertEqual((c.vision.model, c.vision.protocol, c.hotkeys.vision), ("qwen-vl", "openai", "Ctrl+Alt+V"))
+        dlg.close()
+        app.processEvents()
+
+    def test_settings_vision_uses_this_api(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from deskmirror.ui.settings import SettingsDialog
+        app = QApplication.instance() or QApplication([])
+        cfg = AppConfig()
+        cfg.vision.model = "qwen-vl"
+        dlg = SettingsDialog(cfg)
+        self.assertFalse(dlg.v_same.isChecked())
+        self.assertTrue(dlg.v_model.isEnabled())
+        dlg.base_url.setText("https://ollama.com")
+        dlg.model.setCurrentText("gemma4:31b")
+        dlg.api_key.setText("k")
+        dlg.v_same.setChecked(True)
+        self.assertEqual((dlg.v_protocol.currentData(), dlg.v_base.text(), dlg.v_model.text(), dlg.v_key.text()),
+                         ("ollama", "https://ollama.com", "gemma4:31b", "k"), "显示翻译服务的")
+        self.assertFalse(any(w.isEnabled() for w in (dlg.v_protocol, dlg.v_base, dlg.v_model, dlg.v_key)))
+        dlg.model.setCurrentText("gemma4:27b")
+        self.assertEqual(dlg.v_model.text(), "gemma4:27b", "上面改了，下面跟着变")
+        c = dlg.collect()
+        self.assertTrue(c.vision.use_llm)
+        self.assertEqual((c.vision.base_url, c.vision.model, c.vision.api_key), ("http://127.0.0.1:11434", "qwen-vl", ""),
+                         "看图翻译自己的设置照旧存着")
+        self.assertEqual(config.vision_service(c).model, "gemma4:27b")
+        dlg.v_same.setChecked(False)
+        self.assertEqual((dlg.v_base.text(), dlg.v_model.text(), dlg.v_key.text()),
+                         ("http://127.0.0.1:11434", "qwen-vl", ""), "取消勾选：换回它自己的")
+        self.assertTrue(dlg.v_model.isEnabled())
+        self.assertFalse(dlg.collect().vision.use_llm)
+        dlg.close()
+        cfg = AppConfig()
+        cfg.vision.use_llm, cfg.vision.model, cfg.llm.model = True, "qwen-vl", "gemma4:31b"
+        dlg = SettingsDialog(cfg)                     # 打开时已经勾着
+        self.assertTrue(dlg.v_same.isChecked())
+        self.assertEqual(dlg.v_model.text(), "gemma4:31b")
+        self.assertFalse(dlg.v_model.isEnabled())
+        self.assertEqual(dlg.collect().vision.model, "qwen-vl")
         dlg.close()
         app.processEvents()
 

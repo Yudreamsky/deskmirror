@@ -319,6 +319,11 @@ class SettingsDialog(QDialog):
         trow.addWidget(self.test_result, 1)
         f.addRow("", trow)
         f.addRow(_note(tr("用云端服务时，识别出的文字和所在窗口的标题会发给这个服务；哪些内容会翻译，见“翻译范围”。")))
+        # 占整行（放在字段那一栏时，换行的说明会按默认的窄宽度占高度，上面空出一块）；紧挨着下面的“看图翻译”
+        self.v_same, row = _checked(tr("看图翻译也用这个 API"), self.cfg.vision.use_llm,
+                                    tr("下面“看图翻译”的接入方式、地址、模型和 API Key 都照这里的，不用再填一遍。"
+                                       "这里的模型要能看图，比如 Ollama 云端的 gemma4:31b"))
+        f.addRow(row)
         lay.addWidget(box)
         box, vf = _card(tr("看图翻译（要能看图的多模态模型）"))
         self.v_protocol = QComboBox()
@@ -334,6 +339,12 @@ class SettingsDialog(QDialog):
         self.v_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.v_key.setPlaceholderText(tr("本机 Ollama 不需要；只用 Windows 账户加密保存在本机"))
         vf.addRow("API Key", self.v_key)
+        self._v_own: tuple[str, str, str, str] | None = None
+        self.v_same.toggled.connect(self._sync_vision)
+        for sig in (self.protocol.currentIndexChanged, self.base_url.textChanged, self.model.currentTextChanged,
+                    self.api_key.textChanged):
+            sig.connect(self._llm_edited)
+        self._sync_vision(self.v_same.isChecked())
         vf.addRow(_note(tr("按 {key} 或点魔镜标签上的“看图”，把镜框里的画面交给这里的模型来读、来翻，"
                            "适合漫画、艺术字、图片里的字。默认用本机 Ollama 的 gemma4:12b，画面不出本机；"
                            "发给云端服务前，每次都会先问你。").format(key=self.cfg.hotkeys.vision)))
@@ -675,6 +686,35 @@ class SettingsDialog(QDialog):
             self.test_result.setText(tr("Ollama 云端要 API Key：登录 ollama.com，在 Settings → Keys 里新建一个，"
                                         "填到上面的“API Key”里，再点“测试连接”"))
 
+    def _sync_vision(self, same: bool) -> None:
+        """“看图翻译也用这个 API”：勾上时看图翻译的接入方式、地址、模型、API Key 灰掉，显示翻译服务的；
+        取消时换回它自己的。"""
+        if same:
+            if self._v_own is None:
+                self._v_own = self._vision_own()
+            self._show_vision(self.protocol.currentData(), self.base_url.text(), self.model.currentText(),
+                              self.api_key.text())
+        elif self._v_own is not None:
+            own, self._v_own = self._v_own, None
+            self._show_vision(*own)
+        for w in (self.v_protocol, self.v_base, self.v_model, self.v_key):
+            w.setEnabled(not same)
+
+    def _llm_edited(self, *_) -> None:
+        if self.v_same.isChecked():
+            self._sync_vision(True)
+
+    def _show_vision(self, protocol: str, base: str, model: str, key: str) -> None:
+        self.v_protocol.setCurrentIndex(max(0, self.v_protocol.findData(protocol)))
+        self.v_base.setText(base)
+        self.v_model.setText(model)
+        self.v_key.setText(key)
+
+    def _vision_own(self) -> tuple[str, str, str, str]:
+        """看图翻译自己的设置（勾着“也用这个 API”时框里显示的是翻译服务的，它自己的先放在 _v_own）。"""
+        return self._v_own or (self.v_protocol.currentData(), self.v_base.text(), self.v_model.text(),
+                               self.v_key.text())
+
     def _pick_dir(self) -> None:
         d = QFileDialog.getExistingDirectory(self, tr("截图保存到哪个文件夹"), self.cap_dir.text().strip())
         if d:
@@ -739,10 +779,9 @@ class SettingsDialog(QDialog):
         c.input.enabled = self.input_on.isChecked()
         c.input.target = self.input_target.currentData()
         c.input.skip_apps = _lines(self.input_skip)
-        c.vision.protocol = self.v_protocol.currentData()
-        c.vision.base_url = self.v_base.text().strip()
-        c.vision.model = self.v_model.text().strip()
-        c.vision.api_key = self.v_key.text().strip()
+        c.vision.use_llm = self.v_same.isChecked()
+        c.vision.protocol, base, model, key = self._vision_own()
+        c.vision.base_url, c.vision.model, c.vision.api_key = base.strip(), model.strip(), key.strip()
         c.capture.after = self.cap_after.currentData()
         c.capture.snap = self.cap_snap.isChecked()
         c.capture.magnifier = self.cap_mag.isChecked()
