@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 import unittest
 
+import cv2
 import numpy as np
 
 import deskmirror  # noqa: F401  预加载 DLL
@@ -707,6 +708,131 @@ class RefsInBatchTest(unittest.TestCase):
         eng.inflight.clear()
         eng._schedule_translation()
         self.assertEqual(sent[-1].refs, [], "设置里关掉就不带参考")
+
+
+def _tint(p: np.ndarray) -> None:
+    p[p > 128] = 160                  # 悬停时这一行的底变暗（差 95 级，平常的像素核对对不上）
+
+
+def _invert(p: np.ndarray) -> None:
+    p[:] = 255 - p                    # 菜单项高亮：深浅反过来
+
+
+def _underline(p: np.ndarray) -> None:
+    p[19, :] = 0                      # 出了下划线
+
+
+class HoverHoldTest(unittest.TestCase):
+    """鼠标经过时不显示原文：鼠标刚经过、字形没变的块先留着译文，稍后单独重新识别；盖住了、换了字照样撤下。"""
+
+    def _setup(self):
+        page = text_page(3000, W, 6)
+        eng, m, win, sc = make_engine(page[0:H])
+        eng.visible = {1: [(0, 0, W, H)]}
+        eng.win_canvas[1], eng.win_rects[1], eng.z_order = win, (0, 0, W, H), [1]
+        y0 = next(y for y in range(200, 600) if page[y:y + 22, 10:500].std() > 40 and page[y, 10:500].min() == 255)
+        rect = (10, y0, 500, y0 + 22)
+        b = add_block(eng, sc, rect, page[y0:y0 + 22, 10:500].copy())
+        b.state, b.translation = "done", "译文"
+        return page, eng, m, win, b, rect
+
+    @staticmethod
+    def _pass_over(eng: E.Engine, y: int) -> None:
+        now = time.perf_counter()
+        eng._note_cursor(now - 0.2, (850, y))
+        eng._note_cursor(now - 0.1, (600, y))   # 鼠标刚从这一行的右半边划过（整行跟着变色，鼠标不一定在字上）
+
+    def _hover(self, change, y_cursor: int | None = None):
+        page, eng, m, win, b, rect = self._setup()
+        self._pass_over(eng, rect[1] + 11 if y_cursor is None else y_cursor)
+        change(m.cur[rect[1]:rect[3], rect[0]:rect[2]])
+        eng._content_changed(m, rect)
+        return page, eng, m, win, b, rect
+
+    def test_hover_looks_keep_the_translation(self) -> None:
+        for change in (_tint, _invert, _underline):
+            page, eng, m, win, b, rect = self._hover(change)
+            name = change.__name__
+            self.assertIsNone(b.ok_rect, name)                                  # 像素确实对不上了
+            self.assertGreater(b.held_until, time.perf_counter(), name)
+            self.assertIn(b.bid, eng._recount, name)                           # 稍后单独重新识别这一块
+            snaps = []
+            eng._publish_cb = snaps.append
+            eng._publish(force=True)
+            self.assertIn(b.bid, [it.bid for it in snaps[-1].items], name)     # 照样画出来，不露原文
+
+    def test_option_off_mouse_still_or_far_away_shows_the_original(self) -> None:
+        page, eng, m, win, b, rect = self._setup()
+        eng.cfg.track.hover_hold = False
+        self._pass_over(eng, rect[1] + 11)
+        _tint(m.cur[rect[1]:rect[3], rect[0]:rect[2]])
+        eng._content_changed(m, rect)
+        self.assertEqual(b.held_until, 0.0, "设置里关掉")
+        page, eng, m, win, b, rect = self._setup()
+        eng._note_cursor(time.perf_counter() - 5, (300, rect[1] + 11))
+        eng._note_cursor(time.perf_counter(), (300, rect[1] + 11))           # 鼠标一直停着：变的多半不是悬停效果
+        _tint(m.cur[rect[1]:rect[3], rect[0]:rect[2]])
+        eng._content_changed(m, rect)
+        self.assertEqual(b.held_until, 0.0, "鼠标没动")
+        page, eng, m, win, b, rect = self._hover(_tint, y_cursor=rect[1] + 200)
+        self.assertEqual(b.held_until, 0.0, "鼠标在远处")
+        page, eng, m, win, b, rect = self._setup()
+        self._pass_over(eng, rect[1] + 11)
+        _tint(m.cur)
+        eng._content_changed(m, (0, 0, W, H))
+        self.assertEqual(b.held_until, 0.0, "整页一起变（换页、整页变暗）不是悬停效果")
+        page, eng, m, win, b, rect = self._setup()
+        win.last_scroll_ok = time.perf_counter()                               # 刚滚动过：变化是滚动带来的
+        self._pass_over(eng, rect[1] + 11)
+        _tint(m.cur[rect[1]:rect[3], rect[0]:rect[2]])
+        eng._content_changed(m, rect)
+        self.assertEqual(b.held_until, 0.0, "刚滚动过")
+
+    def test_covered_or_changed_text_comes_down(self) -> None:
+        def popup(p):
+            p[:, 150:] = 240                       # 弹出的菜单盖住了后半段
+
+        def other(p):
+            p[:] = 255
+            cv2.putText(p, "completely different words", (4, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 0, 1, cv2.LINE_AA)
+
+        for change in (popup, other):
+            page, eng, m, win, b, rect = self._hover(change)
+            self.assertEqual(b.held_until, 0.0, change.__name__)
+        page, eng, m, win, b, rect = self._hover(_tint)
+        self.assertGreater(b.held_until, time.perf_counter())
+        m.cur[rect[1]:rect[3], rect[0]:rect[2]] = 240                          # 留着的时候弹出的菜单盖住了它
+        eng._content_changed(m, rect)
+        self.assertLessEqual(b.held_until, time.perf_counter(), "盖住了就马上撤下")
+
+    def test_reread_takes_the_new_look_and_colors(self) -> None:
+        from deskmirror.ocr_worker import OcrBlockOut, OcrLineOut
+        page, eng, m, win, b, rect = self._hover(_invert)
+        eng.set_mirrors([(0, 0, W, H)])
+        jobs = []
+
+        class Ocr:
+            def submit(self, job) -> None:
+                jobs.append(job)
+
+        eng.ocr, eng.ocr_state = Ocr(), "ready"
+        b.text, b.key = "lorem ipsum dolor", E.textutil.cache_key("lorem ipsum dolor")
+        eng.by_key[b.key].add(b.bid)
+        m.bgra = np.dstack([m.cur] * 3 + [np.full_like(m.cur, 255)])
+        eng._schedule_ocr()
+        self.assertEqual(jobs, [], "先等悬停的过渡动画画完")
+        eng._recount[b.bid] = time.perf_counter() - 0.01
+        eng._schedule_ocr()
+        self.assertEqual(len(jobs), 1)
+        r = eng.jobs[jobs[0].job_id].rect
+        self.assertTrue(E.geom.contains(r, rect), r)
+        self.assertLess(E.geom.area(r), 3 * E.geom.area(rect), "只识别这一小块")
+        eng._accept_block(eng.jobs[jobs[0].job_id], OcrBlockOut(rect, [OcrLineOut(rect, b.text, 0.99)], b.text))
+        self.assertIn(b.bid, eng.blocks, "同一段字：沿用原来的块和译文")
+        self.assertEqual((b.ok_rect, b.held_until, b.translation), (b.screen_rect(), 0.0, "译文"))
+        self.assertLess(E._lum(b.bg), 100, "底板换成现在的深色")
+        self.assertGreater(E._lum(b.fg), 150)
+        self.assertTrue(eng._verify(b), "以后按现在的样子核对")
 
 
 if __name__ == "__main__":

@@ -440,6 +440,66 @@ def verify_strokes(ref: np.ndarray, gray: np.ndarray, rect: Rect, fg_lum: float,
     return False
 
 
+def _glyph_split(patch: np.ndarray) -> tuple[float, bool] | None:
+    """一小块里怎么分出字迹：按这一块自己的明暗分成两类（Otsu），少的那类是字，深字浅底、浅字深底都行。
+    返回 (分界, 字是不是亮的那类)；两类差得太少（几乎是一片纯色）返回 None。"""
+    if patch.size < 16:
+        return None
+    t, mask = cv2.threshold(patch, 0, 1, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+    bright = mask.astype(bool)
+    ink_bright = bool(bright.mean() <= 0.5)
+    ink = bright if ink_bright else ~bright
+    if not ink.any() or ink.all() or abs(float(patch[ink].mean()) - float(patch[~ink].mean())) < 40:
+        return None
+    return float(t), ink_bright
+
+
+def _glyph_ink(patch: np.ndarray, split: tuple[float, bool]) -> np.ndarray:
+    t, ink_bright = split
+    return patch > t if ink_bright else patch <= t
+
+
+def same_glyphs(ref: np.ndarray, gray: np.ndarray, rect: Rect, cell: int, search: int = 2) -> bool:
+    """鼠标经过时的核对：字的形状还在就算同一段字。底色、字色变了，深浅反过来（菜单项高亮成蓝底白字），
+    多了下划线、边框都行；原来的笔画缺了一块（被弹出的菜单、提示盖住，换了字，页面换了）不行。
+    允许 ±search 像素的小偏差。"""
+    split = _glyph_split(ref)
+    if split is None:
+        return False
+    ref_ink = _glyph_ink(ref, split)
+    n_ref = int(ref_ink.sum())
+    if n_ref < 12:
+        return False
+    h, w = gray.shape[:2]
+    l, t, r, b = rect
+    if l - search < 0 or t - search < 0 or r + search > w or b + search > h:
+        return False
+    # 分法按块本身取（四周多出的那圈可能不在高亮里，掺进来会把那一圈当成字），再用到连同那一圈的整片上
+    split = _glyph_split(gray[t:b, l:r])
+    if split is None:
+        return False
+    near = cv2.dilate(_glyph_ink(gray[t - search:b + search, l - search:r + search], split).astype(np.uint8),
+                      _K3).astype(bool)
+    rh, rw = ref.shape
+    for dy in sorted(range(-search, search + 1), key=abs):
+        for dx in sorted(range(-search, search + 1), key=abs):
+            missing = ref_ink & ~near[search + dy:search + dy + rh, search + dx:search + dx + rw]
+            if missing.sum() > 0.1 * n_ref:
+                continue
+            ok = True
+            for cy in range(0, rh, cell):
+                for cx in range(0, rw, cell):
+                    k = int(ref_ink[cy:cy + cell, cx:cx + cell].sum())
+                    if k >= 10 and missing[cy:cy + cell, cx:cx + cell].sum() > 0.2 * k:   # 哪个字缺了一大块
+                        ok = False
+                        break
+                if not ok:
+                    break
+            if ok:
+                return True
+    return False
+
+
 def busy_background(patch: np.ndarray, fg_lum: float, bg_lum: float) -> bool:
     """文字后面的底是不是“花”的（视频画面、游戏场景）：去掉笔画及其周围后，剩下的像素起伏大不大。
 

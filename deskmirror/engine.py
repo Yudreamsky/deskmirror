@@ -43,6 +43,12 @@ TILE = pixels.TILE
 VOLATILE_S = 1.5   # 连续变化超过这么久才算动态背景（视频、游戏画面）；窗口改大小的重绘一般 1 秒内结束
 COUNTER_WAIT_S = 0.12   # 计数器的数字变了以后等多久再识别（数字有过渡动画时等它画完）
 SUBTITLE_WAIT_S = 0.15  # 字幕、游戏对话换句后等多久单独识别那一条（有的播放器字幕淡入）
+# 鼠标经过时不显示原文（track.hover_hold，见 Engine._hover_hold）
+HOVER_TRAIL_S = 1.2     # 鼠标最近这么久走过的地方算“刚经过”：悬停效果在鼠标移进、移出时出现
+HOVER_HOLD_S = 2.0      # 字形没变的块，旧译文最多留这么久（一般单独重新识别完就接着正常显示）
+HOVER_WAIT_S = 0.25     # 变了以后等多久单独识别那一块（悬停的过渡动画一般 0.1～0.3 秒）
+HOVER_Y = 32            # 鼠标在块上下这么远以内都算经过：列表、菜单整行变色，大图标按钮的名字在图标下面
+HOVER_ROWS = 16         # 这一次变了的地方最多这么多行高才算悬停效果（一行、一个按钮、一张卡片）；换页、整页变暗不算
 
 
 def _combine_curves(path: tuple, ox: int, oy: int) -> tuple:
@@ -243,6 +249,9 @@ class Engine(threading.Thread):
         self._last_privacy = 0.0
         self._ok_pending: dict[int, Rect] = {}               # 这一帧移动前确认过、等同帧其他块佐证的块
         self._recount: dict[int, float] = {}                 # 数字刚变的计数器：bid → 什么时候单独重新识别它
+        self._trail: collections.deque = collections.deque(maxlen=1024)   # 鼠标最近走过的位置：(时间, x, y)
+        self._trail_cache: tuple = (None, [], None)                       # 见 _trail_boxes
+        self._changing: Rect | None = None                                # 正在核对的这一片变化（_content_changed 里）
         self.metrics: dict = collections.defaultdict(float)
         self.metrics_log = os.environ.get("DESKMIRROR_METRICS")
         self._metrics_fh = None
@@ -425,6 +434,8 @@ class Engine(threading.Thread):
             self._refresh_windows()
         self._refresh_privacy(t1)
         t2 = time.perf_counter()
+        if self.cfg.track.hover_hold:
+            self._note_cursor(t2, winapi.cursor_pos())    # 先记下鼠标在哪，再看这一帧哪里变了
         got = False
         focus = self._focus_monitor()
         wait = 0.0
@@ -1633,11 +1644,14 @@ class Engine(threading.Thread):
         covered = 0
         all_ok = True
         now = time.perf_counter()
+        self._changing = r
         for b in self._blocks_in(r):
             if b.ok_rect is None:
                 all_ok = False
                 if (b.counter or b.born_dynamic) and b.held_until > now:
                     self._recount.setdefault(b.bid, now + self._reread_wait(b))   # 留着旧译文时又变了：再识别一次
+                elif b.held_until > now:
+                    self._hover_hold(b, b.screen_rect())    # 鼠标经过、留着译文时又变了：字形还对得上才接着留
                 continue
             if self._verify(b):
                 covered += geom.area(geom.inter(b.screen_rect(), r))
@@ -1648,6 +1662,7 @@ class Engine(threading.Thread):
                 if b.counter or (b.born_dynamic and b.held_until > now):
                     # 计数器、换了句的字幕：不等这一片静止（视频、游戏画面一直在动，等不到），稍等一下就单独识别
                     self._recount.setdefault(b.bid, now + self._reread_wait(b))
+        self._changing = None
         if not (all_ok and covered >= 0.8 * geom.area(r) and geom.area(r) <= 24 * TILE * TILE):
             self._mark_needs(m, r, track_volatile=track_volatile)
 
@@ -1777,6 +1792,69 @@ class Engine(threading.Thread):
             b.held_until = b.hold_start + self._hold_s(b)
             b.hold_rect = sr
             self._dirty = True
+        elif b.held_until == 0.0:
+            self._hover_hold(b, sr)
+
+    def _note_cursor(self, now: float, pos: tuple[int, int]) -> None:
+        """记下鼠标走过的地方（只记动了的；留一个更早的点当这一段路的起点）。"""
+        tr = self._trail
+        if not tr or (tr[-1][1], tr[-1][2]) != pos:
+            tr.append((now, pos[0], pos[1]))
+        while len(tr) > 1 and now - tr[1][0] > HOVER_TRAIL_S:
+            tr.popleft()
+
+    def _trail_boxes(self) -> tuple[list[Rect], Rect | None]:
+        """最近 HOVER_TRAIL_S 秒里鼠标走过的路：每 8 段并成一个外框（判断“附近”够用了），和它们合起来的外框。
+        每一轮只算一次：点了链接、换了一页时一下子几百块对不上，每块都要问。"""
+        tr = self._trail
+        key = (self.metrics["p_ticks"], len(tr), tr[-1][0] if tr else 0.0)
+        if self._trail_cache[0] != key:
+            cutoff = time.perf_counter() - HOVER_TRAIL_S
+            pts = list(tr)
+            first = next((k for k in range(1, len(pts)) if pts[k][0] >= cutoff), len(pts))
+            boxes = []
+            for s in range(first - 1, len(pts) - 1, 8):            # 每段从前一个点起，最早那段的起点可以早于 cutoff
+                xs, ys = [p[1] for p in pts[s:s + 9]], [p[2] for p in pts[s:s + 9]]
+                boxes.append((min(xs), min(ys), max(xs) + 1, max(ys) + 1))
+            box = (min(q[0] for q in boxes), min(q[1] for q in boxes),
+                   max(q[2] for q in boxes), max(q[3] for q in boxes)) if boxes else None
+            self._trail_cache = (key, boxes, box)
+        return self._trail_cache[1], self._trail_cache[2]
+
+    def _cursor_passed(self, b: Block, sr: Rect) -> bool:
+        """鼠标最近（HOVER_TRAIL_S 秒内）在这块附近动过：同一个画布里、上下 HOVER_Y 以内都算。鼠标一直停着不算：
+        这时候变的多半不是悬停效果（内容自己在更新、正在打字）。"""
+        boxes, box = self._trail_boxes()
+        if box is None:
+            return False
+        clip = b.canvas.screen_clip()
+        hy = max(HOVER_Y, 2 * b.line_h)
+        band = (clip[0], sr[1] - hy, clip[2], sr[3] + hy)
+        return geom.overlaps(box, band) and any(geom.overlaps(q, band) for q in boxes)
+
+    def _hover_hold(self, b: Block, sr: Rect) -> None:
+        """鼠标经过时不显示原文（track.hover_hold）：鼠标刚在这块附近动过、字的形状也没变（悬停时变了色、深浅反过来、
+        加了下划线），像素对不上也先留着译文，稍等一下单独重新识别这一块（换上新的参考图和底色）。
+        留着的时候又变了也照样看：被弹出的菜单盖住、换了字、页面换了，字形就对不上，马上撤下。"""
+        now = time.perf_counter()
+        holding = b.held_until > now
+        ch = self._changing           # 只在画面变化时开始留（一大片同时变的是换页、整页变暗，不是悬停效果）
+        if not holding and (ch is None or ch[3] - ch[1] > HOVER_ROWS * max(12, b.line_h) or b.held_until != 0.0
+                            or not self.cfg.track.hover_hold or b.state != "done" or not b.translation
+                            or b.ok_rect is None or b.dynamic or b.born_dynamic or b.counter
+                            or self._recently_scrolled(b) or not self._cursor_passed(b, sr)):
+            return
+        m = self._monitor_for(sr)
+        if m is None or not m.ready or not pixels.same_glyphs(b.ref, m.cur, m.local(sr), max(8, int(b.em * 0.8))):
+            if holding:
+                b.held_until = now
+                self._dirty = True
+            return
+        if not holding:
+            b.hold_start, b.held_until, b.hold_rect = now, now + HOVER_HOLD_S, sr
+            self._dirty = True
+            self.metrics["hover_holds"] += 1
+        self._recount.setdefault(b.bid, now + HOVER_WAIT_S)
 
     @staticmethod
     def _recently_scrolled(b: Block) -> bool:
@@ -1913,7 +1991,8 @@ class Engine(threading.Thread):
         return COUNTER_WAIT_S if b.counter else SUBTITLE_WAIT_S
 
     def _recount_one(self, now: float) -> bool:
-        """数字刚变的计数器（倒计时、计数、血量）、刚换句的字幕：单独识别那一小块，排在别的识别前面。提交了就返回 True。
+        """数字刚变的计数器（倒计时、计数、血量）、刚换句的字幕、鼠标经过时变了色的字：单独识别那一小块，
+        排在别的识别前面。提交了就返回 True。
         视频、游戏画面一直在动，等整片静止要等好几秒，这期间只能留着旧译文，新句子更宽的话两头还会露出原文。"""
         for bid, due in list(self._recount.items()):
             b = self.blocks.get(bid)
@@ -1927,8 +2006,8 @@ class Engine(threading.Thread):
             if m is None or not m.ready:
                 del self._recount[bid]
                 continue
-            if b.counter:
-                # 数字变长（9 → 10）可能往左也可能往右长：左右各多留一个半行高
+            if b.counter or not b.born_dynamic:
+                # 数字变长（9 → 10）可能往左也可能往右长：左右各多留一个半行高。鼠标经过的块字没变，同样只认这一小块
                 px, py = max(8, b.line_h * 3 // 2), max(6, b.line_h // 2)
                 rect = geom.inter((sr[0] - px, sr[1] - py, sr[2] + px, sr[3] + py), m.rect)
             else:
@@ -1942,7 +2021,7 @@ class Engine(threading.Thread):
             if geom.empty(rect) or any(geom.overlaps(rect, r) for r in self._moving_clips(now)):
                 continue      # 正在滚动：停下再识别
             del self._recount[bid]
-            self.metrics["counter_reads" if b.counter else "subtitle_reads"] += 1
+            self.metrics["counter_reads" if b.counter else "subtitle_reads" if b.born_dynamic else "hover_reads"] += 1
             self._submit_ocr(m, rect, False, sr)
             return True
         return False
@@ -2352,6 +2431,19 @@ class Engine(threading.Thread):
             st.touched.update(o.bid for o in olds)
             self.metrics["ocr_regroup_kept"] += 1
             return
+        sample: list = []
+
+        def colors() -> tuple:
+            """这次截图里这块四周多 3 像素的小图、各行在小图里的位置、小图的左上角、底色、字色（用到才取样）。"""
+            if not sample:
+                crop_l, crop_t = r0[0] - jl, r0[1] - jt
+                ol, ot = max(0, crop_l - 3), max(0, crop_t - 3)
+                sub = st.bgr[ot:crop_t + ref.shape[0] + 3, ol:crop_l + ref.shape[1] + 3]
+                line_local = [(ln.rect[0] - jl - ol, ln.rect[1] - jt - ot, ln.rect[2] - jl - ol, ln.rect[3] - jt - ot)
+                              for ln in ob.lines]
+                sample.append((sub, line_local, ol, ot, *textutil.sample_colors(sub, line_local)))
+            return sample[0]
+
         replaced: list[Block] = []
         number_tick = False      # 同一位置只是数字变了（计时器、计数、血量）
         was_counter = False
@@ -2396,6 +2488,13 @@ class Engine(threading.Thread):
                     old.ok_rect = verified
                     old.version += 1
                     self._idx_valid = False
+                    if not old.dynamic:
+                        # 底色、字色也照这次的（核对笔画用的颜色跟着参考图走）：鼠标停在菜单、列表上，那一行变了色，底板跟着变
+                        sub, line_local, _ol, _ot, old.bg, old.fg = colors()
+                        old.lum_bg, old.lum_fg = old.bg, old.fg
+                        old.grad = None if old.vertical else textutil.plate_gradient(sub, line_local, old.bg, old.fg)
+                    if verified is not None and not (old.born_dynamic or old.counter):
+                        old.held_until = 0.0      # 鼠标经过时留着的译文：换上了这次的参考图，接着正常显示
                 st.touched.add(old.bid)
                 return
             if (old.born_dynamic or old.counter) and old.state == "done" and key not in self.cache:
@@ -2410,13 +2509,7 @@ class Engine(threading.Thread):
             doomed.append(old)
         for old in doomed:
             self._delete_block(old, "ocr_overlap")
-        crop_l, crop_t = r0[0] - jl, r0[1] - jt
-        pad = 3
-        ol, ot = max(0, crop_l - pad), max(0, crop_t - pad)
-        sub = st.bgr[ot:crop_t + ref.shape[0] + pad, ol:crop_l + ref.shape[1] + pad]
-        line_local = [(ln.rect[0] - jl - ol, ln.rect[1] - jt - ot, ln.rect[2] - jl - ol, ln.rect[3] - jt - ot)
-                      for ln in ob.lines]
-        bg, fg = textutil.sample_colors(sub, line_local)
+        sub, line_local, ol, ot, bg, fg = colors()
         grad = None if ob.vertical else textutil.plate_gradient(sub, line_local, bg, fg)
         ink_rects = list(line_local)
         for i in range(1, len(ink_rects)):

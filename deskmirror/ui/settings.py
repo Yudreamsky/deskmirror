@@ -587,6 +587,12 @@ class SettingsDialog(QDialog):
             self.opacity.setEnabled(False)             # 色键窗口画不了半透明，见 layered.py
             self.opacity.setToolTip(tr("这台电脑（Windows 10）上底板总是不透明"))
         f.addRow(tr("底板不透明度"), self.opacity)
+        self.hover_hold = QCheckBox(tr("不显示原文（字只是变了色、出了下划线时，先留着译文）"))
+        self.hover_hold.setChecked(self.cfg.track.hover_hold)
+        self.hover_hold.setToolTip(tr("鼠标移到链接、菜单项、列表的一行上，那里会变色或出下划线，魔镜看到画面变了，"
+                                      "本来会先撤下译文、重新识别完再放回来，中间闪出原文。勾上后，字的形状没变就先留着译文；"
+                                      "被弹出的菜单盖住、或者真的换了字，还是先撤下"))
+        f.addRow(tr("鼠标经过"), self.hover_hold)
         lay.addWidget(box)
         return w
 
@@ -771,6 +777,7 @@ class SettingsDialog(QDialog):
         c.source_lang = self.source.currentData()
         c.track.all_monitors = self.all_monitors.isChecked()
         c.track.wheel_predict = self.wheel_predict.isChecked()
+        c.track.hover_hold = self.hover_hold.isChecked()
         c.style.min_font_px = self.min_font.value()
         c.style.plate_opacity = float(self.opacity.value())
         c.style.skin = self.skin.currentData()

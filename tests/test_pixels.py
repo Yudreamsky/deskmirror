@@ -152,5 +152,57 @@ class DetectShiftTest(unittest.TestCase):
         self.assertEqual((dx, dy), (2, 1))
 
 
+class SameGlyphsTest(unittest.TestCase):
+    """鼠标经过时的核对：字的形状还在就算同一段字，不管颜色、深浅；笔画缺了不算。"""
+
+    def setUp(self) -> None:
+        self.img = np.full((200, 400), 255, np.uint8)
+        cv2.putText(self.img, "Open the project folder", (8, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 0, 1, cv2.LINE_AA)
+        cv2.putText(self.img, "Close all other windows", (8, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 0, 1, cv2.LINE_AA)
+        self.box = (4, 24, 300, 48)
+        self.ref = self.img[24:48, 4:300].copy()
+
+    def looks(self, change) -> np.ndarray:
+        cur = self.img.copy()
+        l, t, r, b = self.box
+        change(cur[t:b, l:r])
+        return cur
+
+    def test_hover_looks_still_match(self) -> None:
+        def tint(p):
+            p[p > 128] = 160                       # 底色变暗（差 95 级）
+
+        def invert(p):
+            p[:] = 255 - p                         # 深浅反过来：菜单项高亮成深底浅字
+
+        def underline(p):
+            p[19, :] = 0                           # 出了下划线
+
+        for name, change in (("tint", tint), ("invert", invert), ("underline", underline)):
+            cur = self.looks(change)
+            self.assertFalse(pixels.verify_patch(self.ref, cur, self.box)[0], name)   # 平常的核对对不上
+            self.assertTrue(pixels.same_glyphs(self.ref, cur, self.box, 8), name)
+        shifted = np.full_like(self.img, 255)
+        shifted[1:, 2:] = self.looks(invert)[:-1, :-2]
+        self.assertTrue(pixels.same_glyphs(self.ref, shifted, self.box, 8), "差一两个像素也行")
+
+    def test_covered_or_changed_text_does_not_match(self) -> None:
+        def popup(p):
+            p[:, 120:] = 240                       # 弹出的菜单盖住了后半段
+
+        def other(p):
+            p[:] = self.img[104:128, 4:300]        # 换了一行字
+
+        def gone(p):
+            p[:] = 255                             # 字没了
+
+        def digit(p):
+            cv2.rectangle(p, (60, 4), (70, 18), 255, -1)    # 擦掉了一个字
+
+        for name, change in (("popup", popup), ("other", other), ("gone", gone), ("digit", digit)):
+            self.assertFalse(pixels.same_glyphs(self.ref, self.looks(change), self.box, 8), name)
+        self.assertFalse(pixels.same_glyphs(np.full_like(self.ref, 255), self.img, self.box, 8), "参考图里没有字")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -83,6 +83,8 @@ DOCS = {
     "track.all_monitors": N_("处理所有屏幕（默认只处理魔镜所在的屏幕）"),
     "track.wheel_predict": N_("滚动时用学到的滚轮曲线提前移动译文"),
     "track.display_lead_ms": N_("滚动预测的提前量（毫秒）"),
+    "track.hover_hold": N_("鼠标经过时不显示原文：鼠标刚经过的字只是变了色、深浅反过来、加了下划线时，先留着译文"
+                           "（被弹出的菜单盖住、换了字还是先撤下）"),
     "scope.mode": N_("预先翻译的范围：screen = 整块屏幕；window = 魔镜所在的窗口；near = 镜框附近"),
     "scope.near_px": N_("near 时镜框外多远以内也预先翻译（像素）"),
     "scope.exclude_apps": N_("不翻译的程序（exe 文件名，逗号分隔）"),

@@ -284,6 +284,14 @@ whether all screens are processed (by default only the mirror's screen), mouse w
 size, the backing opacity, the skin (classic / liquid glass) and the hotkeys.
 Changes to the recognition device, the screens and wheel prediction take effect the next time DeskMirror starts.
 
+**Don't show the original under the mouse** (Settings → Recognition and display → Mouse over, on by default): when
+the mouse moves onto a link, a menu item or a row of a list, it changes color, turns light on dark or gets
+underlined. DeskMirror sees the picture change and would take the translation down until it reads the text again, so
+the original flashes up. With this on, text the mouse just passed keeps its translation as long as the letters keep
+their shape; that piece is read again a moment later and the backing takes the hover color. When a menu or tooltip
+pops up over the text or the words really change, the translation still comes down first (no old translation over
+new content), and a large area changing at once (a new page, the whole page dimming) doesn't count as hover.
+
 ## Default parameters (adjustable in deskmirror.json)
 
 Usually there's no need to change these. You can change them from the command line (see the next section) or edit
@@ -297,6 +305,7 @@ the file directly: a running DeskMirror picks up the changes within a second.
 | `track.ring_px` | 240 | Width of each ring in the spiral scheduling |
 | `track.max_cache_blocks` / `max_cache_texts` | 6000 / 20000 | Limits of the text block cache and the translation cache (in memory only) |
 | `track.display_lead_ms` | 12 | Lead time of the wheel prediction (drawing plus one composited frame) |
+| `track.hover_hold` | true | Don't show the original under the mouse: text the mouse just passed keeps its translation when it only changes color, turns light on dark or gets underlined |
 | `llm.max_batch_items` / `max_batch_chars` | 10 / 1000 | At most how many text blocks and characters go into one request (throughput tops out at 8–10 blocks) |
 | `llm.timeout_s` / `concurrency` | 45 / 1 | Request timeout, parallel requests |
 | `style.min_font_px` / `min_scale` | 11 / 0.75 | When a translation doesn't fit, it shrinks to at most 11 pixels or 75% of the original size. If there is plain space to the right it borrows it (often needed when Chinese or Japanese turns into English; never past text on the right or over pictures), then takes plain space below. Above a panel border, a picture or moving video it first shrinks a little more (down to 60% of the original size), and only then covers it; if it still doesn't fit, it is cut off and marked. English words are kept whole where possible |

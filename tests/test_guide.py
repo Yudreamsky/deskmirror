@@ -193,6 +193,15 @@ class SettingsPresetTest(unittest.TestCase):
         self.assertIn("Settings → Keys", d.test_result.text(), "还没填密钥：说清去哪儿申请")
         d.close()
 
+    def test_mouse_over_option(self) -> None:
+        _app()
+        from deskmirror.ui.settings import SettingsDialog
+        d = SettingsDialog(AppConfig())
+        self.assertTrue(d.hover_hold.isChecked(), "默认勾着：鼠标经过时不显示原文")
+        d.hover_hold.setChecked(False)
+        self.assertFalse(d.collect().track.hover_hold)
+        d.close()
+
 
 class AboutTest(unittest.TestCase):
     def test_about(self) -> None:

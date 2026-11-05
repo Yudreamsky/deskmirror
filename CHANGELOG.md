@@ -3,6 +3,7 @@
 ## 未发布
 
 支持 Ollama 云端的 API Key：不用装 Ollama，填上 ollama.com 的 API Key 就能用云端模型翻译、看图翻译。
+鼠标移到链接、菜单项、列表上时不再闪出原文。
 
 - **Ollama 云端（API Key）**：设置 → 翻译服务的“常用服务”和新手指南的“云端服务”里多了这一项，选了就填好接入方式
   （Ollama 原生接口）、地址 `https://ollama.com` 和模型 `gemma4:31b`，再填上 API Key（ollama.com 登录后在 Settings → Keys
@@ -10,6 +11,10 @@
 - **看图翻译也用这个 API**：设置 → 翻译服务，“翻译服务”一栏最下面多了这个勾选项。勾上后看图翻译直接用翻译服务的
   接入方式、地址、模型和 API Key，不用再填一遍（模型要能看图，比如 Ollama 云端的 `gemma4:31b`）；取消勾选换回
   看图翻译自己的设置。命令行：`config set vision.use_llm true`。
+- **鼠标经过时不显示原文**（设置 → 识别与显示 → 鼠标经过，默认勾着）：以前鼠标移到链接、菜单项、列表的一行上，那里一变色、
+  深浅反过来或者出下划线，魔镜就先撤下译文、重新识别完再放回来，中间闪出原文。现在鼠标刚经过的字形状没变就先留着译文，
+  稍等一下单独重新识别那一块，底板换成悬停后的颜色；被弹出的菜单盖住、字真的换了、一大片同时变（换页）还是先撤下。
+  命令行：`config set track.hover_hold false` 关掉。
 - 发给 ollama.com 时不再带只对本机有用的参数（模型留在显存里多久、上下文长度）；按 token 收费，和别的云端服务一样
   受每日 token 上限管，看图翻译发过去前照样先问。
 - 出错说明更清楚：没填密钥时说“这个服务要 API Key”，不再说密钥无效；ollama.com 上找不到模型时提醒模型名不带 cloud
@@ -18,7 +23,8 @@
   云端服务时，“同时请求”至少调到 2（和新手指南、命令行一样）。
 
 Ollama Cloud API keys are supported: without installing Ollama, enter an ollama.com API key and use cloud models for
-translation and image translation.
+translation and image translation. The original no longer flashes up when the mouse moves over links, menu items and
+lists.
 
 - **Ollama Cloud (API key)**: Settings → Translation service → "Common services" and the getting-started guide's
   "Cloud service" now list it. Picking it fills in the API type (Ollama native API), the address `https://ollama.com`
@@ -29,6 +35,13 @@ translation and image translation.
   Settings → Translation service. When ticked, image translation uses the translation service's API type, address,
   model and API key, so you don't fill them in twice (the model must read images, e.g. `gemma4:31b` on Ollama Cloud);
   untick it to go back to image translation's own settings. On the command line: `config set vision.use_llm true`.
+- **Don't show the original under the mouse** (Settings → Recognition and display → Mouse over, on by default): until
+  now, when the mouse moved onto a link, a menu item or a row of a list and it changed color, turned light on dark or
+  got underlined, DeskMirror took the translation down until it had read the text again, so the original flashed up.
+  Now text the mouse just passed keeps its translation as long as the letters keep their shape; that piece is read
+  again a moment later and the backing takes the hover color. A menu popping up over the text, words that really
+  change and a large area changing at once (a new page) still take it down first. On the command line:
+  `config set track.hover_hold false` turns it off.
 - Requests to ollama.com no longer carry the settings that only matter to a local Ollama (how long the model stays in
   video memory, the context length). It is billed per token and, like other cloud services, counts toward the daily
   token limit; image translation still asks before sending a picture there.

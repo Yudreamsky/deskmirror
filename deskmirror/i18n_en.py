@@ -572,6 +572,16 @@ EN: dict[str, str] = {
         'Minimum font size',
     '底板不透明度':
         'Backing opacity',
+    '不显示原文（字只是变了色、出了下划线时，先留着译文）':
+        "Don't show the original (the translation stays through hover effects)",
+    '鼠标移到链接、菜单项、列表的一行上，那里会变色或出下划线，魔镜看到画面变了，本来会先撤下译文、重新识别完再放回来，'
+    '中间闪出原文。勾上后，字的形状没变就先留着译文；被弹出的菜单盖住、或者真的换了字，还是先撤下':
+        'When the mouse moves onto a link, a menu item or a row of a list, it changes color or gets underlined. '
+        'DeskMirror sees the picture change and would take the translation down until it reads the text again, so the '
+        'original flashes up. With this on, the translation stays as long as the letters keep their shape; when a '
+        'menu pops up over the text or the words really change, it still comes down first',
+    '鼠标经过':
+        'Mouse over',
     '皮肤':
         'Skin',
     '经典':
@@ -760,6 +770,10 @@ EN: dict[str, str] = {
         'Move translations ahead while scrolling, using the learned wheel curve',
     '滚动预测的提前量（毫秒）':
         'How far ahead scrolling is predicted (ms)',
+    '鼠标经过时不显示原文：鼠标刚经过的字只是变了色、深浅反过来、加了下划线时，先留着译文（被弹出的菜单盖住、换了字还是先撤下）':
+        "Don't show the original under the mouse: when text the mouse just passed only changes color, turns light on "
+        "dark or gets underlined, the translation stays (it still comes down when a menu pops up over it or the "
+        "words change)",
     '预先翻译的范围：screen = 整块屏幕；window = 魔镜所在的窗口；near = 镜框附近':
         'What gets pre-translated: screen = the whole screen; window = the window under the mirror; near = around the frame',
     'near 时镜框外多远以内也预先翻译（像素）':
