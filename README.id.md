@@ -41,7 +41,8 @@ Inggris; bila Anda memilih bahasa Indonesia sebagai bahasa ibu, terjemahannya ta
 - **Menerjemahkan lebih dulu di latar belakang**: teks di layar tempat cermin berada diterjemahkan lebih awal, jadi ke
   mana pun cermin diseret, terjemahannya sudah siap; tidak ada yang diterjemahkan dua kali.
 - **Pilih layanan terjemahan sendiri**: model [Ollama](https://ollama.com) lokal (gratis, teks tidak keluar dari PC
-  Anda), atau API apa pun yang kompatibel dengan OpenAI seperti DeepSeek, Qwen, atau OpenAI.
+  Anda), Ollama Cloud dengan kunci API ollama.com (tanpa perlu memasang Ollama), atau API apa pun yang kompatibel
+  dengan OpenAI seperti DeepSeek, Qwen, atau OpenAI.
 - **Privasi di tangan Anda**: daftar program yang tidak diterjemahkan (aplikasi obrolan, pengelola kata sandi, dan
   perbankan daring dilewati secara bawaan; saat mengobrol dengan rekan atau teman dari luar negeri, nyalakan
   "Translate chat apps" dengan sekali klik), tiga cakupan terjemahan awal, dan pemakaian hari ini sekilas. Teks di
@@ -80,7 +81,7 @@ Yang Anda perlukan:
 - Layanan terjemahan, salah satu dari:
   - Lokal: pasang [Ollama](https://ollama.com), lalu jalankan `ollama pull gemma4:12b` (sekitar 7,6 GB; perlu kartu
     grafis dengan memori video yang besar)
-  - Cloud: kunci API untuk DeepSeek atau layanan serupa (bayar sesuai pemakaian)
+  - Cloud: kunci API untuk DeepSeek, Ollama Cloud, atau layanan serupa (bayar sesuai pemakaian)
 
 ### Penginstal (paling mudah)
 
@@ -120,7 +121,8 @@ Unduh `DeskMirror-<versi>-win64-setup.exe` (sekitar 106 MB) dari
    `.venv\Scripts\python packaging\build.py`.
 
 Untuk memakai layanan cloud: pilih "Cloud service" di langkah 3 panduan memulai, atau klik ⚙ di tab cermin →
-Translation service, pilih "OpenAI-compatible API", isi alamat, model, dan kunci API, lalu klik "Test connection".
+Translation service, pilih layanannya di "Common services" (DeepSeek, Ollama Cloud…; untuk layanan lain pilih
+"OpenAI-compatible API" lalu isi alamat dan model), isi kunci API, lalu klik "Test connection".
 
 Pengenalan teks secara bawaan memakai kartu grafis (DirectML, kartu apa pun yang mendukung DirectX 12) dan otomatis
 beralih ke CPU bila tidak tersedia.

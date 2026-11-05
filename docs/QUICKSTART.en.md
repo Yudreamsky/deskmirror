@@ -37,9 +37,10 @@ The mirror hands the text on screen to a translation service. Choose one:
 2. In a command prompt, run `ollama pull gemma4:12b` (about 7.6 GB).
 3. Step 3 of the guide checks automatically; once it says Ollama and the model are ready, you're set.
 
-**Cloud service** (DeepSeek, Qwen, etc.; pay per use, works on any PC)
+**Cloud service** (DeepSeek, Ollama Cloud, Qwen, etc.; pay per use, works on any PC)
 
-1. Get an API key on the provider's website.
+1. Get an API key on the provider's website (Ollama Cloud: sign in at ollama.com and create one under Settings →
+   Keys; no need to install Ollama).
 2. In step 3 of the guide, choose "Cloud service", pick the service, enter the API key and click "Test connection".
 3. The key is stored only on this PC, encrypted with your Windows account.
 

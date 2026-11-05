@@ -17,7 +17,7 @@ import cv2
 import httpx
 import numpy as np
 
-from .config import LANGUAGES, VisionConfig
+from .config import LANGUAGES, VisionConfig, is_ollama_cloud
 from .i18n import tr
 from .translator import _SOURCE_DESC, _TARGET_DESC, ServiceError, _http_error, make_client
 
@@ -59,10 +59,14 @@ def build_request(cfg: VisionConfig, prompt: str, image_b64: str) -> tuple[str, 
     """(地址, 请求体, 请求头)。Ollama 原生接口把图放在 images 里；OpenAI 兼容接口用 data URL。"""
     base = cfg.base_url.strip().rstrip("/")
     if cfg.protocol == "ollama":
-        payload = {"model": cfg.model, "stream": True, "think": False, "keep_alive": "30m",
-                   "options": {"temperature": 0.2, "num_ctx": cfg.num_ctx},
+        payload = {"model": cfg.model, "stream": True, "think": False,
                    "messages": [{"role": "user", "content": prompt, "images": [image_b64]}]}
-        return f"{base}/api/chat", payload, {}
+        if is_ollama_cloud(base):     # ollama.com 云端：不用让模型留在显存里，也不用固定 num_ctx
+            payload["options"] = {"temperature": 0.2}
+        else:
+            payload["keep_alive"] = "30m"
+            payload["options"] = {"temperature": 0.2, "num_ctx": cfg.num_ctx}
+        return f"{base}/api/chat", payload, ({"Authorization": f"Bearer {cfg.api_key}"} if cfg.api_key else {})
     headers = {"Content-Type": "application/json"}
     if cfg.api_key:
         headers["Authorization"] = f"Bearer {cfg.api_key}"
@@ -101,7 +105,7 @@ def stream_vision(cfg: VisionConfig, target: str, source: str, image_b64: str, o
                         if _no_vision(resp.text):
                             raise ServiceError(tr("模型 {model} 不能看图，请在设置里换一个能看图的模型")
                                                .format(model=cfg.model), retryable=False)
-                        raise _http_error(resp)
+                        raise _http_error(resp, bool(cfg.api_key), is_ollama_cloud(cfg.base_url))
                     for line in resp.iter_lines():
                         if cancel.is_set():
                             return time.perf_counter() - t0

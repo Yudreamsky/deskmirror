@@ -114,6 +114,14 @@ class CliTest(unittest.TestCase):
         self.assertGreaterEqual(llm.concurrency, 2)
         self.json_cli("service", "openai")
         self.assertEqual(config.load().llm.model, "", "没有默认模型的服务：不留着上一家的模型名")
+        code, out, _err = self.run_cli("service", "ollama-cloud")
+        self.assertEqual(code, 0)
+        llm = config.load().llm
+        self.assertEqual((llm.protocol, llm.base_url, llm.model), ("ollama", "https://ollama.com", "gemma4:31b"))
+        self.assertGreaterEqual(llm.concurrency, 2, "Ollama 云端不是本机：可以同时发几个请求")
+        self.assertIn("API Key", out)
+        self.json_cli("service", "ollama")
+        self.assertEqual(config.load().llm.concurrency, 1, "本机 Ollama 一次一个")
         self.assertEqual(self.json_cli("service", "nosuch")[0], 1)
 
     def test_glossary(self) -> None:

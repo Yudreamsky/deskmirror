@@ -166,6 +166,8 @@ EN: dict[str, str] = {
         'ZH',
     '繁':
         'ZH-T',
+    'Ollama 云端（API Key）':
+        'Ollama Cloud (API key)',
     '通义千问（阿里云百炼）':
         'Qwen (Alibaba Cloud Model Studio)',
     '硅基流动':
@@ -233,10 +235,14 @@ EN: dict[str, str] = {
         'The service timed out',
     '服务返回的内容不是模型列表':
         "The service didn't return a model list",
+    '这个服务要 API Key（HTTP {code}）：在设置里填上':
+        'This service needs an API key (HTTP {code}): enter it in Settings',
     '密钥无效或没有权限（HTTP {code}）':
         'Invalid key or no permission (HTTP {code})',
     '地址或模型不存在（HTTP 404）{detail}':
         "The address or model doesn't exist (HTTP 404) {detail}",
+    '。ollama.com 上的模型名照“获取模型列表”里的写，不带 cloud，比如 gemma4:31b':
+        '. On ollama.com, write the model name as "Fetch models" lists it, without "cloud", e.g. gemma4:31b',
     '服务有回应，但没有按编号返回译文（用时 {secs:.1f} 秒）；可换一个模型试试':
         "The service responded but didn't return numbered translations ({secs:.1f} s); try another model",
     '这个地址没有模型列表接口（HTTP 404），检查服务地址和接入方式':
@@ -301,8 +307,8 @@ EN: dict[str, str] = {
         'First, choose a translation service',
     '本机 Ollama（免费，文字不出本机；需要显存较大的独立显卡）':
         'Ollama on this PC (free, text stays on your PC; needs a graphics card with plenty of video memory)',
-    '云端服务（DeepSeek、通义千问等；按用量收费，一般电脑都能用）':
-        'Cloud service (DeepSeek, Qwen, etc.; pay per use, works on any PC)',
+    '云端服务（DeepSeek、Ollama 云端、通义千问等；按用量收费，一般电脑都能用）':
+        'Cloud service (DeepSeek, Ollama Cloud, Qwen, etc.; pay per use, works on any PC)',
     '重新检查':
         'Check again',
     '服务':
@@ -426,8 +432,11 @@ EN: dict[str, str] = {
         'Fetch models',
     '点“获取模型列表”选一个，也可以直接手填':
         'Click "Fetch models" to pick one, or type a name',
-    '本地 Ollama 不需要；云端服务填这里。只用 Windows 账户加密保存在本机':
-        'Not needed for local Ollama; enter it for cloud services. Stored on this PC, encrypted with your Windows account',
+    '本机 Ollama 不需要；云端服务（包括 Ollama 云端）填这里。只用 Windows 账户加密保存在本机':
+        'Only for cloud services, Ollama Cloud included. Stored on this PC, encrypted with your Windows account',
+    'Ollama 云端要 API Key：登录 ollama.com，在 Settings → Keys 里新建一个，填到上面的“API Key”里，再点“测试连接”':
+        'Ollama Cloud needs an API key: sign in at ollama.com, create one under Settings → Keys, '
+        'paste it into "API Key" above, then click "Test connection"',
     ' 秒':
         ' s',
     '并发与超时':
@@ -669,8 +678,9 @@ EN: dict[str, str] = {
         'Interface language: zh or en; empty = chosen from the target language',
     '启动时弹出新手指南（看完自动关掉）':
         'Show the getting-started guide at startup (turns itself off once you finish it)',
-    '翻译服务的接口：ollama = 本机 Ollama；openai = OpenAI 兼容接口（DeepSeek、通义千问、OpenAI 等）':
-        'Translation service API: ollama = Ollama on this PC; openai = OpenAI-compatible API (DeepSeek, Qwen, OpenAI…)',
+    '翻译服务的接口：ollama = Ollama 原生接口（本机 Ollama，或 ollama.com 云端）；openai = OpenAI 兼容接口（DeepSeek、通义千问、OpenAI 等）':
+        'Translation service API: ollama = Ollama native API (Ollama on this PC, or Ollama Cloud at ollama.com); '
+        'openai = OpenAI-compatible API (DeepSeek, Qwen, OpenAI…)',
     '翻译服务的地址，比如 https://api.deepseek.com、http://127.0.0.1:11434':
         'Translation service address, e.g. https://api.deepseek.com or http://127.0.0.1:11434',
     '翻译用的模型名（models 命令列出服务现有的模型）':

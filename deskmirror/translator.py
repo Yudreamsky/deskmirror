@@ -1,4 +1,4 @@
-"""可更换的翻译服务：Ollama 原生接口或任意 OpenAI 兼容接口。
+"""可更换的翻译服务：Ollama 原生接口（本机，或 ollama.com 云端用 API Key）或任意 OpenAI 兼容接口。
 
 本地程序负责坐标、画布、缓存有效性和裁剪；这里只把一批文字块交给 LLM 翻译。
 一批里的文字块编号 [1] [2] … 发出去，按编号解析回来；流式返回时每个编号段落
@@ -19,7 +19,7 @@ from typing import Callable
 
 import httpx
 
-from .config import LANGUAGES, LlmConfig
+from .config import LANGUAGES, LlmConfig, is_ollama_cloud
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -176,7 +176,7 @@ class ServiceError(Exception):
         return str(self).replace(self.detail, "…") if self.detail else str(self)
 
 
-def _http_error(resp: httpx.Response) -> ServiceError:
+def _http_error(resp: httpx.Response, has_key: bool = True, ollama_cloud: bool = False) -> ServiceError:
     code = resp.status_code
     try:
         detail = resp.json()
@@ -187,12 +187,16 @@ def _http_error(resp: httpx.Response) -> ServiceError:
         detail = ""
     detail = str(detail)[:120]
     if code in (401, 403):
+        if not has_key:
+            return ServiceError(tr("这个服务要 API Key（HTTP {code}）：在设置里填上").format(code=code), retryable=False)
         return ServiceError(tr("密钥无效或没有权限（HTTP {code}）").format(code=code), retryable=False)
     if code == 402:
         return ServiceError(tr("账户余额不足（HTTP 402）：到服务商那里充值后点 ⟳ 继续"), retryable=False)
     if code == 404:
-        return ServiceError(tr("地址或模型不存在（HTTP 404）{detail}").format(detail=detail), retryable=False,
-                            detail=detail)
+        msg = tr("地址或模型不存在（HTTP 404）{detail}").format(detail=detail)
+        if ollama_cloud:              # 本机 Ollama 里的云端模型叫 gemma4:31b-cloud，直连 ollama.com 时叫 gemma4:31b
+            msg += tr("。ollama.com 上的模型名照“获取模型列表”里的写，不带 cloud，比如 gemma4:31b")
+        return ServiceError(msg, retryable=False, detail=detail)
     if code == 429:
         return ServiceError(tr("请求太频繁或额度用完（HTTP 429）"))
     return ServiceError(tr("服务返回错误 HTTP {code} {detail}").format(code=code, detail=detail),
@@ -228,6 +232,20 @@ def _clean(text: str) -> str:
     return text
 
 
+def _ollama_chat(cfg: LlmConfig, base: str, messages: list[dict]) -> tuple[dict, dict]:
+    """Ollama 原生 /api/chat 的请求体和请求头。本机（或局域网里）的 Ollama 每次要带一样的 num_ctx、让模型留在显存里，
+    不然会重新载入模型；ollama.com 云端用不着这两个，靠 API Key 认人。"""
+    payload = {"model": cfg.model, "messages": messages, "stream": True}
+    if is_ollama_cloud(base):
+        payload["options"] = {"temperature": cfg.temperature}
+    else:
+        payload["keep_alive"] = cfg.keep_alive
+        payload["options"] = {"temperature": cfg.temperature, "num_ctx": cfg.num_ctx}
+    if cfg.disable_thinking:
+        payload["think"] = False
+    return payload, ({"Authorization": f"Bearer {cfg.api_key}"} if cfg.api_key else {})
+
+
 def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: Callable[[int, str], None],
                      client: httpx.Client, cancel: threading.Event, context: str = "",
                      glossary: list[tuple[str, str]] | None = None, refs: list[tuple[str, str]] | None = None,
@@ -254,19 +272,16 @@ def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: 
         raise ServiceError(tr("还没有填写模型名"), retryable=False)
     try:
         if cfg.protocol == "ollama":
-            payload = {"model": cfg.model, "messages": messages, "stream": True, "keep_alive": cfg.keep_alive,
-                       "options": {"temperature": cfg.temperature, "num_ctx": cfg.num_ctx}}
-            if cfg.disable_thinking:
-                payload["think"] = False
+            payload, headers = _ollama_chat(cfg, base, messages)
             for attempt in range(2):
-                with client.stream("POST", f"{base}/api/chat", json=payload) as resp:
+                with client.stream("POST", f"{base}/api/chat", json=payload, headers=headers) as resp:
                     if resp.status_code != 200:
                         resp.read()
                         if attempt == 0 and "think" in payload and resp.status_code == 400 \
                                 and "think" in resp.text.lower():
                             payload.pop("think")  # 这个模型不支持思考开关：去掉参数重发一次
                             continue
-                        raise _http_error(resp)
+                        raise _http_error(resp, bool(cfg.api_key), is_ollama_cloud(base))
                     for line in resp.iter_lines():
                         if cancel.is_set():
                             return finish()
@@ -306,7 +321,7 @@ def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: 
                             payload.pop("thinking", None)
                             payload.pop("stream_options", None)
                             continue
-                        raise _http_error(resp)
+                        raise _http_error(resp, bool(cfg.api_key))
                     if attempt == 1:
                         _NO_EXTRA_PARAMS.add(base)
                     for line in resp.iter_lines():
@@ -382,11 +397,8 @@ def list_models(cfg: LlmConfig) -> tuple[list[str], str]:
         return [], tr("先填服务地址")
     try:
         with make_client(cfg, timeout_s=8.0) as c:
-            if cfg.protocol == "ollama":
-                r = c.get(f"{base}/api/tags")
-            else:
-                headers = {"Authorization": f"Bearer {cfg.api_key}"} if cfg.api_key else {}
-                r = c.get(f"{base}/models", headers=headers)
+            headers = {"Authorization": f"Bearer {cfg.api_key}"} if cfg.api_key else {}
+            r = c.get(f"{base}/api/tags" if cfg.protocol == "ollama" else f"{base}/models", headers=headers)
             if r.status_code in (401, 403):
                 return [], (tr("还没填 API Key") if not cfg.api_key
                             else tr("密钥不对或没有权限（HTTP {code}）").format(code=r.status_code))

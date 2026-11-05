@@ -17,8 +17,8 @@ from . import layered
 from .about import AboutPage
 from .icons import glyph
 from .keyedit import HotkeyEdit, probe
-from ..config import (DEFAULT_EXCLUDE_APPS, DEFAULT_EXCLUDE_TITLES, LANGUAGES, OPENAI_PRESETS, SCOPE_MODES,
-                      SOURCE_LANGS, AppConfig, HotkeyConfig)
+from ..config import (DEFAULT_EXCLUDE_APPS, DEFAULT_EXCLUDE_TITLES, LANGUAGES, SCOPE_MODES, SERVICE_PRESETS,
+                      SOURCE_LANGS, AppConfig, HotkeyConfig, is_local_url, is_ollama_cloud)
 from ..i18n import N_, UI_LANGS, tr, ui_lang
 from ..keys import normalize_hotkey, parse_modifiers
 from ..translator import list_models, test_connection
@@ -275,8 +275,8 @@ class SettingsDialog(QDialog):
         f.addRow(tr("接入方式"), self.protocol)
         self.preset = QComboBox()
         self.preset.addItem(tr("（常用地址，选一个自动填入）"), None)
-        for name, (url, model) in OPENAI_PRESETS.items():
-            self.preset.addItem(tr(name), (url, model))
+        for name, preset in SERVICE_PRESETS.items():
+            self.preset.addItem(tr(name), preset)
         self.preset.activated.connect(self._apply_preset)
         f.addRow(tr("常用服务"), self.preset)
         self.base_url = QLineEdit(self.cfg.llm.base_url)
@@ -293,7 +293,7 @@ class SettingsDialog(QDialog):
         f.addRow(tr("模型"), mrow)
         self.api_key = QLineEdit(self.cfg.llm.api_key)
         self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.api_key.setPlaceholderText(tr("本地 Ollama 不需要；云端服务填这里。只用 Windows 账户加密保存在本机"))
+        self.api_key.setPlaceholderText(tr("本机 Ollama 不需要；云端服务（包括 Ollama 云端）填这里。只用 Windows 账户加密保存在本机"))
         f.addRow("API Key", self.api_key)
         self.concurrency = QSpinBox()
         self.concurrency.setRange(1, 8)
@@ -664,11 +664,16 @@ class SettingsDialog(QDialog):
         data = self.preset.itemData(idx)
         if not data:
             return
-        url, model = data
-        self.protocol.setCurrentIndex(1)
+        protocol, url, model = data
+        self.protocol.setCurrentIndex(self.protocol.findData(protocol))
         self.base_url.setText(url)
         if model:
             self.model.setCurrentText(model)
+        if not is_local_url(url):             # 云端服务：同时发两个以上的请求（和新手指南、命令行一样）
+            self.concurrency.setValue(max(self.concurrency.value(), 2))
+        if is_ollama_cloud(url) and not self.api_key.text().strip():
+            self.test_result.setText(tr("Ollama 云端要 API Key：登录 ollama.com，在 Settings → Keys 里新建一个，"
+                                        "填到上面的“API Key”里，再点“测试连接”"))
 
     def _pick_dir(self) -> None:
         d = QFileDialog.getExistingDirectory(self, tr("截图保存到哪个文件夹"), self.cap_dir.text().strip())

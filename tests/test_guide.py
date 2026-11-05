@@ -109,11 +109,40 @@ class GuideDialogTest(unittest.TestCase):
             self.assertIn("还没填 API Key", g.cloud_status.text())
         finally:
             G.list_models = orig
-        openai = next(i for i in range(g.preset.count()) if g.preset.itemData(i)[0] == "https://api.openai.com/v1")
+        openai = next(i for i in range(g.preset.count()) if g.preset.itemData(i)[1] == "https://api.openai.com/v1")
         g.preset.setCurrentIndex(openai)                 # 换服务：旧列表和别家的模型名都清掉
         self.assertEqual((g.model.count(), g.model.currentText()), (0, ""))
         g.preset.setCurrentIndex(0)
         self.assertEqual(g.model.currentText(), "deepseek-chat")
+        g.close()
+
+    def test_ollama_cloud(self) -> None:
+        g = G.GuideDialog(AppConfig())
+        llms = []
+        g.apply_llm.connect(llms.append)
+        g._go(1)
+        g._go(1)                                   # 第 3 步：选 Ollama 云端
+        g.use_cloud.setChecked(True)
+        g.preset.setCurrentIndex(next(i for i in range(g.preset.count())
+                                      if g.preset.itemData(i)[1] == "https://ollama.com"))
+        self.assertEqual(g.model.currentText(), "gemma4:31b")
+        g.key.setText("test-key")
+        g._go(1)
+        self.assertEqual([(x.protocol, x.base_url, x.model, x.api_key) for x in llms],
+                         [("ollama", "https://ollama.com", "gemma4:31b", "test-key")], "走 Ollama 原生接口，带密钥")
+        self.assertGreaterEqual(llms[0].concurrency, 2)
+        g.close()
+        cfg = AppConfig()                          # 再打开指南：认得出是 Ollama 云端，不是本机 Ollama
+        cfg.llm.protocol, cfg.llm.base_url, cfg.llm.model, cfg.llm.api_key = \
+            "ollama", "https://ollama.com", "gemma4:31b", "k"
+        g = G.GuideDialog(cfg)
+        self.assertTrue(g.use_cloud.isChecked())
+        self.assertEqual(g.preset.currentData()[1], "https://ollama.com")
+        self.assertEqual((g.model.currentText(), g.key.text()), ("gemma4:31b", "k"))
+        g.use_local.setChecked(True)               # 改选本机 Ollama：换成本机的地址和模型
+        llm = g.collect_llm()
+        self.assertEqual((llm.protocol, llm.base_url, llm.model, llm.concurrency),
+                         ("ollama", "http://127.0.0.1:11434", "gemma4:12b", 1))
         g.close()
 
     def test_pick_language(self) -> None:
@@ -141,6 +170,28 @@ class GuideDialogTest(unittest.TestCase):
             g._go(1)
         self.assertIn("繁體中文", g.summary.text())
         g.close()
+
+
+class SettingsPresetTest(unittest.TestCase):
+    def test_presets_set_the_protocol(self) -> None:
+        _app()
+        from deskmirror.ui.settings import SettingsDialog
+        d = SettingsDialog(AppConfig())
+
+        def pick(url: str) -> None:
+            i = next(i for i in range(d.preset.count()) if (d.preset.itemData(i) or ("", "", ""))[1] == url)
+            d.preset.setCurrentIndex(i)
+            d._apply_preset(i)
+
+        self.assertEqual(d.concurrency.value(), 1)
+        pick("https://api.deepseek.com")
+        self.assertEqual(d.collect().llm.protocol, "openai")
+        self.assertEqual(d.concurrency.value(), 2, "云端服务：同时发两个请求")
+        pick("https://ollama.com")
+        c = d.collect()
+        self.assertEqual((c.llm.protocol, c.llm.base_url, c.llm.model), ("ollama", "https://ollama.com", "gemma4:31b"))
+        self.assertIn("Settings → Keys", d.test_result.text(), "还没填密钥：说清去哪儿申请")
+        d.close()
 
 
 class AboutTest(unittest.TestCase):

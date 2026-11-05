@@ -21,7 +21,7 @@ from dataclasses import fields, is_dataclass
 from pathlib import Path
 
 from . import __version__, autostart, config, i18n, keys
-from .config import OPENAI_PRESETS, AppConfig, LlmConfig
+from .config import SERVICE_PRESETS, AppConfig, LlmConfig
 from .i18n import N_, tr
 
 SECRETS = ("llm.api_key", "vision.api_key")
@@ -39,7 +39,8 @@ DOCS = {
     "target_lang": N_("译成的语言（你的母语）"),
     "ui_lang": N_("界面语言：zh、en；空着 = 按译成的语言自动选"),
     "first_run_tip": N_("启动时弹出新手指南（看完自动关掉）"),
-    "llm.protocol": N_("翻译服务的接口：ollama = 本机 Ollama；openai = OpenAI 兼容接口（DeepSeek、通义千问、OpenAI 等）"),
+    "llm.protocol": N_("翻译服务的接口：ollama = Ollama 原生接口（本机 Ollama，或 ollama.com 云端）；"
+                       "openai = OpenAI 兼容接口（DeepSeek、通义千问、OpenAI 等）"),
     "llm.base_url": N_("翻译服务的地址，比如 https://api.deepseek.com、http://127.0.0.1:11434"),
     "llm.model": N_("翻译用的模型名（models 命令列出服务现有的模型）"),
     "llm.api_key": N_("翻译服务的 API Key（本机 Ollama 不用填）；用 Windows 账户加密存在本机"),
@@ -114,11 +115,12 @@ DOCS = {
 # 不在配置文件里的设置：开机自动启动存在 Windows 的启动项里（以它为准）
 VIRTUAL = {"autostart": N_("开机时自动启动桌面魔镜（启动后收成球待命，点开或拖出来才开始识别）；"
                            "写在 Windows 的启动项里，不在配置文件里")}
-# service 命令的服务名 → 预设（显示名、接口、地址、默认模型）；OpenAI 兼容的从 config.OPENAI_PRESETS 取
-_PRESET_IDS = {"deepseek": "DeepSeek", "qwen": N_("通义千问（阿里云百炼）"), "siliconflow": N_("硅基流动"),
-               "openai": "OpenAI", "ollama-openai": N_("Ollama（OpenAI 兼容）"), "lmstudio": N_("LM Studio（本地）")}
+# service 命令的服务名 → 预设（显示名、接口、地址、默认模型）；本机 Ollama 以外的从 config.SERVICE_PRESETS 取
+_PRESET_IDS = {"deepseek": "DeepSeek", "ollama-cloud": N_("Ollama 云端（API Key）"), "qwen": N_("通义千问（阿里云百炼）"),
+               "siliconflow": N_("硅基流动"), "openai": "OpenAI", "ollama-openai": N_("Ollama（OpenAI 兼容）"),
+               "lmstudio": N_("LM Studio（本地）")}
 SERVICES = {"ollama": (N_("本机 Ollama"), "ollama", "http://127.0.0.1:11434", "gemma4:12b")}
-SERVICES.update({sid: (name, "openai", *OPENAI_PRESETS[name]) for sid, name in _PRESET_IDS.items()})
+SERVICES.update({sid: (name, *SERVICE_PRESETS[name]) for sid, name in _PRESET_IDS.items()})
 
 
 class CliError(Exception):
@@ -441,9 +443,9 @@ def cmd_service(cfg: AppConfig, args: list[str], as_json: bool) -> int:
     cfg.llm.protocol, cfg.llm.base_url = proto, url
     if model or other_host:
         cfg.llm.model = model
-    cfg.llm.concurrency = 1 if proto == "ollama" else max(cfg.llm.concurrency, 2)
+    local = config.is_local_url(url)
+    cfg.llm.concurrency = 1 if proto == "ollama" and local else max(cfg.llm.concurrency, 2)
     notes = [tr("翻译服务换成了 {name}（{url}）。").format(name=tr(name), url=url)]
-    local = "127.0.0.1" in url
     if not cfg.llm.model:
         notes.append(tr("这个服务没有默认模型：先用 models 命令看看有哪些，再 config set llm.model 名字。"))
     if not local and not cfg.llm.api_key:

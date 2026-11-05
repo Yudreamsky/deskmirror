@@ -47,14 +47,17 @@ def ocr_lang_for(source: str) -> str:
     （RapidOCR 第一次用时从 ModelScope 下载并校验，约 14 MB）。"""
     return "korean" if source == "ko" else "default"
 
-# OpenAI 兼容接口的常见地址，只用于设置页一键填入；用户可以改成任意服务。名称显示时 tr。
-OPENAI_PRESETS: dict[str, tuple[str, str]] = {
-    "DeepSeek": ("https://api.deepseek.com", "deepseek-chat"),
-    N_("通义千问（阿里云百炼）"): ("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
-    N_("硅基流动"): ("https://api.siliconflow.cn/v1", ""),
-    "OpenAI": ("https://api.openai.com/v1", ""),
-    N_("Ollama（OpenAI 兼容）"): ("http://127.0.0.1:11434/v1", "gemma4:12b"),
-    N_("LM Studio（本地）"): ("http://127.0.0.1:1234/v1", ""),
+OLLAMA_CLOUD_URL = "https://ollama.com"   # Ollama 云端：用 ollama.com 的 API Key 直连，不用装 Ollama
+
+# 常用翻译服务（接入方式、地址、默认模型），只用于设置页、新手指南一键填入；用户可以改成任意服务。名称显示时 tr。
+SERVICE_PRESETS: dict[str, tuple[str, str, str]] = {
+    "DeepSeek": ("openai", "https://api.deepseek.com", "deepseek-chat"),
+    N_("Ollama 云端（API Key）"): ("ollama", OLLAMA_CLOUD_URL, "gemma4:31b"),
+    N_("通义千问（阿里云百炼）"): ("openai", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
+    N_("硅基流动"): ("openai", "https://api.siliconflow.cn/v1", ""),
+    "OpenAI": ("openai", "https://api.openai.com/v1", ""),
+    N_("Ollama（OpenAI 兼容）"): ("openai", "http://127.0.0.1:11434/v1", "gemma4:12b"),
+    N_("LM Studio（本地）"): ("openai", "http://127.0.0.1:1234/v1", ""),
 }
 
 
@@ -252,11 +255,21 @@ class AppConfig:
     capture: CaptureConfig = field(default_factory=CaptureConfig)
 
 
+def _host(base_url: str) -> str:
+    from urllib.parse import urlparse
+    return (urlparse(base_url.strip() if "://" in base_url else "http://" + base_url.strip()).hostname or "").lower()
+
+
 def is_local_url(base_url: str) -> bool:
     """服务地址是不是本机（本机服务不花钱、不受 token 上限限制；看图翻译发本机也不用每次问）。"""
-    from urllib.parse import urlparse
-    host = (urlparse(base_url.strip() if "://" in base_url else "http://" + base_url.strip()).hostname or "").lower()
+    host = _host(base_url)
     return host in ("127.0.0.1", "localhost", "::1") or host.endswith(".localhost")
+
+
+def is_ollama_cloud(base_url: str) -> bool:
+    """服务地址是不是 Ollama 云端（ollama.com）：按 token 收费，模型不用载入显存。"""
+    host = _host(base_url)
+    return host == "ollama.com" or host.endswith(".ollama.com")
 
 
 def config_path() -> Path:

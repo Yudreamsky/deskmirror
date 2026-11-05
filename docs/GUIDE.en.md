@@ -253,6 +253,13 @@ Settings → "Translation service":
 - **API type**: `Ollama native API` (default, `http://127.0.0.1:11434` on this PC, model `gemma4:12b`; free, nothing
   leaves your PC), or `OpenAI-compatible API` (DeepSeek, Qwen, SiliconFlow, OpenAI, LM Studio and others; the
   "Common services" drop-down fills in the address with one click).
+- **Ollama Cloud**: use cloud models with an ollama.com API key, without installing Ollama. Pick "Ollama Cloud (API
+  key)" under "Common services": it fills in the API type (Ollama native API), the address `https://ollama.com` and
+  the model `gemma4:31b`; create the API key at ollama.com under Settings → Keys after signing in. Write the model
+  name as "Fetch models" lists it, without `-cloud` (names ending in `-cloud` are what a local Ollama calls them).
+  It is billed per token and, like other cloud services, counts toward the daily token limit; the pay-as-you-go and
+  Pro plans handle up to 3 requests at a time and queue the rest. Image translation can use it too: choose Ollama
+  native API, the address `https://ollama.com`, the model `gemma4:31b` (it can read images) and the same API key.
 - **Model**: type it in, or click "Fetch models": when the list arrives, the drop-down opens by itself; when it
   doesn't, the reason is shown (for example a wrong key, or the address has no such endpoint).
 - **API key**: only needed for cloud services; stored only on this PC in `deskmirror.json`, encrypted with your

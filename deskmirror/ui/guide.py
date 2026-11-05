@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDialog, QFormLayout, QG
                                QLineEdit, QPushButton, QRadioButton, QStackedWidget, QVBoxLayout, QWidget)
 
 from .. import i18n, winapi
-from ..config import LANGUAGES, OPENAI_PRESETS, SCOPE_MODES, AppConfig, LlmConfig
+from ..config import LANGUAGES, SCOPE_MODES, SERVICE_PRESETS, AppConfig, LlmConfig, is_local_url
 from ..i18n import tr
 from ..translator import list_models, test_connection
 from .settings import show_models
@@ -227,7 +227,7 @@ class GuideDialog(QDialog):
         w, v = self._page(tr("第一件事：选一个翻译服务"))
         v.addWidget(self._text(tr("魔镜把屏幕上的文字交给翻译服务来翻。二选一：")))
         self.use_local = QRadioButton(tr("本机 Ollama（免费，文字不出本机；需要显存较大的独立显卡）"))
-        self.use_cloud = QRadioButton(tr("云端服务（DeepSeek、通义千问等；按用量收费，一般电脑都能用）"))
+        self.use_cloud = QRadioButton(tr("云端服务（DeepSeek、Ollama 云端、通义千问等；按用量收费，一般电脑都能用）"))
         group = QButtonGroup(self)
         group.addButton(self.use_local)
         group.addButton(self.use_cloud)
@@ -247,9 +247,9 @@ class GuideDialog(QDialog):
         cf = QFormLayout(cloud)
         cf.setContentsMargins(24, 0, 0, 0)
         self.preset = QComboBox()
-        for name, (url, model) in OPENAI_PRESETS.items():
-            if "127.0.0.1" not in url:
-                self.preset.addItem(tr(name), (url, model))
+        for name, preset in SERVICE_PRESETS.items():
+            if not is_local_url(preset[1]):
+                self.preset.addItem(tr(name), preset)      # （接入方式, 地址, 默认模型）
         self.preset.currentIndexChanged.connect(self._preset_changed)
         cf.addRow(tr("服务"), self.preset)
         mrow = QHBoxLayout()
@@ -274,11 +274,11 @@ class GuideDialog(QDialog):
         cf.addRow("", trow)
         v.addWidget(cloud)
         v.addStretch(1)
-        local = self.llm.protocol == "ollama"
+        local = self._local_llm()
         (self.use_local if local else self.use_cloud).setChecked(True)
         if not local:
             idx = next((i for i in range(self.preset.count())
-                        if self.preset.itemData(i)[0].rstrip("/") == self.llm.base_url.rstrip("/")), -1)
+                        if self.preset.itemData(i)[1].rstrip("/") == self.llm.base_url.rstrip("/")), -1)
             if idx >= 0:
                 self.preset.setCurrentIndex(idx)
             self.model.setCurrentText(self.llm.model)
@@ -385,10 +385,13 @@ class GuideDialog(QDialog):
                                  .format(lang=LANGUAGES.get(self.native, self.native), service=self._service_name(),
                                          scope=tr(SCOPE_MODES.get(self.scope.currentData(), ""))))
 
+    def _local_llm(self) -> bool:
+        """现在的翻译服务是不是本机 Ollama（Ollama 云端也走 Ollama 原生接口，但不是本机）。"""
+        return self.llm.protocol == "ollama" and is_local_url(self.llm.base_url)
+
     def _service_name(self) -> str:
         if self.use_local.isChecked():
-            return tr("本机 Ollama（{model}）").format(
-                model=self.llm.model if self.llm.protocol == "ollama" else "gemma4:12b")
+            return tr("本机 Ollama（{model}）").format(model=self.llm.model if self._local_llm() else "gemma4:12b")
         return tr("{service}（{model}）").format(service=self.preset.currentText(),
                                                  model=self.model.currentText().strip())
 
@@ -396,11 +399,10 @@ class GuideDialog(QDialog):
         """按第 3 步的选择得出翻译服务设置（其他参数沿用原来的）。"""
         llm = copy.deepcopy(self.llm)
         if self.use_local.isChecked():
-            if llm.protocol != "ollama":
+            if not self._local_llm():
                 llm.protocol, llm.base_url, llm.model, llm.concurrency = "ollama", OLLAMA_URL, "gemma4:12b", 1
         else:
-            url, _model = self.preset.currentData()
-            llm.protocol, llm.base_url = "openai", url
+            llm.protocol, llm.base_url, _model = self.preset.currentData()
             llm.model = self.model.currentText().strip()
             llm.api_key = self.key.text().strip()
             llm.concurrency = max(llm.concurrency, 2)
@@ -417,7 +419,7 @@ class GuideDialog(QDialog):
         data = self.preset.itemData(idx)
         if data:
             self.model.clear()                # 换了服务：之前的模型列表和模型名都不适用了，换成预设的（可能是空的）
-            self.model.setCurrentText(data[1])
+            self.model.setCurrentText(data[2])
 
     # ------------------------------------------------------------------ 检查
     def _run(self, tag: str, fn) -> None:
@@ -431,9 +433,9 @@ class GuideDialog(QDialog):
 
     def _check_local(self) -> None:
         self.local_status.setText(tr("正在检查本机的 Ollama…"))
-        model = self.llm.model if self.llm.protocol == "ollama" else "gemma4:12b"
-        probe = LlmConfig(protocol="ollama", base_url=OLLAMA_URL if self.llm.protocol != "ollama"
-                          else self.llm.base_url)
+        local = self._local_llm()
+        model = self.llm.model if local else "gemma4:12b"
+        probe = LlmConfig(protocol="ollama", base_url=self.llm.base_url if local else OLLAMA_URL)
         self._run("local", lambda: (list_models(probe), model))
 
     def _fetch_models(self) -> None:

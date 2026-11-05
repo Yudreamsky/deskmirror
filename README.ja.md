@@ -35,7 +35,7 @@ https://github.com/user-attachments/assets/949fc01b-9277-44ab-8253-7a7a5162d22c
 - **その場に表示**：訳文は原文があった位置に、なるべく同じ文字サイズ・色で表示されます。Ctrl+Alt+O を押している間は原文が見えます。
 - **画面の動きについていく**：スクロール、ウィンドウの移動や重なり、動画の字幕にも追従します。画面の変化を見て判断するので、特定のアプリには依存しません。スクロール中は Windows 自身が訳文をフレームごとに動かすので、原文にぴったりついていきます。
 - **バックグラウンドで先に翻訳**：ミラーがある画面の文字を前もって翻訳しておくので、どこへドラッグしても訳文がすぐ出ます。一度翻訳した内容は二度と翻訳しません。
-- **翻訳サービスを選べる**：ローカルの [Ollama](https://ollama.com)（無料、文字が PC の外に出ません）、または DeepSeek、Qwen、OpenAI など OpenAI 互換 API。
+- **翻訳サービスを選べる**：ローカルの [Ollama](https://ollama.com)（無料、文字が PC の外に出ません）、Ollama Cloud（ollama.com の API キーで直接つながり、Ollama のインストールは不要）、または DeepSeek、Qwen、OpenAI など OpenAI 互換 API。
 - **プライバシーを自分で管理**：翻訳しないリスト（チャットアプリ、パスワード管理ソフト、ネットバンキングは既定で除外。海外の同僚や友人とチャットするときは「Translate chat apps」をワンクリックでオン）、3 段階の先読み範囲、当日の使用量の表示。画面の文字は既定ではディスクに保存しません。
 - **言語をいつでも切り替え**：ミラーのタブにある言語ボタン（例：「Auto→JA」）で原文と訳文の言語を指定できます。中国語、英語、日本語、韓国語、インドネシア語に対応しています。
 - **英語と中国語のインターフェース**：初回起動時に母語を選ぶと、訳文はその言語で表示されます。画面表示（UI）は中国語と英語のみで、日本語を選んだ場合は英語になります。どちらも後から設定で変更できます。
@@ -56,7 +56,7 @@ https://github.com/user-attachments/assets/949fc01b-9277-44ab-8253-7a7a5162d22c
 - Windows 11（Windows 10 でも動くはずですが、まだ試していません）
 - 翻訳サービス（どちらか一つ）：
   - ローカル：[Ollama](https://ollama.com) をインストールし、`ollama pull gemma4:12b` を実行（モデルは約 7.6 GB。ビデオメモリの多い単体 GPU が必要）
-  - クラウド：DeepSeek などのサービスの API キー（従量課金）
+  - クラウド：DeepSeek、Ollama Cloud などのサービスの API キー（従量課金）
 
 ### インストーラー（いちばん簡単）
 
@@ -84,7 +84,8 @@ https://github.com/user-attachments/assets/949fc01b-9277-44ab-8253-7a7a5162d22c
 5. exe を自分でビルドするには：`.venv\Scripts\python -m pip install -r requirements-build.txt` のあと `.venv\Scripts\python packaging\build.py`。
 
 クラウドのサービスを使うには：ガイドのステップ 3 で「Cloud service」を選ぶか、ミラーのタブの ⚙ → Translation service で
-「OpenAI-compatible API」を選び、アドレス、モデル、API キーを入力して「Test connection」をクリックします。
+「Common services」から選び（DeepSeek、Ollama Cloud など。ほかのサービスは「OpenAI-compatible API」を選んでアドレスとモデルを入力）、
+API キーを入力して「Test connection」をクリックします。
 
 文字認識は既定で GPU（DirectML。DirectX 12 対応のグラフィックボードならどれでも）を使い、使えない場合は自動で CPU に切り替わります。
 

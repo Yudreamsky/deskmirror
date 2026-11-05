@@ -172,6 +172,11 @@
 
 - **接入方式**：`Ollama 原生接口`（默认，本机 `http://127.0.0.1:11434`，模型 `gemma4:12b`，免费、不出本机），
   或 `OpenAI 兼容接口`（DeepSeek、通义千问、硅基流动、OpenAI、LM Studio 等，“常用服务”下拉可一键填入地址）。
+- **Ollama 云端**：不用装 Ollama，用 ollama.com 的 API Key 直连云端模型。“常用服务”选“Ollama 云端（API Key）”，
+  会填好接入方式（Ollama 原生接口）、地址 `https://ollama.com` 和模型 `gemma4:31b`；API Key 在 ollama.com 登录后的
+  Settings → Keys 里新建。模型名照“获取模型列表”里的写，不带 `-cloud`（带 `-cloud` 的是本机 Ollama 里的叫法）。
+  按 token 收费，和别的云端服务一样受每日 token 上限管；按量付费和 Pro 套餐同时最多处理 3 个请求，多出的排队。
+  看图翻译也能用它：接入方式选 Ollama 原生接口、地址 `https://ollama.com`、模型 `gemma4:31b`（能看图），填同一个 API Key。
 - **模型**：可手填，或点“获取模型列表”：取到后自动展开下拉框；没取到会写明原因（比如密钥不对、地址没有这个接口）。
 - **API Key**：云端服务才需要；只用当前 Windows 账户加密（DPAPI）保存在本机 `deskmirror.json`，不写进源码、版本库和日志。
 - **测试连接**：发一句短文，显示是否成功、用时和译文。

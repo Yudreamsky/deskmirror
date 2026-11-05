@@ -39,7 +39,8 @@ Screenshots of DeskMirror running on the project's test pages (translation servi
 - **Pre-translates in the background**: text on the mirror's screen is translated ahead of time, so wherever you drag
   the mirror the translation is already there; nothing is translated twice.
 - **Your choice of translation service**: a local [Ollama](https://ollama.com) model (free, text never leaves your
-  PC), or any OpenAI-compatible API such as DeepSeek, Qwen or OpenAI.
+  PC), Ollama Cloud with an ollama.com API key (no Ollama install needed), or any OpenAI-compatible API such as
+  DeepSeek, Qwen or OpenAI.
 - **Privacy under your control**: a do-not-translate list (chat apps, password managers and online banking are
   skipped by default; when chatting with colleagues or friends abroad, turn on "Translate chat apps" with one click),
   three pre-translation scopes, and today's usage at a glance. Screen text is not saved to disk by default.
@@ -75,7 +76,7 @@ You need:
 - A translation service, either:
   - Local: install [Ollama](https://ollama.com), then run `ollama pull gemma4:12b` (about 7.6 GB; needs a graphics
     card with plenty of video memory)
-  - Cloud: an API key for DeepSeek or a similar service (pay per use)
+  - Cloud: an API key for DeepSeek, Ollama Cloud or a similar service (pay per use)
 
 ### Installer (easiest)
 
@@ -113,8 +114,8 @@ Download `DeskMirror-<version>-win64-setup.exe` (about 106 MB) from
    `.venv\Scripts\python packaging\build.py`.
 
 To use a cloud service: choose "Cloud service" in step 3 of the getting-started guide, or click ⚙ on the mirror's
-tab → Translation service, choose "OpenAI-compatible API", fill in the address, the model and the API key, and click
-"Test connection".
+tab → Translation service, pick it under "Common services" (DeepSeek, Ollama Cloud…; for any other service choose
+"OpenAI-compatible API" and fill in the address and the model), enter the API key, and click "Test connection".
 
 Text recognition runs on the graphics card by default (DirectML, any DirectX 12 card) and falls back to the CPU
 automatically.

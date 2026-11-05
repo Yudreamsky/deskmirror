@@ -18,6 +18,7 @@ class _Fake(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         self.server.agents.append(self.headers.get("User-Agent", ""))
+        self.server.auth.append(self.headers.get("Authorization"))
         if self.path == "/api/tags":
             self._send(200, {"models": [{"name": "gemma4:12b"}, {"name": "aya:8b"}]})
         elif self.path in ("/models", "/v1/models"):
@@ -120,7 +121,7 @@ class ListModelsTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), _Fake)
-        cls.srv.agents = []
+        cls.srv.agents, cls.srv.auth = [], []
         cls.base = f"http://127.0.0.1:{cls.srv.server_address[1]}"
         threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
 
@@ -139,6 +140,9 @@ class ListModelsTest(unittest.TestCase):
 
     def test_ollama(self) -> None:
         self.assertEqual(list_models(self.cfg("ollama", self.base)), (["aya:8b", "gemma4:12b"], ""))
+        self.assertIsNone(self.srv.auth[-1])
+        list_models(self.cfg("ollama", self.base, "k"))          # Ollama 云端：带上密钥
+        self.assertEqual(self.srv.auth[-1], "Bearer k")
 
     def test_reasons(self) -> None:
         self.assertIn("还没填 API Key", list_models(self.cfg("openai", self.base))[1])
@@ -150,6 +154,98 @@ class ListModelsTest(unittest.TestCase):
         port = free.server_address[1]
         free.server_close()                       # 这个端口现在没人监听
         self.assertIn("连不上", list_models(self.cfg("openai", f"http://127.0.0.1:{port}", "good"))[1])
+
+
+class _FakeOllama(BaseHTTPRequestHandler):
+    """Ollama 原生 /api/chat：记下请求头和请求体；/key/ 下要 Bearer good（像 ollama.com 那样，没密钥、密钥不对都回 401）。"""
+
+    def log_message(self, *args) -> None:
+        pass
+
+    def do_POST(self) -> None:  # noqa: N802
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        self.server.seen.append((self.path, self.headers.get("Authorization"), body))
+        if self.path.startswith("/key/") and self.headers.get("Authorization") != "Bearer good":
+            data = b'{"error":"Unauthorized"}'
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson")
+        self.end_headers()
+        for piece in ("[1] 你好，世界\n", "[2] 打开设置"):
+            self.wfile.write((json.dumps({"message": {"content": piece}, "done": False}, ensure_ascii=False) + "\n").encode())
+        self.wfile.write(b'{"message":{"content":""},"done":true,"prompt_eval_count":50,"eval_count":9}\n')
+
+
+class OllamaKeyTest(unittest.TestCase):
+    """Ollama 原生接口带 API Key（ollama.com 云端）；本机的 Ollama 照旧。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), _FakeOllama)
+        cls.srv.seen = []
+        cls.base = f"http://127.0.0.1:{cls.srv.server_address[1]}"
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.srv.shutdown()
+        cls.srv.server_close()
+
+    def translate(self, path: str, key: str) -> dict[int, str]:
+        cfg = LlmConfig(protocol="ollama", base_url=self.base + path, model="gemma4:31b", api_key=key)
+        got: dict[int, str] = {}
+        with make_client(cfg) as client:
+            usage = stream_translate(cfg, "zh-Hans", ["Hello, world!", "Open settings"],
+                                     lambda i, t: got.__setitem__(i, t), client, threading.Event())
+        self.assertEqual((usage.tokens_in, usage.tokens_out, usage.exact), (50, 9, True))
+        return got
+
+    def test_key_sent(self) -> None:
+        self.assertEqual(self.translate("/key", "good"), {0: "你好，世界", 1: "打开设置"})
+        _path, auth, body = self.srv.seen[-1]
+        self.assertEqual(auth, "Bearer good")
+        self.assertEqual((body["keep_alive"], body["options"]["num_ctx"]), ("30m", 4096),
+                         "不是 ollama.com 的 Ollama（本机、局域网）照旧带 num_ctx、keep_alive")
+        self.assertIs(body["think"], False)
+        self.translate("/open", "")
+        self.assertIsNone(self.srv.seen[-1][1], "没填密钥就不带")
+
+    def test_key_missing_or_wrong(self) -> None:
+        with self.assertRaises(ServiceError) as cm:
+            self.translate("/key", "")
+        self.assertIn("要 API Key", str(cm.exception))
+        self.assertFalse(cm.exception.retryable)
+        with self.assertRaises(ServiceError) as cm:
+            self.translate("/key", "wrong")
+        self.assertIn("密钥无效", str(cm.exception))
+
+    def test_cloud_request(self) -> None:
+        from deskmirror.config import is_ollama_cloud
+        from deskmirror.translator import _ollama_chat
+        for url in ("https://ollama.com", "https://ollama.com/", "ollama.com", "https://api.ollama.com"):
+            self.assertTrue(is_ollama_cloud(url), url)
+        for url in ("http://127.0.0.1:11434", "https://notollama.com", "https://api.deepseek.com", ""):
+            self.assertFalse(is_ollama_cloud(url), url)
+        cfg = LlmConfig(protocol="ollama", base_url="https://ollama.com", model="gemma4:31b", api_key="k")
+        payload, headers = _ollama_chat(cfg, "https://ollama.com", [{"role": "user", "content": "hi"}])
+        self.assertEqual(headers, {"Authorization": "Bearer k"})
+        self.assertNotIn("keep_alive", payload, "云端用不着让模型留在显存里")
+        self.assertEqual(payload["options"], {"temperature": cfg.temperature})
+        self.assertIs(payload["think"], False)
+
+    def test_cloud_model_name_hint(self) -> None:
+        import httpx
+
+        from deskmirror.translator import _http_error
+        resp = httpx.Response(404, json={"error": "model 'gemma4:31b-cloud' not found"})
+        self.assertIn("gemma4:31b", str(_http_error(resp, True, ollama_cloud=True)))
+        self.assertIn("不带 cloud", str(_http_error(resp, True, ollama_cloud=True)))
+        self.assertNotIn("不带 cloud", str(_http_error(resp)))
 
 
 class ServiceDetailTest(unittest.TestCase):

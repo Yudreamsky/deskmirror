@@ -32,9 +32,9 @@
 2. 在命令行运行 `ollama pull gemma4:12b`（约 7.6 GB）。
 3. 新手指南第 3 步会自动检查；显示“都准备好了”就行。
 
-**云端服务**（DeepSeek、通义千问等；按用量收费，一般电脑都能用）
+**云端服务**（DeepSeek、Ollama 云端、通义千问等；按用量收费，一般电脑都能用）
 
-1. 在服务商网站申请 API Key。
+1. 在服务商网站申请 API Key（Ollama 云端：登录 ollama.com，在 Settings → Keys 里新建；不用装 Ollama）。
 2. 新手指南第 3 步选“云端服务”，选服务、填 API Key，点“测试连接”。
 3. 密钥只用当前 Windows 账户加密保存在本机。
 

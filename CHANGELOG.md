@@ -1,5 +1,37 @@
 # 更新记录 / Changelog
 
+## 未发布
+
+支持 Ollama 云端的 API Key：不用装 Ollama，填上 ollama.com 的 API Key 就能用云端模型翻译、看图翻译。
+
+- **Ollama 云端（API Key）**：设置 → 翻译服务的“常用服务”和新手指南的“云端服务”里多了这一项，选了就填好接入方式
+  （Ollama 原生接口）、地址 `https://ollama.com` 和模型 `gemma4:31b`，再填上 API Key（ollama.com 登录后在 Settings → Keys
+  里新建）、点“测试连接”就行。以前 Ollama 原生接口只当本机用，不带密钥，直连 ollama.com 会被拒（HTTP 401）。
+- 发给 ollama.com 时不再带只对本机有用的参数（模型留在显存里多久、上下文长度）；按 token 收费，和别的云端服务一样
+  受每日 token 上限管，看图翻译发过去前照样先问。
+- 出错说明更清楚：没填密钥时说“这个服务要 API Key”，不再说密钥无效；ollama.com 上找不到模型时提醒模型名不带 cloud
+  （本机 Ollama 里叫 `gemma4:31b-cloud`，直连时叫 `gemma4:31b`）。
+- 命令行：`service ollama-cloud` 换成 Ollama 云端；新手指南不再把 Ollama 云端当成本机 Ollama；设置页“常用服务”选了
+  云端服务时，“同时请求”至少调到 2（和新手指南、命令行一样）。
+
+Ollama Cloud API keys are supported: without installing Ollama, enter an ollama.com API key and use cloud models for
+translation and image translation.
+
+- **Ollama Cloud (API key)**: Settings → Translation service → "Common services" and the getting-started guide's
+  "Cloud service" now list it. Picking it fills in the API type (Ollama native API), the address `https://ollama.com`
+  and the model `gemma4:31b`; then enter the API key (create one at ollama.com under Settings → Keys after signing in)
+  and click "Test connection". Until now the Ollama native API was treated as local only and sent no key, so
+  connecting to ollama.com directly was refused (HTTP 401).
+- Requests to ollama.com no longer carry the settings that only matter to a local Ollama (how long the model stays in
+  video memory, the context length). It is billed per token and, like other cloud services, counts toward the daily
+  token limit; image translation still asks before sending a picture there.
+- Clearer errors: without a key the message says the service needs an API key instead of calling the key invalid; when
+  ollama.com can't find the model, it reminds you the name has no "cloud" in it (a local Ollama calls it
+  `gemma4:31b-cloud`, a direct connection `gemma4:31b`).
+- Command line: `service ollama-cloud` switches to Ollama Cloud; the getting-started guide no longer mistakes Ollama
+  Cloud for Ollama on this PC; picking a cloud service under "Common services" in Settings raises "Parallel requests"
+  to at least 2 (as the guide and the command line already did).
+
 ## 1.5.2（2026-11-04）
 
 显示器变了（开机时分辨率还没就绪、改分辨率、插拔显示器）魔镜能跟上；出错、崩溃都会记进日志；快捷键被别的程序占着时

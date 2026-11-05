@@ -35,7 +35,7 @@ https://github.com/user-attachments/assets/949fc01b-9277-44ab-8253-7a7a5162d22c
 - **제자리 표시**: 번역문은 원문이 있던 자리에, 글자 크기와 색도 최대한 원문에 맞춰 표시됩니다. Ctrl+Alt+O를 누르고 있으면 원문이 보입니다.
 - **화면 변화를 따라감**: 스크롤, 창 이동과 겹침, 동영상 자막까지 따라갑니다. 화면이 어떻게 바뀌는지를 보고 판단하므로 특정 프로그램에 의존하지 않습니다. 스크롤하는 동안에는 Windows가 직접 번역문을 프레임마다 옮겨서 원문에 딱 붙어 따라갑니다.
 - **백그라운드에서 미리 번역**: 미러가 있는 화면의 글자를 미리 번역해 두므로, 어디로 끌어도 번역문이 바로 나옵니다. 한 번 번역한 내용은 다시 번역하지 않습니다.
-- **번역 서비스 선택**: 로컬 [Ollama](https://ollama.com)(무료, 글자가 PC 밖으로 나가지 않음) 또는 DeepSeek, Qwen, OpenAI 같은 OpenAI 호환 API.
+- **번역 서비스 선택**: 로컬 [Ollama](https://ollama.com)(무료, 글자가 PC 밖으로 나가지 않음), Ollama Cloud(ollama.com API 키로 바로 연결, Ollama 설치 불필요) 또는 DeepSeek, Qwen, OpenAI 같은 OpenAI 호환 API.
 - **개인정보는 직접 관리**: 번역 제외 목록(채팅 앱, 비밀번호 관리자, 인터넷 뱅킹은 기본으로 제외. 외국 동료나 친구와 채팅할 때는 'Translate chat apps'를 클릭 한 번으로 켬), 세 가지 미리 번역 범위, 오늘 사용량 표시. 화면의 글자는 기본적으로 디스크에 저장하지 않습니다.
 - **언어는 언제든 전환**: 미러 탭의 언어 버튼(예: 'Auto→KO')으로 원문과 번역 언어를 지정합니다. 중국어, 영어, 일본어, 한국어, 인도네시아어를 지원합니다.
 - **영어·중국어 인터페이스**: 처음 실행할 때 모국어를 고르면 번역문이 그 언어로 나옵니다. 화면 표시(UI)는 중국어와 영어만 있어서, 한국어를 고르면 영어가 됩니다. 둘 다 나중에 설정에서 바꿀 수 있습니다.
@@ -56,7 +56,7 @@ https://github.com/user-attachments/assets/949fc01b-9277-44ab-8253-7a7a5162d22c
 - Windows 11 (Windows 10에서도 될 것으로 보이지만 아직 테스트하지 않았습니다)
 - 번역 서비스(둘 중 하나):
   - 로컬: [Ollama](https://ollama.com)를 설치하고 `ollama pull gemma4:12b` 실행(모델 약 7.6 GB, 비디오 메모리가 넉넉한 외장 그래픽 카드 필요)
-  - 클라우드: DeepSeek 같은 서비스의 API 키(사용량에 따라 과금)
+  - 클라우드: DeepSeek, Ollama Cloud 같은 서비스의 API 키(사용량에 따라 과금)
 
 ### 설치 프로그램(가장 간편)
 
@@ -84,7 +84,8 @@ https://github.com/user-attachments/assets/949fc01b-9277-44ab-8253-7a7a5162d22c
 5. exe를 직접 빌드하려면: `.venv\Scripts\python -m pip install -r requirements-build.txt` 다음에 `.venv\Scripts\python packaging\build.py`.
 
 클라우드 서비스를 쓰려면: 안내의 3단계에서 'Cloud service'를 고르거나, 미러 탭의 ⚙ → Translation service에서
-'OpenAI-compatible API'를 고르고 주소, 모델, API 키를 입력한 뒤 'Test connection'을 클릭합니다.
+'Common services'로 고르고(DeepSeek, Ollama Cloud 등. 다른 서비스는 'OpenAI-compatible API'를 고르고 주소와 모델 입력)
+API 키를 입력한 뒤 'Test connection'을 클릭합니다.
 
 문자 인식은 기본적으로 그래픽 카드(DirectML, DirectX 12를 지원하는 카드라면 모두 가능)를 쓰고, 쓸 수 없으면 자동으로 CPU로 바뀝니다.
 

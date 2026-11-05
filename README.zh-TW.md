@@ -32,7 +32,7 @@ https://github.com/user-attachments/assets/3a04cbfd-9331-4180-9e04-9c29c09e237e
 - **原位顯示**：譯文貼在原文的位置，字級、顏色盡量和原文一致；按住 Ctrl+Alt+O 隨時看原文。
 - **跟得上畫面**：捲動、視窗移動、遮擋、影片裡的字幕都跟得上。依畫面變化判斷，不依賴特定軟體。捲動時由 Windows 自己每一幀移動譯文，和原文貼得住。
 - **背景預先翻譯**：魔鏡所在螢幕上的文字提前翻譯，拖到哪裡馬上顯示；看過的內容不會重複翻譯。
-- **翻譯服務任選**：本機 [Ollama](https://ollama.com)（免費，文字不離開本機），或 DeepSeek、通義千問、OpenAI 等 OpenAI 相容介面。
+- **翻譯服務任選**：本機 [Ollama](https://ollama.com)（免費，文字不離開本機）、Ollama 雲端（用 ollama.com 的 API Key，不必安裝 Ollama），或 DeepSeek、通義千問、OpenAI 等 OpenAI 相容介面。
 - **隱私可控**：不翻譯名單（預設排除聊天軟體、密碼管理工具、網路銀行；和外國同事聊天時一鍵開啟「翻譯聊天軟體」）、三種預先翻譯範圍、當天用量統計；螢幕上的文字預設不存檔。
 - **語言隨時切換**：魔鏡標籤上的語言按鈕（如「英→中」）手動指定原文和譯成的語言；支援中文、英文、日文、韓文、印尼文。
 - **中英文介面**：第一次啟動先選母語，譯文就用這種語言。選繁體中文時介面是簡體中文（還沒有繁體介面），選其他語言時介面是英文；之後可在設定裡隨時更改。
@@ -53,7 +53,7 @@ https://github.com/user-attachments/assets/3a04cbfd-9331-4180-9e04-9c29c09e237e
 - Windows 11（Windows 10 應該也可以，但還沒測試過）
 - 翻譯服務，二選一：
   - 本機：安裝 [Ollama](https://ollama.com)，再執行 `ollama pull gemma4:12b`（模型約 7.6 GB，需要顯示記憶體較大的獨立顯示卡）
-  - 雲端：DeepSeek 等服務的 API Key（依用量計費）
+  - 雲端：DeepSeek、Ollama 雲端等服務的 API Key（依用量計費）
 
 ### 安裝程式（最省事）
 
@@ -80,7 +80,7 @@ https://github.com/user-attachments/assets/3a04cbfd-9331-4180-9e04-9c29c09e237e
 4. 按兩下 `start.bat`。文字辨識模型會隨套件一起裝好；第一次選「原文：韓文」時，會自動下載韓文辨識模型（約 14 MB）。
 5. 自行封裝 exe：`.venv\Scripts\python -m pip install -r requirements-build.txt`，再執行 `.venv\Scripts\python packaging\build.py`。
 
-使用雲端服務：在新手指南第 3 步選「雲端服務」，或點魔鏡標籤上的 ⚙ → 翻譯服務，選「OpenAI 相容介面」，填入位址、模型和 API Key，點「測試連線」。
+使用雲端服務：在新手指南第 3 步選「雲端服務」，或點魔鏡標籤上的 ⚙ → 翻譯服務，在「常用服務」裡選（DeepSeek、Ollama 雲端……；其他服務選「OpenAI 相容介面」，自行填入位址和模型），填入 API Key，點「測試連線」。
 
 文字辨識預設使用顯示卡（DirectML，支援 DirectX 12 的顯示卡都可以），沒有合適的顯示卡時自動改用 CPU。
 
