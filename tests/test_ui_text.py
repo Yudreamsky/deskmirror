@@ -225,6 +225,23 @@ class EngineAlignTest(unittest.TestCase):
             eng._update_align(sc, b)
         self.assertEqual([b.align for b in bs], ["right"] * 3, "后到的块把先到的也改过来")
 
+    def test_blocks_far_away_change_nothing(self) -> None:
+        # 同一个窗口里攒了几千块（滚过的长页面）：判断只看上下 40 行以内的，结果和没有那些块时一样
+        specs = [((132, 77, 219, 97), "Radius Mode", True), ((134, 108, 219, 128), "Start Radius", True),
+                 ((103, 139, 219, 159), "Increase per Turn", True), ((2, 58, 46, 72), "Camera", True),
+                 ((53, 58, 114, 72), "Point Light", True), ((122, 58, 175, 72), "Spot Light", True)]
+        eng, sc, bs = self._blocks(specs)
+        for b in bs:
+            eng._update_align(sc, b)
+        want = [(b.align, b.align_n, b.em) for b in bs]
+        far = [((100 + k % 7 * 60, 1200 + k * 26, 180 + k % 7 * 60, 1220 + k * 26), "Lorem ipsum", k % 2 == 0)
+               for k in range(3000)]
+        eng, sc, bs = self._blocks(far[:1500] + specs + far[1500:])
+        near = bs[1500:1500 + len(specs)]
+        for b in near:
+            eng._update_align(sc, b)
+        self.assertEqual([(b.align, b.align_n, b.em) for b in near], want)
+
     def test_toolbar_row_is_centered(self) -> None:
         eng, sc, bs = self._blocks([((2, 58, 46, 72), "Camera", True), ((53, 58, 114, 72), "Point Light", True),
                                     ((122, 58, 175, 72), "Spot Light", True), ((183, 58, 236, 72), "Area Light", True)])

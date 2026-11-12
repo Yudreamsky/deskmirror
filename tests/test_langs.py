@@ -112,10 +112,16 @@ class EngineLangTest(unittest.TestCase):
         old = eng.ocr
         _StubOcr.started = []
         b = add_block(eng, sc, (10, 100, 400, 122), page[100:122, 10:400])
+        pool, wheel, learned = object(), object(), E.CurveModel(px_per_notch=100.0, n_scale=3)
+        eng.pool, eng.wheel, eng.wheel_models = pool, wheel, {"Chrome_WidgetWin_1:v": learned}
         eng.cfg.source_lang = "ko"
         eng._apply_languages()
         self.assertTrue(old.closed)
         self.assertEqual(_StubOcr.started, ["korean"])
+        # 只换识别进程：翻译线程、滚轮监听不重建，这次运行里学到的滚轮曲线不能被硬盘上的旧曲线换掉
+        self.assertIs(eng.pool, pool)
+        self.assertIs(eng.wheel, wheel)
+        self.assertIs(eng.wheel_models.get("Chrome_WidgetWin_1:v"), learned)
         self.assertNotIn(b.bid, eng.blocks, "旧模型认出来的块作废")
         self.assertTrue((m.needs > 0).all(), "整块屏幕重新识别")
         eng.cfg.source_lang = "en"
@@ -124,6 +130,16 @@ class EngineLangTest(unittest.TestCase):
         eng.cfg.source_lang = "id"
         eng._apply_languages()
         self.assertEqual(len(_StubOcr.started), 2, "英文换印尼文不用换模型")
+
+    def test_model_switch_failure_reaches_the_log(self) -> None:
+        # 韩文模型没下载下来：识别进程报的错这时还不属于哪个识别任务（编号 0），也要记进日志；错误说明只进调试日志
+        page = text_page(3000, 900, 13)
+        eng, m, win, sc = make_engine(page[0:1200])
+        with self.assertLogs("deskmirror.engine", "WARNING") as cm:
+            eng._on_ocr(("error", 0, ("Traceback (most recent call last):\n  ...\nConnectionError", "屏幕上的字")))
+        text = "\n".join(cm.output)
+        self.assertIn("ConnectionError", text)
+        self.assertNotIn("屏幕上的字", text)
 
 
 class LangButtonTest(unittest.TestCase):

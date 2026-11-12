@@ -552,11 +552,6 @@ class Engine(threading.Thread):
         for i, info in enumerate(infos):
             self.mons.append(self._make_mon(i, info))
         self._start_ocr()
-
-    def _start_ocr(self) -> None:
-        self.ocr_state = "starting"
-        self.ocr = OcrClient(self.cfg.ocr.device, self.cfg.ocr.threads, lambda msg: self.inbox.put(("ocr", msg)),
-                             ocr_lang_for(self.cfg.source_lang))
         self.pool = TranslatorPool(self.cfg.llm, lambda ev: self.inbox.put(("tr", ev)))
         self.wheel_models = load_models(self._wheel_path())
         self._sync_memory()
@@ -568,6 +563,13 @@ class Engine(threading.Thread):
         if self.metrics_log:
             self._metrics_fh = open(self.metrics_log, "a", encoding="utf-8", buffering=1)  # 逐行写，核对时读得到最新的
         log.info("引擎启动：%d 个显示器，采集方式 %s", len(self.mons), [type(m.cap).__name__ for m in self.mons])
+
+    def _start_ocr(self) -> None:
+        """起识别子进程：启动时，以及原文换成、换出韩文要换识别模型时（_restart_ocr）。只管识别：翻译线程、
+        滚轮监听、学到的滚轮曲线都是启动时建一次，换识别模型不重建（重建会丢掉这次运行里新学的曲线，旧的线程也没人收）。"""
+        self.ocr_state = "starting"
+        self.ocr = OcrClient(self.cfg.ocr.device, self.cfg.ocr.threads, lambda msg: self.inbox.put(("ocr", msg)),
+                             ocr_lang_for(self.cfg.source_lang))
 
     def _wheel_path(self):
         from .config import config_path
@@ -1874,13 +1876,22 @@ class Engine(threading.Thread):
             return
         self._last_verify_sweep = now
         cands = []
+        # 画布的屏幕偏移和可见范围一个画布只算一次：每块都顺着画布树往上算一遍的话，攒了几千块时这一步要好几毫秒，
+        # 而它每 25 毫秒就来一次
+        where: dict[int, tuple] = {}
         for b in self.blocks.values():
-            sr = b.screen_rect()
+            c = b.canvas
+            at = where.get(c.cid)
+            if at is None:
+                at = where[c.cid] = (c.screen_offset(), c.screen_clip())
+            (ox, oy), clip = at
+            r = b.rect
+            sr = (r[0] + ox, r[1] + oy, r[2] + ox, r[3] + oy)
             if b.ok_rect is not None:
                 if b.ok_rect == sr:
                     continue
                 b.ok_rect = None
-            if b.state == "skip" or not geom.overlaps(sr, b.canvas.screen_clip()):
+            if b.state == "skip" or not geom.overlaps(sr, clip):
                 continue
             cands.append((self._ring(sr), b))
         if not cands:
@@ -2267,6 +2278,12 @@ class Engine(threading.Thread):
             log.error("识别进程失败：%s", data)
             self._dirty = True
             return
+        if kind == "error":
+            # 识别一块画面时出的错；编号 0 是换识别模型没成（比如韩文模型没下载下来），那时还没有识别任务
+            where, detail = data if isinstance(data, tuple) else (data, "")
+            log.warning("识别任务出错：%s", where)
+            log.debug("错误说明：%s", detail)            # 可能带着认出来的字：只进调试日志
+            return
         st = self.jobs.get(job_id)
         if st is None:
             return
@@ -2274,10 +2291,6 @@ class Engine(threading.Thread):
             for ob in data:
                 self._accept_block(st, ob)
             self._scene_changed()
-        elif kind == "error":
-            where, detail = data if isinstance(data, tuple) else (data, "")
-            log.warning("识别任务出错：%s", where)
-            log.debug("错误说明：%s", detail)            # 可能带着认出来的字：只进调试日志
         elif kind == "done":
             self._finish_job(st, data)
 
@@ -2606,8 +2619,16 @@ class Engine(threading.Thread):
         if b.vertical or not textutil.has_words(b.text):      # 竖排、纯数字和符号：不参与
             return []
         b.align, b.align_n, group, row = self._align_evidence(canvas, b)
-        for o in dict.fromkeys(group + row):
-            align, n, _g, _r = self._align_evidence(canvas, o)
+        others = list(dict.fromkeys(group + row))
+        near = None
+        if others:
+            # 这几块各自只看自己上下 40 行以内的块，它们又都在这块上下 40 行以内：先把这一带的块挑出来给它们用，
+            # 不用每块都把整个画布扫一遍（一个窗口里攒了几千块时，每来一块新的要多花几十毫秒，跟踪会卡）
+            top = b.rect[1] + (b.ink[1] if b.ink else 0)
+            reach = 40 * (b.line_h + max(o.line_h for o in others))
+            near = [x for x in canvas.blocks.values() if abs(x.rect[1] + (x.ink[1] if x.ink else 0) - top) <= reach]
+        for o in others:
+            align, n, _g, _r = self._align_evidence(canvas, o, near)
             if (align, n) != (o.align, o.align_n):
                 if align != o.align:
                     o.version += 1
@@ -2615,7 +2636,7 @@ class Engine(threading.Thread):
                 o.align, o.align_n = align, n
         if not b.em_raw:
             return group
-        pool = [b] + [o for o in dict.fromkeys(group + row) if o.em_raw]
+        pool = [b] + [o for o in others if o.em_raw]
         if len(pool) < 2:
             return group
         ems = sorted(x.em_raw for x in pool)
@@ -2628,11 +2649,13 @@ class Engine(threading.Thread):
                     self._dirty = True
         return group
 
-    def _align_evidence(self, canvas: Canvas, b: Block) -> tuple[str, int, list[Block], list[Block]]:
+    def _align_evidence(self, canvas: Canvas, b: Block,
+                        pool: list[Block] | None = None) -> tuple[str, int, list[Block], list[Block]]:
         """这块原文怎么对齐：看同一画布上的块，左边、右边还是中线和它对得上（参数名右对齐贴着输入框，菜单项、标题
         左对齐，几个下拉框里的字居中）。宽度一样的块三样都对得上，说明不了什么，按左对齐。谁也对不上时：同一排还有
         好几个挨着的短标签（工具栏里图标下的名字、标签页）按居中，其余按左对齐（图标下分两行写的名字按居中）。
         纯数字、符号（输入框里的数、被认成“●”的图标）不算：它们和文字碰巧对齐说明不了什么。
+        pool：只在这些块里找（要包住这块上下 40 行以内的所有块，顺序照画布里的）；不给就看整个画布。
         返回 (对齐, 有几块支持, 对得上的块, 同一排挨着的块)。"""
         def edges(x: Block) -> tuple[float, float, float, float, float]:
             k = x.ink or (0, 0, x.rect[2] - x.rect[0], x.rect[3] - x.rect[1])
@@ -2644,12 +2667,14 @@ class Engine(threading.Thread):
         votes: dict[str, list[Block]] = {"left": [], "right": [], "center": []}
         same_w: list[Block] = []
         band: list[tuple[Block, tuple]] = []            # 和这块在同一排的
-        for o in canvas.blocks.values():
-            if o is b or o.vertical or not textutil.has_words(o.text):
+        far = 40 * b.line_h
+        for o in (canvas.blocks.values() if pool is None else pool):
+            # 先按上下隔得远不远筛掉大多数（只是加减法），剩下的再细看
+            if o is b or abs(o.rect[1] + (o.ink[1] if o.ink else 0) - bt) > far:
+                continue
+            if o.vertical or not textutil.has_words(o.text):
                 continue
             ol, orr, oc, ot, ob_ = edges(o)
-            if abs(ot - bt) > 40 * b.line_h:
-                continue
             if abs(ot - bt) > 0.5 * b.line_h:                       # 同一列里上下的块：投它最吻合的那条边
                 ds = sorted((abs(d), k) for k, d in (("left", ol - bl), ("right", orr - br), ("center", oc - bc)))
                 if ds[0][0] > tol:
@@ -3332,7 +3357,7 @@ class Engine(threading.Thread):
     VEL_MAX_PX = 160
 
     def _velocity_ahead(self, c: Canvas, now: float, horizon: float) -> float:
-        """按最近两帧的速度和加减速，估计再过 horizon 秒内容还会移动多少像素（带符号）。
+        """按最近几帧（约 70 毫秒，见 _velocity_fit）量出的速度和加减速，估计再过 horizon 秒内容还会移动多少像素（带符号）。
 
         只在最近两帧同方向都在动时外推（一次性的跳转不外推）；正在减速时最多推到预计停下的位置，
         避免平滑滚动收尾时译文冲过头。"""

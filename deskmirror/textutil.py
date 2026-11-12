@@ -1,6 +1,7 @@
 """文字判断与颜色取样。"""
 from __future__ import annotations
 
+import functools
 import re
 import unicodedata
 
@@ -44,6 +45,7 @@ def looks_indonesian(text: str) -> bool:
     return len(hits) >= 2 or (len(words) <= 4 and len(hits) == 1)
 
 
+@functools.lru_cache(maxsize=4096)     # 引擎判断对齐时对同一批块反复问（每来一块新的，周围的块都要重看一遍）
 def has_words(text: str) -> bool:
     """至少两个字母（任何文字）：不是纯数字、符号。"""
     return len(_LETTER.findall(text)) >= 2
