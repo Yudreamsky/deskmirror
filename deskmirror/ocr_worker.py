@@ -8,9 +8,12 @@
 """
 from __future__ import annotations
 
+import collections
+import hashlib
 import logging
 import math
 import multiprocessing as mp
+import os
 import queue
 import sys
 import threading
@@ -145,7 +148,7 @@ def _split_line(engine, img: np.ndarray, gray: np.ndarray, rect: Rect) -> list[R
     pieces = split_wide_gaps(gray, rect)
     if len(pieces) < 2:
         return pieces
-    texts = [t.strip() for t, _s in _recognize(engine, img, pieces)]
+    texts = [t.strip() for t, _s in _recognize(engine, img, pieces, gray)]
     out = [pieces[0]]
     for prev_text, piece in zip(texts, pieces[1:]):
         if prev_text[-1:] in _JOINS:
@@ -155,9 +158,63 @@ def _split_line(engine, img: np.ndarray, gray: np.ndarray, rect: Rect) -> list[R
     return out
 
 
-def _recognize(engine, img: np.ndarray, rects: list[Rect]) -> list[tuple[str, float]]:
+# 认过的行不认第二遍。同一块区域常常要重读（里面有一处变了、鼠标经过、切回看过的页面、滚回看过的地方），
+# 里面大多数行的像素和上次一模一样；认一行约 6 毫秒，一个窗口五六十行，重读一遍要 0.4 秒，这期间新露出来的字只能排队。
+# 只留在识别进程的内存里（换识别模型会换一个进程，自然清空），不写硬盘。
+LINE_CACHE_MAX = 6000
+LINE_CACHE_SCORE = 0.9        # 把握不大的结果不记：下次照旧重认（批次不同，结果会有一点出入，引擎靠多读几次来确认）
+_line_cache: collections.OrderedDict[tuple, tuple[str, float]] = collections.OrderedDict()
+_line_cache_on = os.environ.get("DESKMIRROR_OCR_CACHE", "1") != "0"
+_line_cache_hits = 0
+
+
+def _line_key(img: np.ndarray, gray: np.ndarray, rect: Rect) -> tuple | None:
+    """这一行“长什么样”：检测框里和底色不一样的那一块的像素。同一行字每次检测出来的框会差一两个像素，
+    框里有内容的那一块是一样的。和底色差得很少（6 级以内）的才算底：浅色的字也算内容，不会只按深色的那半行认；
+    底不平（压在图片、渐变上）时整框都算内容，就按整框的像素算——像素有一点不同就重新认。"""
+    h, w = gray.shape
+    x0, y0, x1, y1 = max(0, rect[0]), max(0, rect[1]), min(w, rect[2]), min(h, rect[3])
+    if x1 - x0 < 2 or y1 - y0 < 2:
+        return None
+    g = gray[y0:y1, x0:x1]
+    base = int(np.median(np.concatenate([g[0], g[-1], g[:, 0], g[:, -1]])))
+    content = np.abs(g.astype(np.int16) - base) > 6
+    ys, xs = np.flatnonzero(content.any(axis=1)), np.flatnonzero(content.any(axis=0))
+    if not len(ys):
+        return None
+    c = np.ascontiguousarray(img[y0 + ys[0]:y0 + ys[-1] + 1, x0 + xs[0]:x0 + xs[-1] + 1])
+    return c.shape[0], c.shape[1], hashlib.blake2b(c.tobytes(), digest_size=16).digest()
+
+
+def _recognize(engine, img: np.ndarray, rects: list[Rect], gray: np.ndarray | None = None) -> list[tuple[str, float]]:
+    """认出各个框里的字。给了 gray（同一幅图的灰度）就先查认过的行，只认没见过的；这次里一模一样的几行也只认一遍。"""
+    global _line_cache_hits
     h, w = img.shape[:2]
-    return _recognize_images(engine, [img[max(0, y0):min(h, y1), max(0, x0):min(w, x1)] for x0, y0, x1, y1 in rects])
+    crops = [img[max(0, y0):min(h, y1), max(0, x0):min(w, x1)] for x0, y0, x1, y1 in rects]
+    if gray is None or not _line_cache_on:
+        return _recognize_images(engine, crops)
+    out: list[tuple[str, float] | None] = [None] * len(rects)
+    todo: dict[tuple, list[int]] = {}
+    for i, r in enumerate(rects):
+        key = _line_key(img, gray, r)
+        hit = _line_cache.get(key) if key is not None else None
+        if hit is not None:
+            _line_cache.move_to_end(key)
+            _line_cache_hits += 1
+            out[i] = hit
+        else:
+            todo.setdefault(key if key is not None else ("?", i), []).append(i)
+    if todo:
+        res = _recognize_images(engine, [crops[at[0]] for at in todo.values()])
+        for (key, at), got in zip(todo.items(), res):
+            for i in at:
+                out[i] = got
+            _line_cache_hits += len(at) - 1
+            if key[0] != "?" and got[0].strip() and got[1] >= LINE_CACHE_SCORE:
+                _line_cache[key] = got
+        while len(_line_cache) > LINE_CACHE_MAX:
+            _line_cache.popitem(last=False)
+    return [r if r is not None else ("", 0.0) for r in out]
 
 
 def _recognize_images(engine, crops: list[np.ndarray]) -> list[tuple[str, float]]:
@@ -249,7 +306,9 @@ def _process(engine, job: OcrJob, out_q) -> None:
 
     from .vertical import is_column, join_columns
 
+    global _line_cache_hits
     t0 = time.perf_counter()
+    _line_cache_hits = 0
     img = job.image
     ox, oy = job.origin
     rects = _detect(engine, img)
@@ -287,7 +346,7 @@ def _process(engine, job: OcrJob, out_q) -> None:
         if not batch:
             return
         line_rects = [rects[i] for k in batch for i in paras[k]]
-        texts = _recognize(engine, img, line_rects)
+        texts = _recognize(engine, img, line_rects, gray)
         pos = 0
         blocks: list[OcrBlockOut] = []
         for k in batch:
@@ -330,7 +389,7 @@ def _process(engine, job: OcrJob, out_q) -> None:
         if vb:
             out_q.put(("blocks", job.job_id, vb))
     out_q.put(("done", job.job_id, {"det_s": t_det, "total_s": time.perf_counter() - t0, "lines": n_lines,
-                                     "blocks": n_blocks, "size": img.shape[:2]}))
+                                     "blocks": n_blocks, "size": img.shape[:2], "cached": _line_cache_hits}))
 
 
 def worker_main(in_q, out_q, device: str, threads: int, lang: str = "default") -> None:

@@ -32,6 +32,11 @@
   8.3 毫秒，隔一帧才跟得上一次）。现在反复用同一块内存，一帧约 7 毫秒；量出的新位置交给译文层的时间从约 7 毫秒降到
   约 4 毫秒。窗口里攒了几千块文字时差得更多（5000 块：一帧 20 → 8 毫秒）：滚出屏幕的块不再每帧挨个算位置，块的位置表
   滚动时跟着挪、不再每帧重建。每一帧的判断和以前一样（150 组随机画面逐帧对比过）。
+- **认过的字不认第二遍**：同一块地方常常要重读（里面有一处变了、切回看过的页面、滚回看过的地方），里面大多数行和上次
+  一模一样。识别进程现在记着认过的行长什么样（只在内存里，不写硬盘；把握不大的结果不记，照旧重认），再遇到就直接用：
+  一个 50 行的窗口重读一遍从约 0.45 秒降到约 0.09 秒，滚动几十像素后重读从约 0.57 秒降到约 0.19 秒，新露出来的字不用
+  再排在这些重读后面。按钮、菜单这种同一个名字反复出现的界面，第一次读也快一倍多（一样的名字只认一个）。认出来的
+  文字块和以前一样。环境变量 `DESKMIRROR_OCR_CACHE=0` 可以关掉（排查用）。
 - **翻译服务回的内容不对时说清原因**：地址或接入方式填错、被登录页挡住（回的是网页）、服务把错误包在数组里时，
   以前界面上只写“内部错误”，命令行是一屏调用栈。模型把思考写在 `<think>` 里、这个标记正好被切成两截时，
   第一段译文不再丢。检查更新时校验文件是空的，也说“格式不对”。
@@ -92,6 +97,14 @@ longer slows DeskMirror down, and translations follow scrolling more closely.
   gain is larger (5,000 blocks: 20 → 8 ms per frame): blocks scrolled off the screen no longer get their position
   worked out on every frame, and the table of block positions moves along with the scroll instead of being rebuilt
   each frame. Every frame is judged exactly as before (compared frame by frame over 150 random sessions).
+- **Text is not read twice**: the same area is often read again (one spot in it changed, you switched back to a page
+  seen before, or scrolled back), and most of its lines look exactly as they did last time. The OCR process now
+  remembers what the lines it has read look like (in memory only, never on disk; results it is not sure about are not
+  kept and are read again as before) and reuses the result: reading a 50-line window again takes about 0.09 s
+  instead of about 0.45 s, a re-read after scrolling a few dozen pixels about 0.19 s instead of about 0.57 s, so newly
+  revealed text no longer queues behind these re-reads. Interfaces that repeat the same names (buttons, menus) are
+  more than twice as fast on the first read as well (identical names are read once). The recognized blocks are the
+  same as before. The environment variable `DESKMIRROR_OCR_CACHE=0` turns it off (for troubleshooting).
 - **Clear reasons when the service replies with something unexpected**: a wrong address or API type, a sign-in page
   in the way (a web page comes back), or an error wrapped in a list used to show only "Internal error" (and a stack
   trace on the command line). When a model writes its reasoning in `<think>` and that tag is split between two

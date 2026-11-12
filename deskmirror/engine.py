@@ -2358,6 +2358,7 @@ class Engine(threading.Thread):
         if self.ocr_busy is st:
             self.ocr_busy = None
         self.metrics["ocr_s"] += info.get("total_s", 0)
+        self.metrics["ocr_cached_lines"] += info.get("cached", 0)     # 认过、这次没再认的行（见 ocr_worker._recognize）
         self._metric("ocr_done", job=st.job.job_id, wait=round(time.perf_counter() - st.submitted, 3),
                      **{k: (round(v, 3) if isinstance(v, float) else v) for k, v in info.items() if k != "size"})
         self._scene_changed()
