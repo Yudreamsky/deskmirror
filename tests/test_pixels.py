@@ -204,5 +204,89 @@ class SameGlyphsTest(unittest.TestCase):
         self.assertFalse(pixels.same_glyphs(np.full_like(self.ref, 255), self.img, self.box, 8), "参考图里没有字")
 
 
+class TileDiffTest(unittest.TestCase):
+    """逐格比较两幅画面：中间图反复用同一块内存（不再每帧向系统要几兆），结果必须和老老实实算的一样。"""
+
+    @staticmethod
+    def plain(a: np.ndarray, b: np.ndarray, thresh: int) -> np.ndarray:
+        hh, ww = a.shape
+        th, tw = -(-hh // pixels.TILE), -(-ww // pixels.TILE)
+        d = np.zeros((th * pixels.TILE, tw * pixels.TILE), bool)
+        d[:hh, :ww] = np.abs(a.astype(np.int16) - b.astype(np.int16)) > thresh
+        return d.reshape(th, pixels.TILE, tw, pixels.TILE).any(axis=(1, 3))
+
+    @staticmethod
+    def pair(rng, h: int, w: int) -> tuple[np.ndarray, np.ndarray]:
+        a = rng.integers(0, 256, (h, w), dtype=np.uint8)
+        b = a.copy()
+        for _ in range(6):                                  # 几小片不一样的地方，差得有大有小
+            y, x = int(rng.integers(0, h)), int(rng.integers(0, w))
+            b[y:y + int(rng.integers(1, 40)), x:x + int(rng.integers(1, 60))] += np.uint8(rng.integers(1, 60))
+        return a, b
+
+    def test_same_result_whatever_was_in_the_buffer_before(self) -> None:
+        rng = np.random.default_rng(5)
+        black, white = np.zeros((512, 1024), np.uint8), np.full((512, 1024), 255, np.uint8)
+        # 整格和不整格的大小都试：每次先用一对处处不同的大图把那块内存写满“有差异”，
+        # 接着那次用的就是它剩下的内容——不满一格的边必须当作“没有差异”
+        for h, w in ((480, 640), (97, 131), (16, 16), (333, 48), (1, 1), (250, 1000), (15, 17), (160, 320), (161, 321)):
+            a, b = self.pair(rng, h, w)
+            for thresh in (0, 24):
+                self.assertTrue(pixels._tile_diff(black, white, thresh).all())
+                got = pixels._tile_diff(a, b, thresh)
+                self.assertEqual(got.dtype, bool)
+                self.assertTrue(np.array_equal(got, self.plain(a, b, thresh)), f"{h}x{w} 阈值 {thresh}")
+            self.assertFalse(pixels._tile_diff(a, a, 0).any(), "一样的两幅图不该有差异")
+
+    def test_parts_of_bigger_frames(self) -> None:
+        # 引擎传进来的是整幅画面里的一块（不连续的内存）：结果一样，两幅画面本身不能被改动
+        rng = np.random.default_rng(6)
+        prev, cur = self.pair(rng, 600, 800)
+        keep_prev, keep_cur = prev.copy(), cur.copy()
+        rect, tiles = pixels.changed_tiles(prev, cur, (37, 21, 613, 455))
+        self.assertEqual(rect, (32, 16, 624, 464))
+        l, t, r, b = rect
+        self.assertTrue(np.array_equal(tiles, self.plain(prev[t:b, l:r], cur[t:b, l:r], 0)))
+        self.assertTrue(np.array_equal(prev, keep_prev) and np.array_equal(cur, keep_cur))
+        # 平移以后剩下的差异：整块挪了 30 像素，只有一小片对不上
+        cur2 = np.roll(prev, 30, axis=0)
+        cur2[300:320, 400:470] = 255 - cur2[300:320, 400:470]
+        res = pixels.residual_tiles(prev, cur2, (0, 0, 800, 600), "v", 30)
+        want = pixels.components(self.plain(cur2[30:600], prev[0:570], 24), (0, 30), dilate=0)
+        self.assertEqual(res, want)
+        self.assertTrue(res and all(280 <= r[1] and r[3] <= 340 and 384 <= r[0] and r[2] <= 480 for r in res), res)
+
+    def test_two_threads_do_not_share_the_buffer(self) -> None:
+        import threading
+        rng = np.random.default_rng(8)
+        jobs = [self.pair(rng, 300 + 7 * i, 500 + 11 * i) for i in range(6)]
+        want = [self.plain(a, b, 0) for a, b in jobs]
+        wrong: list[int] = []
+
+        def work(k: int) -> None:
+            for _ in range(60):
+                for i in range(k, len(jobs), 2):
+                    if not np.array_equal(pixels._tile_diff(*jobs[i], 0), want[i]):
+                        wrong.append(i)
+
+        threads = [threading.Thread(target=work, args=(k,)) for k in (0, 1)]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join()
+        self.assertEqual(wrong, [])
+
+    def test_gray_is_written_straight_into_the_frame(self) -> None:
+        rng = np.random.default_rng(9)
+        bgra = rng.integers(0, 256, (120, 200, 4), dtype=np.uint8)
+        want = pixels.to_gray(bgra[10:90, 20:180])
+        frame = np.full((120, 200), 7, np.uint8)
+        out = frame[10:90, 20:180]
+        self.assertIs(pixels.to_gray(bgra[10:90, 20:180], out=out), out)
+        self.assertTrue(np.array_equal(frame[10:90, 20:180], want))
+        frame[10:90, 20:180] = 7
+        self.assertTrue((frame == 7).all(), "这一块以外不能被写到")
+
+
 if __name__ == "__main__":
     unittest.main()

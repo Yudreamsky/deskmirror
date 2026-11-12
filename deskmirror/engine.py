@@ -208,6 +208,7 @@ class Engine(threading.Thread):
         self._idx_valid = False
         self._idx_bids = np.zeros(0, np.int64)
         self._idx_rects = np.zeros((0, 4), np.int64)
+        self._idx_cids = np.zeros(0, np.int64)       # 每一行的块挂在哪个画布上（滚动时按画布整体挪，见 _index_scrolled）
         self.cache: collections.OrderedDict[str, str] = collections.OrderedDict()
         self.templates = TemplateCache()      # 只有数字不同的文字套用已有译文（只在内存里）
         self.overrides: dict[str, str] = {}   # 用户改过的译文（缓存键 → 译文），优先于一切
@@ -953,7 +954,7 @@ class Engine(threading.Thread):
     # ------------------------------------------------------------------ 块索引
     def _index(self) -> tuple[np.ndarray, np.ndarray]:
         if not self._idx_valid:
-            bids, rects = [], []
+            bids, cids, rects = [], [], []
             offs: dict[int, tuple[int, int]] = {}
             for b in self.blocks.values():
                 c = b.canvas
@@ -961,12 +962,25 @@ class Engine(threading.Thread):
                 if o is None:
                     o = offs[c.cid] = c.screen_offset()
                 bids.append(b.bid)
+                cids.append(c.cid)
                 r = b.rect
                 rects.append((r[0] + o[0], r[1] + o[1], r[2] + o[0], r[3] + o[1]))
             self._idx_bids = np.array(bids, np.int64)
+            self._idx_cids = np.array(cids, np.int64)
             self._idx_rects = np.array(rects, np.int64).reshape(-1, 4)
             self._idx_valid = True
         return self._idx_bids, self._idx_rects
+
+    def _index_scrolled(self, canvas: Canvas, still: set[int], k: int, s: int) -> None:
+        """canvas 刚滚动了 s（k：0 横 / 1 竖）：它和它里面各画布上的块，屏幕位置都挪了 s——still 里的画布除外
+        （它们这一帧自己先动过、刚被撤销，屏幕位置这次没变）。索引还有效就直接把这些行挪过去，不作废重建：
+        重建要把所有块过一遍，长页面攒下几千块时一次一两毫秒，滚动时每一帧都要来一次。"""
+        if not self._idx_valid or not len(self._idx_bids):
+            return
+        cids = [c.cid for c in (canvas, *canvas.descendants()) if c.cid not in still]
+        rows = np.isin(self._idx_cids, cids)
+        self._idx_rects[rows, k] += s
+        self._idx_rects[rows, k + 2] += s
 
     def _blocks_in(self, r: Rect) -> list[Block]:
         bids, rects = self._index()
@@ -1018,7 +1032,7 @@ class Engine(threading.Thread):
             return
         tiles_full = np.zeros(m.needs.shape, bool)
         for l, t, rr, b in regions:
-            m.cur[t:b, l:rr] = pixels.to_gray(fr.image[t:b, l:rr])
+            pixels.to_gray(fr.image[t:b, l:rr], out=m.cur[t:b, l:rr])
             if m.ready:
                 (al, at, _ar, _ab), tiles = pixels.changed_tiles(m.prev, m.cur, (l, t, rr, b))
                 if tiles.size:
@@ -1419,13 +1433,16 @@ class Engine(threading.Thread):
                     ch.parent = canvas
                     canvas.children.append(ch)
             parent.children.append(canvas)
+            self._idx_valid = False          # 块换了画布：索引里记的归属不对了
             self._metric("canvas_new", cid=canvas.cid, axis=axis, vp=vp, hwnd=wc.hwnd, how=how,
                          parent=parent.cid)
         # 只有“旧位置已确认、且新旧位置都在这次确认平移的范围内”的块直接沿用确认；旧位置确认过、但不在
         # 这块范围里的先记下，同一帧别的块确认了同样的平移就照样沿用，都没有再等逐块核对。
-        moved = list(self._subtree_blocks(canvas))
+        # 本来就没确认的块（滚出屏幕的都是）这里什么都不用做：长页面攒下几千块时，不必每帧给每一块算两遍屏幕位置。
+        moved = [b for b in self._subtree_blocks(canvas) if b.ok_rect is not None]
         old_rects = {b.bid: b.screen_rect() for b in moved}
         k = 1 if axis == "v" else 0
+        still: set[int] = set()
         for d in canvas.descendants():
             # 里面的子画布这一帧先按同样的位移动过：它其实只是跟着这块一起动，撤销它自己的移动
             if self._frame_moved.get(d.cid) == (axis, s):
@@ -1434,7 +1451,10 @@ class Engine(threading.Thread):
                 ep_d = self.episodes.get(d.cid)
                 if ep_d is not None and ep_d.shifts and ep_d.shifts[-1] == (self._cur_frame_t, s):
                     ep_d.shifts.pop()
+                still.add(d.cid)
+                still.update(x.cid for x in d.descendants())
         canvas.offset[k] += s
+        self._index_scrolled(canvas, still, k, s)
         self._frame_moved[canvas.cid] = (axis, s)
         canvas.last_move = now
         wc.last_scroll_ok = now
@@ -1455,7 +1475,7 @@ class Engine(threading.Thread):
         if not self._geo_frame_t:
             self._geo_frame_t = self._cur_frame_t
         self._shift_needs(m, vp, axis, s)
-        self._scene_changed()
+        self._dirty = True                   # 块的位置索引上面已经跟着挪过（或作废了），这里不再整个作废
         return canvas
 
     def _moved_sibling(self, parent: Canvas, axis: str, s: int) -> Canvas | None:
@@ -1503,6 +1523,7 @@ class Engine(threading.Thread):
                     self._ok_pending[b.bid] = geom.shift(old, dx, dy)
                 b.ok_rect = None
             n += 1
+        kids = 0
         for ch in list(parent.children):
             if ch is not canvas and ch.viewport is not None and geom.contains(pvp, ch.viewport):
                 parent.children.remove(ch)
@@ -1512,8 +1533,9 @@ class Engine(threading.Thread):
                 ch.offset[0] += px - bx
                 ch.offset[1] += py - by
                 canvas.children.append(ch)
-        if n:
-            self._idx_valid = False
+                kids += 1
+        if n or kids:
+            self._idx_valid = False          # 接过来的子画布（shifted 时）屏幕位置也变了，它上面的块一样要重排
         return n
 
     def _moved_with(self, c: Canvas | None, axis: str, s: int) -> Canvas | None:
@@ -3621,11 +3643,14 @@ class Engine(threading.Thread):
                     curves[c.cid] = _combine_curves(path, ox, oy)
                 for b in c.blocks.values():
                     counts[b.state] += 1
-                    r = b.rect
-                    sr = (r[0] + ox, r[1] + oy, r[2] + ox, r[3] + oy)
+                    ok = b.ok_rect
+                    if ok is None and b.held_until <= now:
+                        continue        # 没确认、也没留着旧译文（滚出屏幕的都是）：不画，位置也不用算
                     if b.state == "skip":
                         continue
-                    if b.ok_rect != sr:
+                    r = b.rect
+                    sr = (r[0] + ox, r[1] + oy, r[2] + ox, r[3] + oy)
+                    if ok != sr:
                         if not (b.held_until > now and b.hold_rect == sr):
                             continue
                     if ex or ey:

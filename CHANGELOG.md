@@ -3,7 +3,8 @@
 ## 未发布
 
 支持 Ollama 云端的 API Key：不用装 Ollama，填上 ollama.com 的 API Key 就能用云端模型翻译、看图翻译。
-鼠标移到链接、菜单项、列表上时不再闪出原文。收起的球不会再被一下快点弄得点不动；同一个窗口里的文字攒多了不再变卡。
+鼠标移到链接、菜单项、列表上时不再闪出原文。收起的球不会再被一下快点弄得点不动；同一个窗口里的文字攒多了不再变卡，
+滚动时译文跟得更紧。
 
 - **Ollama 云端（API Key）**：设置 → 翻译服务的“常用服务”和新手指南的“云端服务”里多了这一项，选了就填好接入方式
   （Ollama 原生接口）、地址 `https://ollama.com` 和模型 `gemma4:31b`，再填上 API Key（ollama.com 登录后在 Settings → Keys
@@ -26,6 +27,11 @@
 - **用久了变卡**：同一个窗口里攒下的文字块多了以后（滚过很长的网页、文档），每认出一批新文字，都要把这个窗口里所有的
   块细看好几遍，攒到 2000 块时一批（40 段）要卡 2 秒多，这期间译文不跟着画面走。现在只看附近的块，2000 块时一批
   0.17 秒；每 25 毫秒核对一次译文位置的那一步也快了约 6 倍；识别进程里整屏转灰度从约 110 毫秒降到 3 毫秒。
+- **滚动时跟得更紧**：画面每滚一帧，都要把变了的地方转成灰度、找出哪些格子变了、量出滚了多远、再核对没跟着滚的部分。
+  这几步以前每帧都向系统要几块和画面一样大的内存、用完就还，4K 屏整页滚动时一帧要 12 毫秒左右（120Hz 的屏一帧只有
+  8.3 毫秒，隔一帧才跟得上一次）。现在反复用同一块内存，一帧约 7 毫秒；量出的新位置交给译文层的时间从约 7 毫秒降到
+  约 4 毫秒。窗口里攒了几千块文字时差得更多（5000 块：一帧 20 → 8 毫秒）：滚出屏幕的块不再每帧挨个算位置，块的位置表
+  滚动时跟着挪、不再每帧重建。每一帧的判断和以前一样（150 组随机画面逐帧对比过）。
 - **翻译服务回的内容不对时说清原因**：地址或接入方式填错、被登录页挡住（回的是网页）、服务把错误包在数组里时，
   以前界面上只写“内部错误”，命令行是一屏调用栈。模型把思考写在 `<think>` 里、这个标记正好被切成两截时，
   第一段译文不再丢。检查更新时校验文件是空的，也说“格式不对”。
@@ -40,8 +46,8 @@
 
 Ollama Cloud API keys are supported: without installing Ollama, enter an ollama.com API key and use cloud models for
 translation and image translation. The original no longer flashes up when the mouse moves over links, menu items and
-lists. A docked ball can no longer be put out of action by one quick click, and a window with a lot of text in it no
-longer slows DeskMirror down.
+lists. A docked ball can no longer be put out of action by one quick click, a window with a lot of text in it no
+longer slows DeskMirror down, and translations follow scrolling more closely.
 
 - **Ollama Cloud (API key)**: Settings → Translation service → "Common services" and the getting-started guide's
   "Cloud service" now list it. Picking it fills in the API type (Ollama native API), the address `https://ollama.com`
@@ -77,6 +83,15 @@ longer slows DeskMirror down.
   blocks one batch (40 paragraphs) stalled tracking for more than 2 seconds. Only nearby blocks are looked at now:
   0.17 s for the same batch. The check of translation positions that runs every 25 ms is about 6 times faster, and
   turning a full 4K screenshot to grayscale in the OCR process takes 3 ms instead of about 110 ms.
+- **Follows scrolling more closely**: for every frame of a scrolling page the engine turns the changed area to
+  grayscale, finds which tiles changed, measures how far the content moved and checks the parts that did not move
+  with it. These steps used to ask the system for several buffers as large as the picture on every frame and hand
+  them back; with a whole 4K page scrolling, one frame took about 12 ms (a 120 Hz screen leaves 8.3 ms, so only every
+  other frame was followed). The buffers are now reused: about 7 ms per frame, and the new position reaches the
+  translation layer after about 4 ms instead of about 7. With thousands of text blocks collected in the window the
+  gain is larger (5,000 blocks: 20 → 8 ms per frame): blocks scrolled off the screen no longer get their position
+  worked out on every frame, and the table of block positions moves along with the scroll instead of being rebuilt
+  each frame. Every frame is judged exactly as before (compared frame by frame over 150 random sessions).
 - **Clear reasons when the service replies with something unexpected**: a wrong address or API type, a sign-in page
   in the way (a web page comes back), or an error wrapped in a list used to show only "Internal error" (and a stack
   trace on the command line). When a model writes its reasoning in `<think>` and that tag is split between two

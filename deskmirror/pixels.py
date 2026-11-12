@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 
 import cv2
@@ -23,8 +24,20 @@ _RNG = np.random.default_rng(20261005)
 _WEIGHTS = _RNG.integers(1, 900, size=4096).astype(np.float32)
 
 
-def to_gray(bgra: np.ndarray) -> np.ndarray:
-    return cv2.cvtColor(bgra, cv2.COLOR_BGRA2GRAY)
+def _into(result: np.ndarray, out: np.ndarray) -> None:
+    """OpenCV 按 dst 给的地方直接写结果时，返回的就是 dst 本身；大小、类型对不上时它会另开一块、不动 dst——
+    那就自己抄过去（正常不会走到，留着防 OpenCV 换版本后行为不同）。"""
+    if result is not out:
+        out[...] = result
+
+
+def to_gray(bgra: np.ndarray, out: np.ndarray | None = None) -> np.ndarray:
+    """彩色转灰度。给了 out（同样大小的灰度图，可以是大图里的一块）就直接写进去：不另开一幅图再抄一遍，
+    4K 屏整页在动时每帧省 1 毫秒左右。"""
+    if out is None:
+        return cv2.cvtColor(bgra, cv2.COLOR_BGRA2GRAY)
+    _into(cv2.cvtColor(bgra, cv2.COLOR_BGRA2GRAY, dst=out), out)
+    return out
 
 
 def changed_tiles(prev: np.ndarray, cur: np.ndarray, rect: Rect) -> tuple[Rect, np.ndarray]:
@@ -36,18 +49,38 @@ def changed_tiles(prev: np.ndarray, cur: np.ndarray, rect: Rect) -> tuple[Rect, 
     b = min(h, -(-rect[3] // TILE) * TILE)
     if r <= l or b <= t:
         return (l, t, l, t), np.zeros((0, 0), bool)
-    return (l, t, r, b), _tile_any(cv2.absdiff(prev[t:b, l:r], cur[t:b, l:r]), 0)
+    return (l, t, r, b), _tile_diff(prev[t:b, l:r], cur[t:b, l:r], 0)
 
 
-def _tile_any(diff: np.ndarray, thresh: int) -> np.ndarray:
-    """每个 TILE×TILE 格里是否有超过 thresh 的差异（二值化后按格求平均，比 reshape 求最大快一倍）。"""
-    hh, ww = diff.shape
+_scratch = threading.local()
+
+
+def _scratch_mask(h: int, w: int) -> np.ndarray:
+    """这个线程自己的一块 h×w 临时内存（内容是上次用剩的）。逐帧比较两幅画面要一幅和画面一样大的中间图，
+    每次都向系统要、用完就还的话，4K 屏滚动时光这一进一出每帧就占两三毫秒；留着反复用就没有这笔开销。
+    各线程用各自的，不会互相写坏。"""
+    buf = getattr(_scratch, "buf", None)
+    if buf is None or buf.size < h * w:
+        buf = _scratch.buf = np.empty(max(h * w, 1 << 16), np.uint8)
+    return buf[:h * w].reshape(h, w)
+
+
+def _tile_diff(a: np.ndarray, b: np.ndarray, thresh: int) -> np.ndarray:
+    """a、b 两块同样大小的灰度图，每个 TILE×TILE 格里是否有相差超过 thresh 的像素
+    （差异二值化后按格求平均，比 reshape 求最大快一倍；不满一格的边按没有差异补齐）。"""
+    hh, ww = a.shape
     th, tw = -(-hh // TILE), -(-ww // TILE)
-    if hh % TILE or ww % TILE:
-        pad = np.zeros((th * TILE, tw * TILE), np.uint8)
-        pad[:hh, :ww] = diff
-        diff = pad
-    _, m = cv2.threshold(diff, thresh, 255, cv2.THRESH_BINARY)
+    m = _scratch_mask(th * TILE, tw * TILE)
+    if hh % TILE:
+        m[hh:, :] = 0
+    if ww % TILE:
+        m[:hh, ww:] = 0
+    d = m[:hh, :ww]
+    if thresh <= 0:
+        _into(cv2.compare(a, b, cv2.CMP_NE, dst=d), d)            # 不相等的像素 255：等于“差的绝对值 > 0”
+    else:
+        _into(cv2.absdiff(a, b, dst=d), d)
+        _into(cv2.threshold(d, thresh, 255, cv2.THRESH_BINARY, dst=d)[1], d)
     return cv2.resize(m, (tw, th), interpolation=cv2.INTER_AREA) > 0
 
 
@@ -333,7 +366,7 @@ def residual_tiles(prev: np.ndarray, cur: np.ndarray, viewport: Rect, axis: str,
         a = cur[t:b, lo:hi]
         p = prev[t:b, lo - s:hi - s]
         origin = (lo, t)
-    return components(_tile_any(cv2.absdiff(a, p), 24), origin, dilate=0)
+    return components(_tile_diff(a, p, 24), origin, dilate=0)
 
 
 def _acceptable(diff_mask: np.ndarray) -> bool:

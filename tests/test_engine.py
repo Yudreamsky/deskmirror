@@ -835,5 +835,109 @@ class HoverHoldTest(unittest.TestCase):
         self.assertTrue(eng._verify(b), "以后按现在的样子核对")
 
 
+class KeptIndexTest(unittest.TestCase):
+    """滚动时块的位置索引跟着挪，不整个重建（长页面攒下几千块时，重建一次要一两毫秒，每帧都来一次）：
+    挪过的索引必须和重新建的一模一样。"""
+
+    def fresh(self, eng: E.Engine) -> tuple[list, list]:
+        kept = (eng._idx_bids.tolist(), eng._idx_rects.tolist())
+        eng._idx_valid = False
+        bids, rects = eng._index()
+        return kept, (bids.tolist(), rects.tolist())
+
+    def test_scroll_moves_the_rows(self) -> None:
+        page = text_page(3000, W, 3)
+        eng, m, win, sc = make_engine(page[0:H])
+        b = add_block(eng, sc, (10, 300, 400, 322), page[300:322, 10:400])
+        gone = add_block(eng, sc, (10, 2300, 400, 2322), page[2300:2322, 10:400])     # 在页面下面很远，没在屏幕上
+        gone.ok_rect = None
+        fixed = add_block(eng, win, (500, 40, 800, 62), page[40:62, 500:800])         # 挂在窗口上、在滚动范围外面，不跟着滚
+        eng._index()
+        eng._frame_moved, eng._ok_pending = {}, {}
+        eng._apply_scroll(m, win, (0, 80, W, H), "v", -20)
+        self.assertTrue(eng._idx_valid, "只是滚动：索引不该作废")
+        self.assertIs(fixed.canvas, win)
+        self.assertEqual([x.bid for x in eng._blocks_in((0, 270, W, 310))], [b.bid])
+        self.assertEqual(eng._blocks_in((0, 311, W, 330)), [])
+        self.assertEqual([x.bid for x in eng._blocks_in((450, 30, 850, 70))], [fixed.bid])
+        self.assertEqual(b.ok_rect, (10, 280, 400, 302))
+        self.assertIsNone(gone.ok_rect)
+        kept, new = self.fresh(eng)
+        self.assertEqual(kept, new)
+
+    def test_child_that_moved_first_stays_where_it_is(self) -> None:
+        page = text_page(3000, W, 4)
+        eng, m, win, sc = make_engine(page[0:H])
+        inner = Canvas("scroll", sc, [0, 0], (100, 400, 800, 900), axis="v")
+        sc.children.append(inner)
+        deep = Canvas("scroll", inner, [0, 0], (150, 450, 700, 800), axis="h")
+        inner.children.append(deep)
+        a = add_block(eng, inner, (120, 500, 500, 522), page[500:522, 120:500])
+        c = add_block(eng, deep, (160, 600, 500, 622), page[600:622, 160:500])
+        o = add_block(eng, sc, (10, 100, 400, 122), page[100:122, 10:400])
+        eng._index()
+        eng._frame_moved, eng._ok_pending = {}, {}
+        eng._apply_scroll(m, win, (100, 400, 800, 900), "v", -30)      # 先认出里面那块在动
+        kept, new = self.fresh(eng)
+        self.assertEqual(kept, new)
+        eng._apply_scroll(m, win, (0, 0, W, H), "v", -30)              # 其实是外层整体在滚：里面那块的移动撤销
+        self.assertTrue(eng._idx_valid)
+        self.assertEqual((a.screen_rect()[1], c.screen_rect()[1], o.screen_rect()[1]), (470, 570, 70))
+        kept, new = self.fresh(eng)
+        self.assertEqual(kept, new)
+
+    def test_sideways_scroll_and_new_canvas(self) -> None:
+        page = text_page(3000, W, 5)
+        eng, m, win, sc = make_engine(page[0:H])
+        strip = Canvas("scroll", sc, [0, 0], (100, 400, 800, 640), axis="h")
+        sc.children.append(strip)
+        a = add_block(eng, strip, (300, 500, 600, 522), page[500:522, 300:600])
+        eng._index()
+        eng._frame_moved, eng._ok_pending = {}, {}
+        eng._apply_scroll(m, win, (100, 400, 800, 640), "h", 40)
+        self.assertTrue(eng._idx_valid)
+        self.assertEqual(a.screen_rect(), (340, 500, 640, 522))
+        kept, new = self.fresh(eng)
+        self.assertEqual(kept, new)
+        # 认出一块新的滚动区域：原来挂在窗口上的块改挂到新画布上，索引里的归属变了，要重建
+        eng2, m2, win2, _sc2 = make_engine(page[0:H])
+        win2.children.clear()
+        win2.last_move = -100.0
+        b = add_block(eng2, win2, (10, 300, 400, 322), page[300:322, 10:400])
+        eng2._index()
+        eng2._frame_moved, eng2._ok_pending = {}, {}
+        made = eng2._apply_scroll(m2, win2, (0, 100, W, 1100), "v", -25)
+        self.assertIsNotNone(made)
+        self.assertIs(b.canvas, made)
+        self.assertEqual([x.bid for x in eng2._blocks_in((0, 270, W, 300))], [b.bid])
+        kept, new = self.fresh(eng2)
+        self.assertEqual(kept, new)
+
+
+class PublishSkipsUnconfirmedTest(unittest.TestCase):
+    def test_counts_still_cover_every_block(self) -> None:
+        # 没确认的块（滚出屏幕的都是）发布时直接跳过，不再算位置；“已翻译多少块”的数还得把它们算进去
+        page = text_page(3000, W, 6)
+        snaps: list = []
+        eng, m, win, sc = make_engine(page[0:H])
+        eng._publish_cb = snaps.append
+        eng.win_canvas[1] = win
+        eng.z_order = [1]
+        eng.win_rects = {1: (0, 0, W, H)}
+        eng._compute_visibility()
+        shown = add_block(eng, sc, (10, 300, 400, 322), page[300:322, 10:400])
+        away = add_block(eng, sc, (10, 2300, 400, 2322), page[2300:2322, 10:400])
+        held = add_block(eng, sc, (10, 500, 400, 522), page[500:522, 10:400])
+        for b in (shown, away, held):
+            b.state, b.translation = "done", "译文"
+        away.ok_rect = None
+        held.ok_rect = None
+        held.held_until, held.hold_rect = time.perf_counter() + 5, held.screen_rect()     # 没确认，但旧译文还留着
+        eng._publish(force=True)
+        snap = snaps[-1]
+        self.assertEqual(sorted(i.bid for i in snap.items), sorted([shown.bid, held.bid]))
+        self.assertEqual((snap.status["blocks"], snap.status["done"]), (3, 3))
+
+
 if __name__ == "__main__":
     unittest.main()
