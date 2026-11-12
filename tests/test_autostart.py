@@ -2,7 +2,6 @@
 只动注册表里一个临时的测试键，不碰真的启动项。"""
 from __future__ import annotations
 
-import os
 import pathlib
 import sys
 import tempfile
@@ -10,7 +9,7 @@ import unittest
 import winreg
 from unittest import mock
 
-from deskmirror import autostart, cli, config
+from deskmirror import autostart, config
 from tests import test_cli
 
 TEST_KEY = r"Software\DeskMirrorTest"

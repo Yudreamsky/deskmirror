@@ -8,6 +8,7 @@ import base64
 import ctypes
 import logging
 import os
+import threading
 from ctypes import wintypes as wt
 from dataclasses import dataclass
 
@@ -21,10 +22,7 @@ crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)
 
 LONG_PTR = ctypes.c_ssize_t
 
-GWL_STYLE = -16
 GWL_EXSTYLE = -20
-WS_VISIBLE = 0x10000000
-WS_CHILD = 0x40000000
 WS_EX_TOPMOST = 0x00000008
 WS_EX_TRANSPARENT = 0x00000020
 WS_EX_TOOLWINDOW = 0x00000080
@@ -254,7 +252,7 @@ def _cloaked(hwnd: int) -> bool:
     return value.value != 0
 
 
-_class_buf = ctypes.create_unicode_buffer(256)
+_tls = threading.local()
 
 
 def window_rect(hwnd: int) -> Rect | None:
@@ -269,8 +267,12 @@ def window_minimized(hwnd: int) -> bool:
 
 
 def window_class(hwnd: int) -> str:
-    n = user32.GetClassNameW(hwnd, _class_buf, 256)
-    return _class_buf.value if n > 0 else ""
+    # 引擎线程（每 20 毫秒把窗口列一遍）和界面线程都会问：各用各的缓冲区，共用一个的话两边同时问会读到对方的结果
+    buf = getattr(_tls, "class_buf", None)
+    if buf is None:
+        buf = _tls.class_buf = ctypes.create_unicode_buffer(256)
+    n = user32.GetClassNameW(hwnd, buf, 256)
+    return buf.value if n > 0 else ""
 
 
 def window_title(hwnd: int) -> str:

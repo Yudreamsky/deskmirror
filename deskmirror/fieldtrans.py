@@ -218,7 +218,7 @@ class FieldTranslator(QObject):
                 self._done(job, f, back)
             return
         if job.budget_hit:
-            self._tip(tr("今天的 token 已用到上限，没有翻译（设置 → 范围与隐私 里可以调）"), "err", job.hwnd, f, 4500)
+            self._tip(tr("今天的 token 已用到上限，没有翻译（设置 → 用量与省钱 里可以调）"), "err", job.hwnd, f, 4500)
             return
         self._tip(tr("翻译中…"), "busy", job.hwnd, f, 0)
         lines, at, segs = split_lines(body)

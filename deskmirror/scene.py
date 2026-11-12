@@ -167,7 +167,8 @@ class DrawItem:
 @dataclass(frozen=True)
 class Snapshot:
     items: tuple[DrawItem, ...]
-    pending: tuple[tuple[Rect, tuple[Rect, ...]], ...]   # 已识别、译文还没好（或失败）的块：显示等待提示用
+    # 已识别、译文还没好（或失败）的块，显示等待提示用：(屏幕位置, 可见范围, 是不是翻译失败了)
+    pending: tuple[tuple[Rect, tuple[Rect, ...], bool], ...]
     status: dict
     stamp: float
     # 画布 → 这份快照里它的屏幕位移（含预测，和 items 里的位置一致）：块在画布里的位置 = 块的位置 - 位移

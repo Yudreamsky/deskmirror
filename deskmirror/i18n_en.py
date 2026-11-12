@@ -55,8 +55,8 @@ EN: dict[str, str] = {
         ' · chat windows are not translated by default (right-click the tab to turn on)',
     '翻译聊天软件（和外国同事、朋友聊天时打开）':
         'Translate chat apps (turn on when chatting with colleagues or friends abroad)',
-    '用的是本机 Ollama，聊天内容不出本机。':
-        'You are using local Ollama, so chats stay on this PC. ',
+    '翻译服务在本机，聊天内容不出本机。':
+        'The translation service runs on this PC, so chats stay on it. ',
     '聊天内容会发给翻译服务（{host}）。':
         'Chat text will be sent to the translation service ({host}). ',
     '已关闭：聊天软件的窗口不再识别、不再翻译。':
@@ -98,8 +98,8 @@ EN: dict[str, str] = {
         'Starting text recognition…',
     ' · 服务较慢':
         ' · service is slow',
-    '已把 {name} 加入不翻译名单：它的窗口不再识别和翻译。可在 设置 → 范围与隐私 里移除。':
-        'Added {name} to the do-not-translate list: its windows will no longer be recognized or translated. You can remove it in Settings → Scope and privacy.',
+    '已把 {name} 加入不翻译名单：它的窗口不再识别和翻译。可在 设置 → 翻译范围 里移除。':
+        'Added {name} to the do-not-translate list: its windows will no longer be recognized or translated. You can remove it in Settings → What to translate.',
     '截图失败':
         'Screenshot failed',
     '魔镜译图':
@@ -333,8 +333,8 @@ EN: dict[str, str] = {
         'Skip',
     '上一步':
         'Back',
-    '译文会显示成这种语言；选中文时界面用中文，选其他语言时界面用英文。以后可以在 设置 → 识别与显示 里分别修改。':
-        'Translations will appear in this language. The interface is in Chinese if you choose Chinese, and in English otherwise. You can change both separately later in Settings → Recognition and display.',
+    '译文会显示成这种语言；选中文时界面用中文，选其他语言时界面用英文。以后可以在 设置 → 常用 里分别修改。':
+        'Translations will appear in this language. The interface is in Chinese if you choose Chinese, and in English otherwise. You can change both separately later in Settings → General.',
     '正在检查本机的 Ollama…':
         'Checking Ollama on this PC…',
     '正在测试…':
@@ -508,8 +508,8 @@ EN: dict[str, str] = {
         'version handles those), code editors and terminals',
     '翻译中…':
         'Translating…',
-    '今天的 token 已用到上限，没有翻译（设置 → 范围与隐私 里可以调）':
-        "Today's token limit has been reached, so nothing was translated (change it in Settings → Scope and privacy)",
+    '今天的 token 已用到上限，没有翻译（设置 → 用量与省钱 里可以调）':
+        "Today's token limit has been reached, so nothing was translated (change it in Settings → Usage and cost)",
     '翻译失败：服务没有返回译文':
         'Translation failed: the service returned no translation',
     '翻译失败：{error}':
@@ -1030,10 +1030,10 @@ EN: dict[str, str] = {
         '{requests} requests, {chars} characters of source text',
     '锁屏或屏保中：已停下，回来自动继续':
         'Screen locked or screensaver on: stopped, resumes when you are back',
-    '今天发给翻译服务的 token 已经用到上限（{limit}），先停止翻译新的文字。可以在 设置 → 范围与隐私 里调高或关掉上限，明天自动恢复。':
-        "Today's tokens sent to the translation service reached the cap ({limit}), so new text is no longer translated. Raise or turn off the cap in Settings → Scope and privacy; it resets tomorrow.",
-    '每日上限 {limit} token，到了就停（设置 → 范围与隐私）':
-        'Daily cap {limit} tokens, then it stops (Settings → Scope and privacy)',
+    '今天发给翻译服务的 token 已经用到上限（{limit}），先停止翻译新的文字。可以在 设置 → 用量与省钱 里调高或关掉上限，明天自动恢复。':
+        "Today's tokens sent to the translation service reached the cap ({limit}), so new text is no longer translated. Raise or turn off the cap in Settings → Usage and cost; it resets tomorrow.",
+    '每日上限 {limit} token，到了就停（设置 → 用量与省钱）':
+        'Daily cap {limit} tokens, then it stops (Settings → Usage and cost)',
     '今天的 token 已用到上限，停止翻译新文字（设置里可调）':
         "Today's token cap reached: new text is not translated (see Settings)",
     '账户余额不足（HTTP 402）：到服务商那里充值后点 ⟳ 继续':

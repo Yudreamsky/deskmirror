@@ -12,7 +12,6 @@ import numpy as np  # noqa: E402
 
 import deskmirror  # noqa: E402,F401  预加载 DLL
 from deskmirror import config, textutil, vision  # noqa: E402
-from deskmirror import engine as E  # noqa: E402
 from deskmirror.config import AppConfig, VisionConfig  # noqa: E402
 from deskmirror.translator import ServiceError  # noqa: E402
 

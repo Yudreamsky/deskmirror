@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .geom import inter
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -480,7 +481,7 @@ class DuplicationCapture:
                     self._latest_info = (present, tick, protected)
                     if not self._stale_since:
                         self._stale_since = now
-                    regions = _union_rows([geom_inter(r, q) for r in regions for q in roi], w, h)
+                    regions = _union_rows([inter(r, q) for r in regions for q in roi], w, h)
                 else:
                     if self._stale_since:
                         regions = [(0, 0, w, h)]          # 之前跳过的部分一起补上
@@ -538,10 +539,6 @@ class DuplicationCapture:
             self._gdi = None
 
 
-def geom_inter(a: Rect, b: Rect) -> Rect:
-    return max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3])
-
-
 def _union_rows(rects: list[Rect], w: int, h: int) -> list[Rect]:
     """把脏矩形裁到屏幕内；数量多时合并成覆盖它们的横条，减少 Python 循环。"""
     clipped = [(max(0, l), max(0, t), min(w, r), min(h, b)) for l, t, r, b in rects]
@@ -569,7 +566,6 @@ class GdiCapture:
         self.size = (rect[2] - rect[0], rect[3] - rect[1])
         self._mon = {"left": rect[0], "top": rect[1], "width": self.size[0], "height": self.size[1]}
         self._last = 0.0
-        self._first = True
         self.lock = threading.Lock()          # 和 DuplicationCapture 一样的接口（这里每帧都是新数组，不会读到一半）
 
     def stale(self) -> bool:

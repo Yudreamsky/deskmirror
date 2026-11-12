@@ -3,7 +3,7 @@
 ## 未发布
 
 支持 Ollama 云端的 API Key：不用装 Ollama，填上 ollama.com 的 API Key 就能用云端模型翻译、看图翻译。
-鼠标移到链接、菜单项、列表上时不再闪出原文。
+鼠标移到链接、菜单项、列表上时不再闪出原文。收起的球不会再被一下快点弄得点不动；同一个窗口里的文字攒多了不再变卡。
 
 - **Ollama 云端（API Key）**：设置 → 翻译服务的“常用服务”和新手指南的“云端服务”里多了这一项，选了就填好接入方式
   （Ollama 原生接口）、地址 `https://ollama.com` 和模型 `gemma4:31b`，再填上 API Key（ollama.com 登录后在 Settings → Keys
@@ -21,10 +21,27 @@
   （本机 Ollama 里叫 `gemma4:31b-cloud`，直连时叫 `gemma4:31b`）。
 - 命令行：`service ollama-cloud` 换成 Ollama 云端；新手指南不再把 Ollama 云端当成本机 Ollama；设置页“常用服务”选了
   云端服务时，“同时请求”至少调到 2（和新手指南、命令行一样）。
+- **收起的球点不动了**：鼠标刚移到球上、球还在往外滑的那一下（约 0.2 秒）点它，这次点击会被吞掉，球从此点不动、
+  拖不动，之后截一次图，它连鼠标都接不到，只能重启魔镜。现在这一下照常展开；截图前露在外面的球，截完接着缩回去。
+- **用久了变卡**：同一个窗口里攒下的文字块多了以后（滚过很长的网页、文档），每认出一批新文字，都要把这个窗口里所有的
+  块细看好几遍，攒到 2000 块时一批（40 段）要卡 2 秒多，这期间译文不跟着画面走。现在只看附近的块，2000 块时一批
+  0.17 秒；每 25 毫秒核对一次译文位置的那一步也快了约 6 倍；识别进程里整屏转灰度从约 110 毫秒降到 3 毫秒。
+- **翻译服务回的内容不对时说清原因**：地址或接入方式填错、被登录页挡住（回的是网页）、服务把错误包在数组里时，
+  以前界面上只写“内部错误”，命令行是一屏调用栈。模型把思考写在 `<think>` 里、这个标记正好被切成两截时，
+  第一段译文不再丢。检查更新时校验文件是空的，也说“格式不对”。
+- **换韩文识别模型**（原文选韩文，或者从韩文换回来）：不再顺带重建翻译线程和滚轮监听（旧的一直留着没人收），
+  这次运行里学到的滚轮曲线也不再被硬盘上的旧曲线换掉。韩文模型没下载成时，原因记进日志。
+- 提示里的设置页名改对了：每日 token 上限在“设置 → 用量与省钱”，不翻译名单在“设置 → 翻译范围”，新手指南第 1 步说的
+  译文语言、界面语言在“设置 → 常用”（以前写的还是设置改版前的“范围与隐私”“识别与显示”）。打开“翻译聊天软件”时，
+  翻译服务在不在本机和别处一样按服务地址判断（本机的 LM Studio 也算本机）。
+- 日志：隐藏 / 显示魔镜时记下是谁触发的（托盘图标、快捷键、菜单、标签上的按钮、截图）——都收成球时点一下托盘图标，
+  球就全藏起来了，以前查不到是哪一下；截图时不再每次记一条 Qt 的警告。
+- 命令行说明里 `service` 的列表补上 `ollama-cloud`；`requirements.txt` 里 mss 的最低版本改成 10.2（代码用的是 10.2 的写法）。
 
 Ollama Cloud API keys are supported: without installing Ollama, enter an ollama.com API key and use cloud models for
 translation and image translation. The original no longer flashes up when the mouse moves over links, menu items and
-lists.
+lists. A docked ball can no longer be put out of action by one quick click, and a window with a lot of text in it no
+longer slows DeskMirror down.
 
 - **Ollama Cloud (API key)**: Settings → Translation service → "Common services" and the getting-started guide's
   "Cloud service" now list it. Picking it fills in the API type (Ollama native API), the address `https://ollama.com`
@@ -51,6 +68,34 @@ lists.
 - Command line: `service ollama-cloud` switches to Ollama Cloud; the getting-started guide no longer mistakes Ollama
   Cloud for Ollama on this PC; picking a cloud service under "Common services" in Settings raises "Parallel requests"
   to at least 2 (as the guide and the command line already did).
+- **Docked ball stopped responding**: clicking the ball in the moment it was still sliding out (about 0.2 s after the
+  mouse reached it) swallowed the click and left the ball dead: no click or drag worked any more, and after the next
+  screenshot it no longer received the mouse at all, until DeskMirror was restarted. That click now opens the mirror
+  as it should; a ball that was out before a screenshot slides back in afterwards.
+- **Slower the longer it ran**: once a window had collected many text blocks (after scrolling through a long page or
+  document), every batch of newly recognized text went over all of that window's blocks several times; with 2,000
+  blocks one batch (40 paragraphs) stalled tracking for more than 2 seconds. Only nearby blocks are looked at now:
+  0.17 s for the same batch. The check of translation positions that runs every 25 ms is about 6 times faster, and
+  turning a full 4K screenshot to grayscale in the OCR process takes 3 ms instead of about 110 ms.
+- **Clear reasons when the service replies with something unexpected**: a wrong address or API type, a sign-in page
+  in the way (a web page comes back), or an error wrapped in a list used to show only "Internal error" (and a stack
+  trace on the command line). When a model writes its reasoning in `<think>` and that tag is split between two
+  chunks, the first translated segment is no longer lost. An empty checksum file during an update is reported as
+  a bad format.
+- **Switching the Korean OCR model** (choosing Korean as the source, or going back): the translation threads and the
+  wheel listener are no longer rebuilt along the way (the old ones were never cleaned up), and wheel curves learned
+  in this run are no longer replaced by the older ones on disk. If the Korean model can't be downloaded, the reason
+  goes to the log.
+- Settings page names in messages are right again: the daily token limit is under Settings → Usage and cost, the
+  do-not-translate list under Settings → What to translate, and the languages mentioned in step 1 of the guide under
+  Settings → General (the messages still used the names from before the settings redesign). When "Translate chat
+  apps" is turned on, whether the service runs on this PC is decided by its address as everywhere else (a local
+  LM Studio counts as local).
+- Log: hiding or showing the mirror records what triggered it (tray icon, hotkey, menu, the button on the tab,
+  a screenshot). With every mirror docked, one click on the tray icon hides all the balls, and there was no way to
+  tell afterwards. Taking a screenshot no longer logs a Qt warning each time.
+- The command-line reference lists `ollama-cloud` under `service`; `requirements.txt` asks for mss 10.2 or later
+  (the code uses the 10.2 API).
 
 ## 1.5.2（2026-11-04）
 

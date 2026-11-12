@@ -231,8 +231,6 @@ def split_by_text(lines: list[Line]) -> list[BlockDraft]:
     return blocks
 
 
-
-
 def join_lines(lines: list[Line]) -> str:
     """把块内各行连成一句话：西文行间补空格，连字符断词接回去；中日韩文字直接相连。"""
     out = ""

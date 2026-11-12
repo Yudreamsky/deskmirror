@@ -145,7 +145,7 @@ format (PNG / JPG).
   The learned curves are saved next to the settings in `deskmirror_wheel.json` (numbers only) and are used again on
   the next start.
 - **Speed-based lead**: for keyboard paging, dragging the scrollbar, touchpads, or a mouse wheel whose curve hasn't
-  been learned yet, the program measures the speed and deceleration over the last two frames while scrolling and
+  been learned yet, the program measures the speed and deceleration over the last few frames while scrolling and
   places the translation where the original will be "at the moment it is shown"; while slowing down it goes at most
   to where scrolling is expected to stop, and pulls back the moment scrolling stops.
 - **Partly covered paragraphs**: when a pop-up, overlay or tooltip on a web page covers part of a paragraph, only the
@@ -325,7 +325,7 @@ Codex. With the download version use `DeskMirrorCLI.exe` in the DeskMirror folde
 | `config list` / `config get NAME` | All settings / one setting (API keys show only their first and last characters) |
 | `config set NAME VALUE [NAME VALUE…]` | Change settings; out-of-range or malformed values are rejected rather than quietly changed. A VALUE of `-` is read from standard input, `--env VAR` from an environment variable (use these for API keys so they stay off the command line) |
 | `config reset NAME` | Back to the default |
-| `service [NAME]` | List the preset translation services, or switch to one: deepseek, qwen, siliconflow, openai, ollama, ollama-openai, lmstudio |
+| `service [NAME]` | List the preset translation services, or switch to one: deepseek, ollama-cloud, qwen, siliconflow, openai, ollama, ollama-openai, lmstudio |
 | `models [--vision]` | Models offered by the translation (or image translation) service |
 | `test` | Try the translation service with one short sentence |
 | `glossary list` / `add SOURCE TARGET [--app program.exe]` / `remove SOURCE` | Manage the glossary |

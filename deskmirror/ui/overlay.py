@@ -37,7 +37,6 @@ class UiState:
         self.paused = False         # 用户暂停：框还在，不画译文（画面没在跟踪，留着会错位）
         self.shot_mode = False      # 截图模式：截图工具截得到魔镜，识别、翻译停下，译文定住
         self.debug = False          # 画出识别到的滚动画布边界
-        self.hover_bid = 0
         # 调试统计：快照发出到画完的耗时、每次绘制耗时（毫秒）
         self.paint_lat: collections.deque[float] = collections.deque(maxlen=2000)
         self.paint_ms: collections.deque[float] = collections.deque(maxlen=2000)

@@ -681,11 +681,13 @@ def main() -> int:
                 self.act_chat.blockSignals(False)
             self._save()
             if on:
-                local = self.cfg.llm.protocol == "ollama" and any(
-                    h in self.cfg.llm.base_url for h in ("127.0.0.1", "localhost", "[::1]"))
-                where = tr("用的是本机 Ollama，聊天内容不出本机。") if local else                     tr("聊天内容会发给翻译服务（{host}）。").format(host=_host_of(self.cfg.llm.base_url))
-                msg = tr("已打开：微信、QQ、钉钉、飞书、Telegram、WhatsApp 等聊天窗口也会翻译。{where}聊完可以在托盘菜单的“翻译范围”里，或右键魔镜标签关掉。"
-                         ).format(where=where)
+                # 翻译服务在不在本机，和别处一样按服务地址判断（本机的 Ollama、LM Studio 都算）
+                if config.is_local_url(self.cfg.llm.base_url):
+                    where = tr("翻译服务在本机，聊天内容不出本机。")
+                else:
+                    where = tr("聊天内容会发给翻译服务（{host}）。").format(host=_host_of(self.cfg.llm.base_url))
+                msg = tr("已打开：微信、QQ、钉钉、飞书、Telegram、WhatsApp 等聊天窗口也会翻译。{where}"
+                         "聊完可以在托盘菜单的“翻译范围”里，或右键魔镜标签关掉。").format(where=where)
             else:
                 msg = tr("已关闭：聊天软件的窗口不再识别、不再翻译。")
             self.tray.showMessage(tr("桌面魔镜"), msg, QSystemTrayIcon.MessageIcon.Information, 6000)
@@ -1087,7 +1089,7 @@ def main() -> int:
             if local:
                 lines.append(tr("本机服务不花钱，不受每日上限限制"))
             elif g.daily_tokens:
-                lines.append(tr("每日上限 {limit} token，到了就停（设置 → 范围与隐私）").format(limit=f"{g.daily_tokens:,}"))
+                lines.append(tr("每日上限 {limit} token，到了就停（设置 → 用量与省钱）").format(limit=f"{g.daily_tokens:,}"))
             tip = "\n".join(lines)
             for f in self.frames:
                 f.set_meter(text, tip)
@@ -1147,7 +1149,7 @@ def main() -> int:
                 log.warning("今天的 token 已用到上限 %d", limit)
                 self.tray.showMessage(tr("桌面魔镜"), tr(
                     "今天发给翻译服务的 token 已经用到上限（{limit}），先停止翻译新的文字。"
-                    "可以在 设置 → 范围与隐私 里调高或关掉上限，明天自动恢复。").format(limit=f"{limit:,}"),
+                    "可以在 设置 → 用量与省钱 里调高或关掉上限，明天自动恢复。").format(limit=f"{limit:,}"),
                     QSystemTrayIcon.MessageIcon.Warning, 10000)
 
         def _apply_working(self) -> None:
@@ -1287,7 +1289,8 @@ def main() -> int:
             masks = snap.excluded_rects(wins, self.cfg)
             s = SnipSession(shots, [(w.hwnd, w.rect) for w in wins], self.cfg, self.snip_services, masks)
             s.copy_requested.connect(lambda img, s=s: self._snip_copied(img, s.sel))
-            s.clip_requested.connect(qapp.clipboard().setImage)     # 框好就放进剪贴板（不进贴图的历史）
+            # 框好就放进剪贴板（不进贴图的历史）。包一层再接：直接接 QClipboard 的方法，Qt 每次都往日志里记一条警告
+            s.clip_requested.connect(lambda img: qapp.clipboard().setImage(img))
             s.save_requested.connect(self._save_snip)
             s.pin_requested.connect(self._snip_pinned)
             s.mirror_requested.connect(self.mirror_to)
@@ -1407,7 +1410,7 @@ def main() -> int:
                 self.cfg.scope.exclude_apps = self.cfg.scope.exclude_apps + [name]
                 self._save()
             self.tray.showMessage(tr("桌面魔镜"),
-                                  tr("已把 {name} 加入不翻译名单：它的窗口不再识别和翻译。可在 设置 → 范围与隐私 里移除。")
+                                  tr("已把 {name} 加入不翻译名单：它的窗口不再识别和翻译。可在 设置 → 翻译范围 里移除。")
                                   .format(name=name), QSystemTrayIcon.MessageIcon.Information, 5000)
 
         def take_shot(self, kind: str, f: MirrorFrame | None = None) -> None:
@@ -2119,7 +2122,10 @@ def main() -> int:
             if cmd == "settings_snapshot":
                 # 设置窗口对截屏隐身：用它自己的渲染结果出图（测试看界面用）
                 dlg = SettingsDialog(self.cfg)
-                dlg.tabs.setCurrentIndex(int(req.get("tab", 0)))
+                if "page" in req:                # 页名：general / service / scope / …（见 settings.PAGES）
+                    dlg.show_page(str(req["page"]))
+                else:
+                    dlg.nav.setCurrentRow(int(req.get("tab", 0)))
                 dlg.show()
                 qapp.processEvents()
                 ok = dlg.grab().save(req["path"])
