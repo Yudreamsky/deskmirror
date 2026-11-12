@@ -396,7 +396,8 @@ def main() -> int:
                     self._key_items.append((act, text, action))
                 return act
 
-            self.act_toggle = item(menu, tr("显示魔镜") if self.state.hidden else tr("隐藏魔镜"), self.toggle_visible)
+            self.act_toggle = item(menu, tr("显示魔镜") if self.state.hidden else tr("隐藏魔镜"),
+                                   lambda: self.toggle_visible("menu"))
             self.act_pause = item(menu, tr("继续翻译") if self.state.paused else tr("暂停翻译"), self.toggle_pause,
                                   tip=tr("框留着，不识别、不翻译，也不花翻译费用"))
             item(menu, tr("刷新镜框内区域"), self.refresh, "refresh")
@@ -507,7 +508,7 @@ def main() -> int:
             f.rect_changed.connect(lambda r, final, f=f: self._on_frame_rect(f, r, final))
             f.refresh_clicked.connect(lambda f=f: self.refresh(f))
             f.settings_clicked.connect(self.open_settings)
-            f.hide_clicked.connect(self.toggle_visible)
+            f.hide_clicked.connect(lambda: self.toggle_visible("tab button"))
             f.shot_clicked.connect(lambda kind, f=f: self.take_shot(kind, f))
             f.menu_requested.connect(lambda pos, f=f: self._frame_menu(f, pos))
             f.pause_clicked.connect(self.toggle_pause)
@@ -814,7 +815,7 @@ def main() -> int:
 
         def _on_tray(self, reason) -> None:
             if reason == QSystemTrayIcon.ActivationReason.Trigger:
-                self.toggle_visible()
+                self.toggle_visible("tray icon click")
 
         # -------------------------------------------------------------- 事件
         def _on_snapshot(self, snap) -> None:
@@ -1256,7 +1257,7 @@ def main() -> int:
             elif action == "refresh":
                 self.refresh()
             elif action == "toggle":
-                self.toggle_visible()
+                self.toggle_visible("hotkey")
             elif action == "history":
                 self.toggle_history()
             elif action == "vision":
@@ -1295,7 +1296,7 @@ def main() -> int:
             self._snip = s
             self._snip_hid = not self.state.hidden
             if self._snip_hid:
-                self.toggle_visible()
+                self.toggle_visible("screenshot starts")
             s.start()
 
         def _grab_screens(self) -> list:
@@ -1321,7 +1322,7 @@ def main() -> int:
             if self._snip_hid:
                 self._snip_hid = False
                 if self.state.hidden:
-                    self.toggle_visible()
+                    self.toggle_visible("screenshot ends")
 
         def _snip_copied(self, img, rect) -> None:
             qapp.clipboard().setImage(img)
@@ -1575,8 +1576,11 @@ def main() -> int:
                 p.end()
             return img
 
-        def toggle_visible(self) -> None:
+        def toggle_visible(self, why: str = "") -> None:
+            """隐藏 / 显示所有魔镜（收起的球也一起）。why：谁触发的，记进日志——都收成球时点一下托盘图标，球就全没了，
+            界面上看不出是被隐藏了，要能查到是哪一下。"""
             self.state.hidden = not self.state.hidden
+            log.info("%s魔镜（%s）", "隐藏" if self.state.hidden else "显示", why or "?")
             for f in self.frames:
                 f.dock.set_hidden(self.state.hidden)
                 f.setVisible(not self.state.hidden and not f.suspended and not f.dock.docked)

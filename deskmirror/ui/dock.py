@@ -523,6 +523,8 @@ class Docker(QObject):
             self._tuck_timer.stop()
             self.cancel()
         self.ball.setVisible(self.docked and not on and not self.busy)
+        if not on and self.docked and not self.tucked and not self.busy and not self.hover_t:
+            self._tuck_timer.start()          # 藏起来之前球露在外面、正等着缩回去：接着等
 
     def close(self) -> None:
         self._timer.stop()
@@ -604,8 +606,6 @@ class Docker(QObject):
         if not self.docked or self.busy:
             return
         self._tuck_timer.stop()
-        if self.live is not None:             # 正在滑出、藏回：从现在的样子接着拖
-            self.live.kind, self.live.on_settle = "drag", None
         g = self.g = _Gesture("ball", gp.x(), gp.y(), self.frame.mirror, grip_offset())
         g.edge, g.mon = self.edge, self.mon
 
@@ -618,6 +618,11 @@ class Docker(QObject):
             if math.hypot(g.x - g.x0, g.y - g.y0) < SLOP * monitor_at(g.x0, g.y0, g.mons).scale:
                 return
             g.moved = True
+            if self.live is not None and self.live.kind == "slide":
+                # 球正在滑出、藏回时按下去拖：从现在的样子接着拖。挪了才算拖：只是点一下的话滑动照常进行，松手照常展开。
+                # （以前一按下就当成拖：鼠标刚移上来、球还在往外滑时点它，这一下被吞掉，球从此一直算“正在变形”，
+                # 再也点不动；之后隐藏再显示一次，连接鼠标的窗口都不出来了）
+                self.live.kind, self.live.on_settle = "drag", None
         if g.mode == "ball":
             if not edge_near(g.x, g.y, g.mon, g.mons, ZONE_OUT, only=g.edge):
                 self._to_dash(g)
@@ -828,6 +833,8 @@ class Docker(QObject):
             cb, lv.on_settle = lv.on_settle, None
             if cb is not None:
                 cb()
+            elif self.g is None and self.live is lv:
+                self._end_live(keep=True)     # 没有拖动在进行，也没人等它落定：收掉，不能一直算“正在变形”
 
     def _end_live(self, keep: bool) -> None:
         self._timer.stop()

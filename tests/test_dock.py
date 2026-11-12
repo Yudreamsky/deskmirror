@@ -300,6 +300,59 @@ class GestureTest(unittest.TestCase):
         self.assertTrue(d.tucked)
         self.assertEqual(d.shape().x, tucked)
 
+    def test_click_while_the_ball_slides_out(self) -> None:
+        # 鼠标刚移到球上、球还在往外滑（约 0.2 秒）就点它：照样展开，不能把这一下吞掉
+        d, f = self.d, self.frame
+        d.dock_now({"edge": "l", "x": 33, "y": 251})
+        self.clock.t += 1.0
+        d.hover(True)
+        self.clock.t += 0.05
+        d._step()
+        self.assertEqual(d.live.kind, "slide")
+        d.ball_press(QPoint(5, 251))
+        d.release(QPoint(5, 251))
+        self.assertEqual(self.events, [True, False], "点一下：展开")
+        self._settle()
+        self.assertTrue(f.visible)
+        self.assertFalse(d.busy)
+
+    def test_press_while_sliding_then_hidden(self) -> None:
+        # 球在滑的时候按下去没挪，这时魔镜被隐藏（比如按了截图键）：再显示出来球还在、还点得动
+        d = self.d
+        d.dock_now({"edge": "l", "x": 33, "y": 251})
+        self.clock.t += 1.0
+        d.hover(True)
+        self.clock.t += 0.05
+        d._step()
+        d.ball_press(QPoint(5, 251))
+        d.set_hidden(True)
+        self._settle()
+        self.assertFalse(d.busy, "滑完就完了，不能一直算正在变形")
+        d.hover(False)
+        d.set_hidden(False)
+        self.assertTrue(d.ball.isVisible())
+        self.assertTrue(d._tuck_timer.isActive(), "露在外面的球接着等着缩回去")
+        d.ball_press(QPoint(20, 251))
+        d.release(QPoint(20, 251))
+        self.assertEqual(self.events, [True, False])
+
+    def test_drag_while_the_ball_slides_out(self) -> None:
+        # 球还在往外滑就按住拖走：从现在的样子接着变成虚线框
+        d, f = self.d, self.frame
+        d.dock_now({"edge": "l", "x": 33, "y": 251})
+        self.clock.t += 1.0
+        d.hover(True)
+        self.clock.t += 0.05
+        d._step()
+        d.ball_press(QPoint(5, 251))
+        d.move(QPoint(400, 400))
+        self.assertEqual(self.events, [True, False], "拖出来：开始翻译")
+        d.release(QPoint(400, 400))
+        self._settle()
+        self.assertTrue(f.visible)
+        self.assertFalse(d.docked)
+        self.assertFalse(d.busy)
+
     def test_hidden_mid_drag_finishes_the_gesture(self) -> None:
         d, f = self.d, self.frame
         d.frame_press(QPoint(700, 285))
