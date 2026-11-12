@@ -19,7 +19,7 @@ import numpy as np
 
 from .config import LANGUAGES, VisionConfig, is_ollama_cloud
 from .i18n import tr
-from .translator import _SOURCE_DESC, _TARGET_DESC, ServiceError, _http_error, make_client
+from .translator import _SOURCE_DESC, _TARGET_DESC, ServiceError, _http_error, _ollama_line, make_client
 
 
 def is_local(base_url: str) -> bool:
@@ -129,7 +129,7 @@ def _piece(protocol: str, line: str, model: str) -> str:
     if protocol == "ollama":
         if not line.strip():
             return ""
-        data = json.loads(line)
+        data = _ollama_line(line)
         if data.get("error"):
             err = str(data["error"])
             if _no_vision(err):
@@ -145,6 +145,8 @@ def _piece(protocol: str, line: str, model: str) -> str:
     try:
         obj = json.loads(data)
     except ValueError:
+        return ""
+    if not isinstance(obj, dict):
         return ""
     if obj.get("error"):
         raise ServiceError(tr("服务报错：{detail}").format(detail=str(obj["error"])[:120]))

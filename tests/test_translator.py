@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import deskmirror  # noqa: F401  预加载 DLL
 from deskmirror.config import LlmConfig
-from deskmirror.translator import ServiceError, list_models, make_client, stream_translate
+from deskmirror.translator import SegmentParser, ServiceError, list_models, make_client, stream_translate
 
 
 class _Fake(BaseHTTPRequestHandler):
@@ -246,6 +246,70 @@ class OllamaKeyTest(unittest.TestCase):
         self.assertIn("gemma4:31b", str(_http_error(resp, True, ollama_cloud=True)))
         self.assertIn("不带 cloud", str(_http_error(resp, True, ollama_cloud=True)))
         self.assertNotIn("不带 cloud", str(_http_error(resp)))
+
+
+class OddReplyTest(unittest.TestCase):
+    """服务回的不是该有的样子：说清楚原因，不能冒出没接住的错误（界面上只会显示“内部错误”，命令行是一屏调用栈）。"""
+
+    def _translate(self, cfg: LlmConfig, handler):
+        import httpx
+        got: dict[int, str] = {}
+        with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+            usage = stream_translate(cfg, "zh-Hans", ["Hello"], got.__setitem__, client, threading.Event())
+        return got, usage
+
+    def test_error_body_is_a_list_or_text(self) -> None:
+        import httpx
+        api = LlmConfig(protocol="openai", base_url="http://x", model="m", api_key="k")
+        # Gemini 的 OpenAI 兼容接口把错误包在数组里；有的网关只回一句话，或者 null
+        for body, want in (([{"error": {"message": "API key not valid"}}], "API key not valid"), ("boom", "boom"),
+                           ([], ""), (None, "")):
+            with self.assertRaises(ServiceError) as cm:
+                self._translate(api, lambda req, body=body: httpx.Response(500, json=body))
+            self.assertIn("HTTP 500", str(cm.exception))
+            self.assertEqual(cm.exception.detail, want)
+
+    def test_ollama_address_answers_with_a_web_page(self) -> None:
+        import httpx
+        ollama = LlmConfig(protocol="ollama", base_url="http://x", model="m")
+        for text in ("<html>\n<body>Sign in</body>\n</html>\n", '["not", "an", "object"]\n', '"text"\n'):
+            with self.assertRaises(ServiceError) as cm:
+                self._translate(ollama, lambda req, text=text: httpx.Response(200, text=text))
+            self.assertIn("接入方式", str(cm.exception))
+
+    def test_openai_stream_with_odd_lines(self) -> None:
+        import httpx
+        api = LlmConfig(protocol="openai", base_url="http://x", model="m", api_key="k")
+        lines = ['data: "keep-alive"', "data: [1, 2]", "data: not json",
+                 'data: {"choices": [{"delta": {"content": "[1] 你好"}}]}', "data: [DONE]"]
+        got, _usage = self._translate(api, lambda req: httpx.Response(200, text="\n\n".join(lines) + "\n\n"))
+        self.assertEqual(got, {0: "你好"})
+
+
+class ThinkTagTest(unittest.TestCase):
+    """模型把思考写在 <think>…</think> 里：流式返回时这个标记可能被切成两截。"""
+
+    @staticmethod
+    def _feed(pieces: list[str]) -> dict[int, str]:
+        out: dict[int, str] = {}
+        p = SegmentParser(2, out.__setitem__)
+        for piece in pieces:
+            p.feed_raw(piece)
+        p.close()
+        return out
+
+    def test_tag_split_between_chunks(self) -> None:
+        want = {0: "你好", 1: "世界"}
+        text = "<think>let me see</think>[1] 你好\n[2] 世界\n"
+        self.assertEqual(self._feed([text]), want)
+        for cut in range(1, len("<think>")):                 # "<" + "think>…"、"<t" + "hink>…"……
+            self.assertEqual(self._feed([text[:cut], text[cut:]]), want, cut)
+        self.assertEqual(self._feed(list(text)), want, "一个字一个字地来")
+
+    def test_text_that_only_looks_like_the_tag(self) -> None:
+        self.assertEqual(self._feed(["[1] a <", "b> c\n[2] 1 <", " 2"]), {0: "a <b> c", 1: "1 < 2"})
+        self.assertEqual(self._feed(["[1] x\n[2] 3 <"]), {0: "x", 1: "3 <"}, "结尾的 < 不能丢")
+        self.assertEqual(self._feed(["[1] x\n[2] y <th"]), {0: "x", 1: "y <th"})
 
 
 class ServiceDetailTest(unittest.TestCase):

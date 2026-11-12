@@ -157,6 +157,10 @@ class SegmentParser:
         self.parts = []
 
     def close(self) -> None:
+        cleaned = _clean(self.raw, final=True)      # 末尾先留着没交的那几个字（原来不是思考段的开头）：补上
+        if len(cleaned) > self.fed:
+            self.feed(cleaned[self.fed:])
+            self.fed = len(cleaned)
         if self.buf:
             self._line(self.buf)
             self.buf = ""
@@ -180,12 +184,15 @@ def _http_error(resp: httpx.Response, has_key: bool = True, ollama_cloud: bool =
     code = resp.status_code
     try:
         detail = resp.json()
+    except ValueError:
+        detail = ""
+    if isinstance(detail, list):          # 有的服务把错误包在数组里（比如 Gemini 的 OpenAI 兼容接口）
+        detail = detail[0] if detail else ""
+    if isinstance(detail, dict):
         detail = detail.get("error", detail)
         if isinstance(detail, dict):
             detail = detail.get("message", "")
-    except ValueError:
-        detail = ""
-    detail = str(detail)[:120]
+    detail = "" if detail is None else str(detail)[:120]
     if code in (401, 403):
         if not has_key:
             return ServiceError(tr("这个服务要 API Key（HTTP {code}）：在设置里填上").format(code=code), retryable=False)
@@ -225,11 +232,32 @@ class Usage:
     cached: int = 0                   # 输入里命中服务商缓存的部分（DeepSeek、OpenAI 按低得多的价格计费）
 
 
-def _clean(text: str) -> str:
+_THINK_OPEN = "<think>"
+
+
+def _clean(text: str, final: bool = False) -> str:
+    """去掉思考段。流式返回时 "<think>" 可能被切成两截（"<thi" + "nk>…"）：末尾像它开头的那几个字先留着不交，
+    等下一截来了再看——不然先交出去的 "<thi" 会顶掉第一段译文开头的几个字。final：流结束了，不用再留。"""
     text = _THINK.sub("", text)
-    if "<think>" in text:
-        text = text.split("<think>", 1)[0]
+    if _THINK_OPEN in text:
+        return text.split(_THINK_OPEN, 1)[0]
+    if not final:
+        for n in range(min(len(_THINK_OPEN) - 1, len(text)), 0, -1):
+            if text.endswith(_THINK_OPEN[:n]):
+                return text[:-n]
     return text
+
+
+def _ollama_line(line: str) -> dict:
+    """Ollama 流式响应的一行（一个 JSON 对象）。不是的话，对面多半不是 Ollama：地址或接入方式填错了，
+    或者被代理、登录页挡住了（回的是网页）。"""
+    try:
+        data = json.loads(line)
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        raise ServiceError(tr("服务返回的内容看不懂，检查服务地址和接入方式"))
+    return data
 
 
 def _ollama_chat(cfg: LlmConfig, base: str, messages: list[dict]) -> tuple[dict, dict]:
@@ -287,7 +315,7 @@ def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: 
                             return finish()
                         if not line.strip():
                             continue
-                        data = json.loads(line)
+                        data = _ollama_line(line)
                         if data.get("error"):
                             detail = str(data["error"])[:120]
                             raise ServiceError(tr("服务报错：{detail}").format(detail=detail), detail=detail)
@@ -335,6 +363,8 @@ def stream_translate(cfg: LlmConfig, target: str, texts: list[str], on_segment: 
                         try:
                             obj = json.loads(data)
                         except ValueError:
+                            continue
+                        if not isinstance(obj, dict):
                             continue
                         if obj.get("error"):
                             detail = str(obj["error"])[:120]

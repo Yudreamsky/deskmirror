@@ -233,6 +233,8 @@ EN: dict[str, str] = {
         "Can't reach the service; check the address and your network",
     '服务响应超时':
         'The service timed out',
+    '服务返回的内容看不懂，检查服务地址和接入方式':
+        "The service's reply is not in the expected format; check the address and the API type",
     '服务返回的内容不是模型列表':
         "The service didn't return a model list",
     '这个服务要 API Key（HTTP {code}）：在设置里填上':

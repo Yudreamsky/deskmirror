@@ -164,7 +164,7 @@ def download(rel: Release, dest: Path, progress: Callable[[int, int], None] | No
     digest = hashlib.sha256()
     try:
         with _client(timeout=60) as c:
-            want = c.get(rel.sha_url).raise_for_status().text.split()[0].strip().lower()
+            want = (c.get(rel.sha_url).raise_for_status().text.split() or [""])[0].strip().lower()   # 空文件：格式不对
             if not re.fullmatch(r"[0-9a-f]{64}", want):
                 raise UpdateError(tr("校验文件的格式不对"))
             with c.stream("GET", rel.zip_url) as r:
