@@ -48,6 +48,17 @@
 - 日志：隐藏 / 显示魔镜时记下是谁触发的（托盘图标、快捷键、菜单、标签上的按钮、截图）——都收成球时点一下托盘图标，
   球就全藏起来了，以前查不到是哪一下；截图时不再每次记一条 Qt 的警告。
 - 命令行说明里 `service` 的列表补上 `ollama-cloud`；`requirements.txt` 里 mss 的最低版本改成 10.2（代码用的是 10.2 的写法）。
+- **隐藏了看得出来**：隐藏魔镜（点托盘图标、快捷键、菜单）以后托盘图标变灰，鼠标停在上面写着“已隐藏，点一下图标显示”。
+  以前魔镜都收成球时一隐藏，屏幕上什么都不剩，看不出是藏起来了还是出了问题。
+- **改别的设置不打断翻译**：保存设置时，翻译服务那几项（地址、模型、密钥、同时请求数……）没动，就不再重建翻译线程、
+  不丢在途的请求——以前改个颜色、快捷键，正在翻的那几段也要重发一遍。翻译服务或译成的语言真的改了、而截图翻译正等着
+  结果时，截图上会说“设置改了，这次没翻完”，不再一直写着“正在翻译…”。
+- DeepSeek 预设的默认模型改成 `deepseek-flash`：`deepseek-chat` 这个旧名字官方已经停用。
+- 只能在命令行、配置文件里改的几项补上了范围：`track.dynamic_ms` 100～10000、`track.subtitle_hold_ms` 0～30000、
+  `track.display_lead_ms` 0～100、`llm.temperature` 0～2、`llm.num_ctx` 和 `vision.num_ctx` 1024～262144。命令行填错时
+  说清范围，配置文件里写错的值载入时收回到范围里（以前 `track.dynamic_ms` 写成 0 会让识别停不下来）。
+- `logs/crash.log` 里“其实没崩”的记录（系统内部自己接住的异常 0x8001010d）每次启动时清掉，真崩溃的记录不会被淹在里面。
+  去掉了早就用不到的“单独放一份 DirectML 运行库”的入口。
 
 Ollama Cloud API keys are supported: without installing Ollama, enter an ollama.com API key and use cloud models for
 translation and image translation. The original no longer flashes up when the mouse moves over links, menu items and
@@ -124,6 +135,23 @@ longer slows DeskMirror down, and translations follow scrolling more closely.
   tell afterwards. Taking a screenshot no longer logs a Qt warning each time.
 - The command-line reference lists `ollama-cloud` under `service`; `requirements.txt` asks for mss 10.2 or later
   (the code uses the 10.2 API).
+- **You can tell when it is hidden**: after hiding the mirrors (tray icon click, hotkey or menu) the tray icon turns
+  grey and its tooltip reads "hidden, click the icon to show it". Until now, hiding while every mirror was docked
+  as a ball left nothing on the screen, and nothing told you whether it was hidden or broken.
+- **Changing other settings no longer interrupts translation**: when the translation service settings (address,
+  model, key, parallel requests…) are untouched, saving the settings keeps the translation threads and the requests
+  in flight; a change of color or hotkey used to send the paragraphs being translated a second time. When the
+  service or the target language really changes while a screenshot translation is waiting, the screenshot says the
+  settings changed instead of showing "Translating…" forever.
+- The DeepSeek preset now fills in `deepseek-flash`: the old name `deepseek-chat` has been retired by DeepSeek.
+- Settings that can only be changed on the command line or in the settings file now have limits:
+  `track.dynamic_ms` 100–10000, `track.subtitle_hold_ms` 0–30000, `track.display_lead_ms` 0–100,
+  `llm.temperature` 0–2, `llm.num_ctx` and `vision.num_ctx` 1024–262144. The command line names the range, and a
+  bad value in the settings file is brought back into range on load (`track.dynamic_ms` 0 used to make
+  recognition run without pause).
+- Records in `logs/crash.log` that were not crashes (the exception 0x8001010d, raised and handled inside Windows)
+  are removed at every start, so a real crash is not buried among them. The long-unused hook for a separately
+  stored DirectML runtime is gone.
 
 ## 1.5.2（2026-11-04）
 

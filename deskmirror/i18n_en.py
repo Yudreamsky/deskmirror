@@ -83,6 +83,8 @@ EN: dict[str, str] = {
         'Some hotkeys are unavailable',
     '继续工作，正在核对画面…':
         'Resuming, checking the screen…',
+    '桌面魔镜 · 已隐藏，点一下图标显示': 'DeskMirror · hidden, click the icon to show it',
+    '设置改了，这次没翻完：再翻译一次': 'The settings changed before this was finished: translate it again',
     '桌面魔镜 · 今天发给翻译服务（{where}）{requests} 次、{chars} 字，↑{tin} ↓{tout} token':
         'DeskMirror · sent to the translation service ({where}) today: {requests} requests, {chars} characters, '
         '↑{tin} ↓{tout} tokens',

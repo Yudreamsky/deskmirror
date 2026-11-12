@@ -71,9 +71,6 @@ def line_kind(text: str, score: float) -> str:
 # --------------------------------------------------------------------- 子进程端
 
 def _make_engine(device: str, threads: int, lang: str = "default"):
-    import deskmirror
-    if device == "gpu":
-        deskmirror.use_directml_runtime()
     import onnxruntime as ort
     from rapidocr import LangRec, ModelType, OCRVersion, RapidOCR
 

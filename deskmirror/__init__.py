@@ -30,9 +30,6 @@ def _data_root() -> Path:
 
 
 ROOT = _data_root()
-# 可选：单独放在这里的 DirectML 版 onnxruntime（和环境里的 CPU 版互不影响）；只在用显卡识别时插到搜索路径最前面。
-# 一般不需要：环境里直接装 onnxruntime-directml（见 requirements.txt）就能用显卡。
-DIRECTML_RUNTIME = ROOT / ".cache" / "directml-probe" / "1.24.4"
 
 
 def _preload_system_dlls() -> None:
@@ -56,18 +53,6 @@ def _preload_system_dlls() -> None:
                 ctypes.WinDLL(str(path))
             except OSError:
                 pass
-
-
-def use_directml_runtime() -> bool:
-    """在导入 onnxruntime 之前调用：存在隔离的 DirectML 运行库时优先使用它。"""
-    if "onnxruntime" in sys.modules:
-        return "DmlExecutionProvider" in getattr(sys.modules["onnxruntime"], "get_available_providers", lambda: [])()
-    if not (DIRECTML_RUNTIME / "onnxruntime" / "__init__.py").exists():
-        return False
-    path = str(DIRECTML_RUNTIME)
-    if path not in sys.path:
-        sys.path.insert(0, path)
-    return True
 
 
 _preload_system_dlls()

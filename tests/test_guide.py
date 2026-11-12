@@ -113,7 +113,7 @@ class GuideDialogTest(unittest.TestCase):
         g.preset.setCurrentIndex(openai)                 # 换服务：旧列表和别家的模型名都清掉
         self.assertEqual((g.model.count(), g.model.currentText()), (0, ""))
         g.preset.setCurrentIndex(0)
-        self.assertEqual(g.model.currentText(), "deepseek-chat")
+        self.assertEqual(g.model.currentText(), "deepseek-flash")
         g.close()
 
     def test_ollama_cloud(self) -> None:

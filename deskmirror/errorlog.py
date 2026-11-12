@@ -5,6 +5,7 @@
 错误说明里可能带着屏幕上的字（比如 KeyError 的键就是认出来的原文），而屏幕文字只能出现在调试日志里：
 日志用 Formatter 写错误时只写种类和调用栈（文件、行号、那行代码），打开调试日志时才写全。
 程序直接崩掉（显卡驱动、系统接口这类）时，faulthandler 把各线程当时在做什么（只有代码位置）写进 logs/crash.log。
+系统接口内部自己接住的异常它分不出来，也会记一笔；这种“其实没崩”的记录每次启动时清掉（tidy_crash_log）。
 """
 from __future__ import annotations
 
@@ -19,6 +20,9 @@ from pathlib import Path
 log = logging.getLogger("deskmirror.errors")
 _crash_file = None
 _qt_handler = None
+# 不是崩溃的异常代码（系统内部抛出、自己又接住了，程序照常运行）：
+# 0x8001010d：正在处理别的程序同步发来的消息时又去调跨进程接口，被系统拒绝（RPC_E_CANTCALLOUT_ININPUTSYNCCALL）
+HANDLED_CODES = ("0x8001010d",)
 
 
 def install(logdir: Path) -> None:
@@ -26,7 +30,32 @@ def install(logdir: Path) -> None:
     sys.excepthook = _excepthook
     threading.excepthook = _thread_excepthook
     sys.unraisablehook = _unraisablehook
+    tidy_crash_log(logdir / "crash.log")
     enable_crash_log(logdir)
+
+
+def tidy_crash_log(path: Path) -> int:
+    """把 crash.log 里“其实没崩”的记录去掉，返回去掉了几条。魔镜启动时做一次（这时还没有别的进程在写它）：
+    留在里面的话，真崩了一次也会被淹在几十条一样的假记录里。别的记录原样留着。"""
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return 0
+    entries: list[list[bytes]] = []
+    for line in raw.splitlines(keepends=True):
+        if line.startswith((b"Windows fatal exception", b"Fatal Python error")) or not entries:
+            entries.append([])
+        entries[-1].append(line)
+    handled = tuple(b"code " + c.encode("ascii") for c in HANDLED_CODES)
+    keep = [e for e in entries
+            if not (e[0].startswith(b"Windows fatal exception") and e[0].strip().lower().endswith(handled))]
+    dropped = len(entries) - len(keep)
+    if dropped:
+        try:
+            path.write_bytes(b"".join(b"".join(e) for e in keep))
+        except OSError:
+            return 0
+    return dropped
 
 
 def enable_crash_log(logdir: Path) -> None:

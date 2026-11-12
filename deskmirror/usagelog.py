@@ -1,7 +1,7 @@
 """用量日志：每次翻译请求记一行 JSON（logs/usage-年-月.jsonl），排查“token 花在哪了”。
 
 只记数量和程序名，不记任何屏幕文字、窗口标题和译文：
-    {"t": "2026-10-07T20:18:10", "host": "api.deepseek.com", "model": "deepseek-chat", "app": "chrome.exe",
+    {"t": "2026-10-07T20:18:10", "host": "api.deepseek.com", "model": "deepseek-flash", "app": "chrome.exe",
      "segments": 1, "chars": 6, "refs": 0, "dialog": 0, "dynamic": false,
      "in": 440, "out": 7, "cached": 384, "exact": true, "secs": 1.8}
 

@@ -939,5 +939,99 @@ class PublishSkipsUnconfirmedTest(unittest.TestCase):
         self.assertEqual((snap.status["blocks"], snap.status["done"]), (3, 3))
 
 
+class _FakePool:
+    def __init__(self, llm=None, on_event=None) -> None:
+        self.llm = llm
+        self.closed = False
+
+    def submit(self, batch) -> None:
+        pass
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class KeepPoolTest(unittest.TestCase):
+    """保存设置时，翻译服务那几项没动就不重建翻译线程、不丢在途的请求。"""
+
+    def setUp(self) -> None:
+        import copy
+        self.copy = copy
+        self._real = E.TranslatorPool
+        E.TranslatorPool = _FakePool
+        page = text_page(3000, W, 7)
+        self.eng, _m, _win, sc = make_engine(page[0:H])
+        eng = self.eng
+        eng.cfg.memory.enabled = False
+        eng.pool = self.pool = _FakePool(eng.cfg.llm)
+        eng._pool_llm = copy.deepcopy(eng.cfg.llm)
+        self.sending = add_block(eng, sc, (10, 300, 400, 322), page[300:322, 10:400])
+        self.sending.state = "translating"
+        self.failed = add_block(eng, sc, (10, 400, 400, 422), page[400:422, 10:400])
+        self.failed.state, self.failed.attempts = "failed", 3
+        self.told: list = []
+        snip = {"state": {"cb": lambda kind, data: self.told.append((kind, data)), "left": 2, "errors": []}, "idxs": [0]}
+        eng.inflight[7] = E.Inflight(object())
+        eng.inflight[8] = E.Inflight(object(), snip=snip)
+        eng.inflight[9] = E.Inflight(object(), snip=dict(snip, idxs=[1]))       # 同一次截图翻译的第二批
+        eng.service.update(state="error", message="boom", fails=3, until=time.perf_counter() + 60, paused=True)
+
+    def tearDown(self) -> None:
+        E.TranslatorPool = self._real
+
+    def test_other_settings_changed(self) -> None:
+        eng = self.eng
+        new = self.copy.deepcopy(eng.cfg)
+        new.style.border_color = "#FF0000"
+        eng._replace_llm(new)
+        self.assertIs(eng.cfg, new)
+        self.assertIs(eng.pool, self.pool)
+        self.assertFalse(self.pool.closed)
+        self.assertEqual(sorted(eng.inflight), [7, 8, 9], "在途的请求不该丢")
+        self.assertEqual(self.told, [])
+        self.assertEqual(self.sending.state, "translating")
+        self.assertEqual((self.failed.state, self.failed.attempts), ("pending", 0), "失败过的借这次保存再试")
+        svc = eng.service
+        self.assertEqual((svc["state"], svc["fails"], svc["until"], svc["paused"], svc["message"]), ("busy", 0, 0.0, False, ""))
+
+    def test_same_object_edited_in_place(self) -> None:
+        # 界面和引擎拿的是同一份设置时（新手指南直接改它）：照样看得出翻译服务变了
+        eng = self.eng
+        import dataclasses
+        eng.cfg.llm = dataclasses.replace(eng.cfg.llm, model="another-model")
+        eng._replace_llm(eng.cfg)
+        self.assertIsNot(eng.pool, self.pool)
+
+    def test_service_changed(self) -> None:
+        eng = self.eng
+        new = self.copy.deepcopy(eng.cfg)
+        new.llm.model = "another-model"
+        eng._replace_llm(new)
+        self.assertIsNot(eng.pool, self.pool)
+        self.assertEqual(eng.pool.llm.model, "another-model")
+        self.assertEqual(eng._pool_llm, new.llm)
+        self.assertIsNot(eng._pool_llm, new.llm)
+        self.assertEqual(eng.inflight, {})
+        self.assertEqual((self.sending.state, self.failed.state), ("pending", "pending"))
+        self.assertEqual(eng.service["state"], "idle")
+        # 等着结果的截图翻译：只说一次“这次没翻完”，不会一直写着“正在翻译…”
+        self.assertEqual(len(self.told), 1)
+        self.assertEqual(self.told[0][0], "error")
+        for _ in range(50):                      # 旧的那组线程在后台关掉
+            if self.pool.closed:
+                break
+            time.sleep(0.02)
+        self.assertTrue(self.pool.closed)
+        # 改完以后再保存一次、什么都没动：这回不再重建
+        again = eng.pool
+        eng._replace_llm(self.copy.deepcopy(new))
+        self.assertIs(eng.pool, again)
+
+    def test_language_change_tells_the_waiting_screenshot(self) -> None:
+        self.eng._reset_translations()
+        self.assertEqual(self.eng.inflight, {})
+        self.assertEqual([k for k, _d in self.told], ["error"])
+
+
 if __name__ == "__main__":
     unittest.main()

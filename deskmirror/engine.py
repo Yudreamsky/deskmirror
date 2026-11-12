@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import collections
+import copy
 import math
 import zlib
 import json
@@ -227,6 +228,7 @@ class Engine(threading.Thread):
         self.snip_jobs: dict[int, dict] = {}   # 截图的识别任务（编号和引擎自己的分开）：结果交给回调
         self._snip_ids = 1 << 30
         self.pool: TranslatorPool | None = None
+        self._pool_llm = None                  # 现在这组翻译线程是按哪份翻译服务设置建的（留一份副本，之后好比较）
         self.inflight: dict[int, Inflight] = {}
         self._batch_ids = 0
         self.retry_single: set[str] = set()   # 漏译半句的原文：下次单独重译一次
@@ -554,6 +556,7 @@ class Engine(threading.Thread):
             self.mons.append(self._make_mon(i, info))
         self._start_ocr()
         self.pool = TranslatorPool(self.cfg.llm, lambda ev: self.inbox.put(("tr", ev)))
+        self._pool_llm = copy.deepcopy(self.cfg.llm)
         self.wheel_models = load_models(self._wheel_path())
         self._sync_memory()
         if self.cfg.track.wheel_predict:
@@ -3227,19 +3230,44 @@ class Engine(threading.Thread):
         self._mem_thread.start()
 
     def _replace_llm(self, cfg: AppConfig) -> None:
+        """界面保存了设置。翻译服务那几项没动（改的是颜色、快捷键、记忆开关……）时，翻译线程和在途的请求都留着：
+        以前不管改了什么都重建一遍，在途的请求白发、同样的字再发一次。出过错的照旧借这次保存再试一遍。"""
+        same = self.pool is not None and cfg.llm == self._pool_llm
         old = self.pool
         self.cfg = cfg
         self._sync_memory()
-        self.pool = TranslatorPool(cfg.llm, lambda ev: self.inbox.put(("tr", ev)))
-        if old is not None:
-            threading.Thread(target=old.close, daemon=True).start()
-        self.inflight.clear()
-        self.service.update(state="idle", message="", fails=0, until=0.0, paused=False)
+        svc = self.service
+        if same:
+            svc.update(message="", fails=0, until=0.0, paused=False)
+            if svc["state"] == "error":
+                svc["state"] = "busy" if self.inflight else "idle"
+        else:
+            self.pool = TranslatorPool(cfg.llm, lambda ev: self.inbox.put(("tr", ev)))
+            self._pool_llm = copy.deepcopy(cfg.llm)
+            if old is not None:
+                threading.Thread(target=old.close, daemon=True).start()
+            self._drop_inflight()
+            svc.update(state="idle", message="", fails=0, until=0.0, paused=False)
         for b in self.blocks.values():
-            if b.state in ("translating", "failed"):
+            if b.state == "failed" or (b.state == "translating" and not same):
                 b.state = "pending"
                 b.attempts = 0
         self._dirty = True
+
+    def _drop_inflight(self) -> None:
+        """在途的翻译请求全部作废（换了翻译服务、换了译成的语言），回来的结果不要了。截图翻译正等着其中的结果时
+        告诉它这次没翻完——不然截图上会一直写着“正在翻译…”。"""
+        told: set[int] = set()
+        for inf in self.inflight.values():
+            st = inf.snip["state"] if inf.snip is not None else None
+            if st is None or id(st) in told:
+                continue
+            told.add(id(st))
+            try:
+                st["cb"]("error", tr("设置改了，这次没翻完：再翻译一次"))
+            except Exception:  # noqa: BLE001
+                log.exception("截图翻译的回调出错")
+        self.inflight.clear()
 
     def set_languages(self) -> None:
         """用户改了原文语言或译成的语言（配置已经改好）：立即生效。"""
@@ -3266,7 +3294,7 @@ class Engine(threading.Thread):
         self.refs = RefHistory()
         self.overrides.clear()
         self.retry_single.clear()
-        self.inflight.clear()
+        self._drop_inflight()
         dst = self.cfg.target_lang
         for b in self.blocks.values():
             need = textutil.needs_translation(b.text, dst) and not textutil.looks_like_code(b.text)

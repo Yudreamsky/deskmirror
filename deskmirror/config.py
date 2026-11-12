@@ -51,7 +51,8 @@ OLLAMA_CLOUD_URL = "https://ollama.com"   # Ollama 云端：用 ollama.com 的 A
 
 # 常用翻译服务（接入方式、地址、默认模型），只用于设置页、新手指南一键填入；用户可以改成任意服务。名称显示时 tr。
 SERVICE_PRESETS: dict[str, tuple[str, str, str]] = {
-    "DeepSeek": ("openai", "https://api.deepseek.com", "deepseek-chat"),
+    # deepseek-chat 这个旧名字官方已经停用（更新记录写的是 2026-07-24 以后调不通）；deepseek-flash 是实际用着能通的名字
+    "DeepSeek": ("openai", "https://api.deepseek.com", "deepseek-flash"),
     N_("Ollama 云端（API Key）"): ("ollama", OLLAMA_CLOUD_URL, "gemma4:31b"),
     N_("通义千问（阿里云百炼）"): ("openai", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
     N_("硅基流动"): ("openai", "https://api.siliconflow.cn/v1", ""),
@@ -358,6 +359,9 @@ RANGES: dict[str, tuple[float, float]] = {
     "style.plate_opacity": (0.3, 1.0), "track.stable_ms": (100, 3000), "track.ring_px": (60, 2000),
     "scope.near_px": (100, 3000), "llm.gather_ms": (0, 5000), "guard.idle_min": (0, 240),
     "guard.daily_tokens": (0, 2_000_000_000),
+    # 只能在命令行、配置文件里改的几项：填错（0、负数、多打一个零）不会让识别停不下来或者再也不识别
+    "track.dynamic_ms": (100, 10000), "track.subtitle_hold_ms": (0, 30000), "track.display_lead_ms": (0, 100),
+    "llm.temperature": (0.0, 2.0), "llm.num_ctx": (1024, 262144), "vision.num_ctx": (1024, 262144),
 }
 
 

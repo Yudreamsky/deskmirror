@@ -181,12 +181,13 @@ def main() -> int:
         QMessageBox.information(None, tr("桌面魔镜"), tr("魔镜已经在运行了（看看右下角托盘图标）。"))
         return 0
 
-    def make_icon() -> QIcon:
+    def make_icon(color: str = "", hidden: bool = False) -> QIcon:
+        """托盘图标。hidden：魔镜被隐藏时画成灰的——收成球以后再隐藏，屏幕上什么都不剩，得有个地方看得出是藏起来了。"""
         pm = QPixmap(64, 64)
         pm.fill(QColor(0, 0, 0, 0))
         p = QPainter(pm)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setBrush(QColor(cfg.style.border_color))
+        p.setBrush(QColor(148, 152, 160) if hidden else QColor(color or cfg.style.border_color))
         p.setPen(QColor(255, 255, 255))
         p.drawRoundedRect(4, 4, 56, 56, 12, 12)
         f = QFont("Microsoft YaHei UI")
@@ -479,6 +480,7 @@ def main() -> int:
                 self.about.deleteLater()
                 self.about = None
             self._usage_tip = ""                 # 托盘提示、标签上的状态按新语言重写
+            self._tray_look(icon=False)
             snap = self.state.snapshot
             if snap is not None:
                 self._count_engine_usage()
@@ -1066,7 +1068,7 @@ def main() -> int:
                 tout=_short_num(u.tokens_out))
             if tip != self._usage_tip:
                 self._usage_tip = tip
-                self.tray.setToolTip(tip)
+                self._tray_look(icon=False)
             self._update_meter()
 
         def _update_meter(self) -> None:
@@ -1588,9 +1590,17 @@ def main() -> int:
                 f.dock.set_hidden(self.state.hidden)
                 f.setVisible(not self.state.hidden and not f.suspended and not f.dock.docked)
             self._toggle_text()
+            self._tray_look()
             self._glide_sync()
             for o in self.overlays:
                 o.update()
+
+        def _tray_look(self, icon: bool = True) -> None:
+            """托盘图标和提示跟着“隐藏 / 显示”走：隐藏时图标变灰，提示写明点一下就回来（平时提示是当天的用量）。"""
+            hidden = self.state.hidden
+            if icon:
+                self.tray.setIcon(make_icon(self.cfg.style.border_color, hidden))
+            self.tray.setToolTip(tr("桌面魔镜 · 已隐藏，点一下图标显示") if hidden else (self._usage_tip or tr("桌面魔镜")))
 
         def open_settings(self) -> None:
             if self._settings is not None and self._settings.isVisible():
@@ -1926,7 +1936,8 @@ def main() -> int:
                 return {"mirror": list(self.state.mirror), "status": st,
                         "items": len(snap.items) if snap else 0, "pending": len(snap.pending) if snap else 0,
                         "stamp": snap.stamp if snap else 0, "peek": self.state.peek,
-                        "hidden": self.state.hidden, "paused": self.state.paused, "grab": self.frame.grab_mode,
+                        "hidden": self.state.hidden, "tray_tip": self.tray.toolTip(),
+                        "paused": self.state.paused, "grab": self.frame.grab_mode,
                         "shot_mode": self.state.shot_mode, "colorkey": layered.colorkey(),
                         "glide": ({"syncs": self.glide.syncs, "commits": self.glide.commits,
                                    "sync_ms": round(self.glide.sync_ms, 1),

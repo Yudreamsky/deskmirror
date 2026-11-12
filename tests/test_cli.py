@@ -70,6 +70,25 @@ class CliTest(unittest.TestCase):
             self.assertIn(needle, err, args)
         self.assertEqual(config.load().llm.concurrency, 1, "出错时什么都不改")
 
+    def test_command_line_only_settings_have_limits(self) -> None:
+        # 只能在命令行、配置文件里改的几项：0、负数、多打一个零都要拦住（0 毫秒抓拍一次 = 识别停不下来）
+        for args, needle in ((("track.dynamic_ms", "0"), "100 到 10000"), (("track.subtitle_hold_ms", "-1"), "0 到 30000"),
+                             (("track.display_lead_ms", "500"), "0 到 100"), (("llm.temperature", "3"), "0.0 到 2.0"),
+                             (("llm.num_ctx", "0"), "1024 到 262144"), (("vision.num_ctx", "64"), "1024 到 262144")):
+            code, _out, err = self.run_cli("config", "set", *args)
+            self.assertEqual(code, 1, args)
+            self.assertIn(needle, err, args)
+        code, res = self.json_cli("config", "set", "llm.temperature", "0.7", "track.dynamic_ms", "500")
+        self.assertEqual(code, 0, res)
+        saved = config.load()
+        self.assertEqual((saved.llm.temperature, saved.track.dynamic_ms), (0.7, 500))
+        # 配置文件里手写的坏值：载入时收回到范围里
+        bad = config.AppConfig()
+        bad.track.dynamic_ms, bad.track.subtitle_hold_ms, bad.llm.temperature, bad.llm.num_ctx = -5, 10 ** 9, -1.0, 7
+        ok = config.validate(bad)
+        self.assertEqual((ok.track.dynamic_ms, ok.track.subtitle_hold_ms, ok.llm.temperature, ok.llm.num_ctx),
+                         (100, 30000, 0.0, 1024))
+
     def test_unknown_and_read_only_keys(self) -> None:
         code, _out, err = self.run_cli("config", "get", "llm.modle")
         self.assertEqual(code, 1)
@@ -110,7 +129,7 @@ class CliTest(unittest.TestCase):
         code, _out, _err = self.run_cli("service", "deepseek")
         self.assertEqual(code, 0)
         llm = config.load().llm
-        self.assertEqual((llm.protocol, llm.base_url, llm.model), ("openai", "https://api.deepseek.com", "deepseek-chat"))
+        self.assertEqual((llm.protocol, llm.base_url, llm.model), ("openai", "https://api.deepseek.com", "deepseek-flash"))
         self.assertGreaterEqual(llm.concurrency, 2)
         self.json_cli("service", "openai")
         self.assertEqual(config.load().llm.model, "", "没有默认模型的服务：不留着上一家的模型名")

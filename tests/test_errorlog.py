@@ -112,6 +112,24 @@ class HookTest(unittest.TestCase):
         self.assertTrue(faulthandler.is_enabled())
         self.assertTrue((Path(self.tmp.name) / "crash.log").exists())
 
+    def test_records_that_were_not_crashes_are_dropped_at_start(self) -> None:
+        # 系统内部自己接住的异常（0x8001010d）faulthandler 也会记一笔：下次启动时清掉，真正的崩溃记录原样留着
+        stack = ('\nThread 0x00001234 (most recent call first):\n  File "x.py", line 96 in run\n\n'
+                 'Current thread 0x00005678 (most recent call first):\n  File "app.py", line 2488 in main\n')
+        fake, real = "Windows fatal exception: code 0x8001010d\n" + stack, "Windows fatal exception: access violation\n" + stack
+        other = "Fatal Python error: Aborted\n" + stack
+        path = Path(self.tmp.name) / "old" / "crash.log"
+        path.parent.mkdir()
+        path.write_bytes((fake + real + fake + other + fake).encode("utf-8"))
+        self.assertEqual(errorlog.tidy_crash_log(path), 3)
+        self.assertEqual(path.read_bytes(), (real + other).encode("utf-8"))
+        self.assertEqual(errorlog.tidy_crash_log(path), 0)
+        self.assertEqual(path.read_bytes(), (real + other).encode("utf-8"))
+        path.write_bytes(fake.encode("utf-8") * 2)
+        self.assertEqual(errorlog.tidy_crash_log(path), 2)
+        self.assertEqual(path.read_bytes(), b"")
+        self.assertEqual(errorlog.tidy_crash_log(Path(self.tmp.name) / "none" / "crash.log"), 0)
+
 
 class FormatterTest(unittest.TestCase):
     """老代码里的 log.exception（引擎、翻译线程……）也走这个格式。"""
